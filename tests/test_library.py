@@ -9,7 +9,9 @@ def test_example_library_loads_cleanly(library: Library):
     assert library.load_issues == []
     assert {"vna", "cable_medida", "antena", "posicionador"} <= set(library.categories)
     assert "rs_znb43" in library.models
-    assert {"componente_2p", "reflexion_1p", "lisn_impedancia", "sac_nsa", "sac_svswr"} <= set(library.templates)
+    assert {"cable_vna", "componente_2p", "reflexion_1p", "lisn_impedancia", "sac_nsa", "sac_svswr"} <= set(library.templates)
+    assert {"cable_parametros_s", "impedancia_lisn"} <= set(library.procedures)
+    assert library.tests() == []
 
 
 def test_equipment_range_comes_from_model_and_s_parameters(library: Library):
@@ -29,6 +31,9 @@ def test_inherited_template(library: Library):
     assert template.roles["adaptador_p1"].cardinality == "1"  # overridden
     assert "carga_receptor" in template.roles
     assert template.default_range == FrequencyRange(9e3, 30e6)
+    ids = [r.id for r in template.requirements]
+    assert ids[:2] == ["vna_puertos", "vna_osm"] and "carga_50" in ids  # parent requirements + own ones
+    assert template.reference_planes["PR1"]["en"] == ["cable_p1.B"]  # overridden plane
 
 
 def test_broken_files_are_reported(library_copy):

@@ -1,4 +1,10 @@
-"""Hardware setup templates (generic) and configured setups (equipment assigned)."""
+"""Hardware setup templates (generic) and configured setups (equipment assigned).
+
+A template declares *roles* (typed slots filled with equipment), the
+connections between their ports in each state (measurement, calibration…),
+the reference planes, the VNA calibration and the field-based requirements
+(``requisitos``) that the assigned equipment must meet.
+"""
 
 from __future__ import annotations
 
@@ -82,10 +88,55 @@ class ConnectionState(BaseModel):
         return parsed
 
 
+OPERATORS = {
+    "==": "igual a",
+    "!=": "distinto de",
+    ">=": "mayor o igual que",
+    "<=": "menor o igual que",
+    ">": "mayor que",
+    "<": "menor que",
+    "en": "uno de",
+    "no_en": "ninguno de",
+    "contiene": "que contenga",
+    "contiene_alguno": "que contenga alguno de",
+    "existe": "definido",
+    "cubre": "que cubra",
+    "dentro_de": "dentro de",
+}
+RequirementOperator = Literal[
+    "==", "!=", ">=", "<=", ">", "<", "en", "no_en", "contiene", "contiene_alguno", "existe", "cubre", "dentro_de"
+]
+
+
+class Requirement(BaseModel):
+    """Condition on a field of the equipment assigned to a role (see ``setups/requirements.py``)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    id: str | None = None
+    field: str = Field(alias="campo")  # "rol.campo[.atributo]"
+    operator: RequirementOperator = Field(alias="operador")
+    value: Any = Field(default=None, alias="valor")  # literal or "@rol.campo[.atributo]" / "@rango_requerido"
+    severity: Literal["error", "aviso", "info"] = Field(default="error", alias="gravedad")
+    message: str | None = Field(default=None, alias="mensaje")
+
+    @property
+    def role(self) -> str:
+        return self.field.split(".", 1)[0]
+
+    def roles(self) -> list[str]:
+        roles = [self.role]
+        if isinstance(self.value, str) and self.value.startswith("@") and "." in self.value:
+            other = self.value[1:].split(".", 1)[0]
+            if other not in roles:
+                roles.append(other)
+        return roles
+
+
 class SetupTemplate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="allow", arbitrary_types_allowed=True)
 
-    format: str = Field(default="calelektra/plantilla_setup@0.2", alias="formato")
+    format: str = Field(default="calelektra/plantilla_setup@0.3", alias="formato")
     id: str
     name: str = Field(alias="nombre")
     version: str = "0.1"
@@ -98,6 +149,7 @@ class SetupTemplate(BaseModel):
     reference_planes: dict[str, Any] = Field(default_factory=dict, alias="planos_referencia")
     vna_calibration: dict[str, Any] = Field(default_factory=dict, alias="calibracion_vna")
     axes: dict[str, Any] = Field(default_factory=dict, alias="ejes")
+    requirements: list[Requirement] = Field(default_factory=list, alias="requisitos")
 
     _source_path: Path | None = PrivateAttr(default=None)
 
@@ -125,10 +177,13 @@ class SetupTemplate(BaseModel):
                 roles[key] = role
         states = dict(parent.connection_states)
         states.update(self.connection_states)
+        own_ids = {r.id for r in self.requirements if r.id}
+        requirements = [r for r in parent.requirements if not r.id or r.id not in own_ids] + list(self.requirements)
         merged_template = self.model_copy(
             update={
                 "roles": roles,
                 "connection_states": states,
+                "requirements": requirements,
                 "reference_planes": {**parent.reference_planes, **self.reference_planes},
                 "vna_calibration": {**parent.vna_calibration, **self.vna_calibration},
                 "axes": {**parent.axes, **self.axes},
@@ -165,7 +220,7 @@ class ConfiguredSetup(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="allow", arbitrary_types_allowed=True)
 
-    format: str = Field(default="calelektra/setup@0.2", alias="formato")
+    format: str = Field(default="calelektra/setup@0.3", alias="formato")
     id: str
     name: str = Field(alias="nombre")
     template: str = Field(alias="plantilla")

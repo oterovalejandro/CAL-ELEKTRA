@@ -1,5 +1,5 @@
 # Carga 50 Ω N
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: LOAD-N-01
 modelo: carga_n_50
 estado: en_servicio

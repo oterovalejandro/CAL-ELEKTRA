@@ -1,11 +1,21 @@
-formato: calelektra/categoria@0.2
+formato: calelektra/categoria@0.3
 id: lisn
 nombre: LISN / red artificial (AMN)
 clase: pasivo
 rf: true
-puertos: [EUT, RX, RED]
-parametros:
-  rango_frecuencia: { tipo: rango, unidad: Hz }
-  lineas:           { tipo: lista }
-  red_nominal:      { tipo: texto }
-  control:          { valores: [manual, remoto] }
+puertos:
+  - { nombre: EUT, conector: conector_eut }
+  - { nombre: RX, conector: conector_rx }
+  - { nombre: RED }
+campos:
+  rango_frecuencia: { etiqueta: Rango de frecuencia, tipo: rango_frecuencia, nivel: modelo, obligatorio: true, grupo: RF }
+  lineas: { etiqueta: Líneas, tipo: multiopcion, opciones: [L1, L2, L3, N], nivel: modelo, obligatorio: true }
+  red_nominal:
+    etiqueta: Red nominal
+    tipo: opcion
+    opciones: ["50Ω‖(50µH+5Ω)", "50Ω‖50µH", "50Ω‖5µH+1Ω"]
+    nivel: modelo
+    obligatorio: true
+  control: { etiqueta: Selección de línea, tipo: opcion, opciones: [manual, remoto], nivel: modelo, por_defecto: manual }
+  conector_rx: { etiqueta: Conector del puerto receptor, tipo: conector, nivel: modelo, obligatorio: true, grupo: Conectores }
+  conector_eut: { etiqueta: Conexión del terminal EUT, tipo: conector, nivel: modelo, por_defecto: { familia: terminales }, grupo: Conectores }

@@ -1,9 +1,9 @@
-# Cable de puerto N, 1,5 m
-formato: calelektra/equipo@0.2
+# Cable de puerto 2,92 mm–N
+formato: calelektra/equipo@0.3
 id: CAB-PT-N-02
-modelo: cable_medida_n_18g
+modelo: cable_medida_292_n_18g
 estado: en_servicio
 datos_s:
   fichero: ../datos_s/CAB-PT-N-02.s2p
-  referencia: "EJEMPLO — medida interna MI-2026-032 con VNA-BF-01 (datos sintéticos)"
+  referencia: "EJEMPLO — medida interna MI-2026-032 (datos sintéticos)"
   fecha: 2026-06-12

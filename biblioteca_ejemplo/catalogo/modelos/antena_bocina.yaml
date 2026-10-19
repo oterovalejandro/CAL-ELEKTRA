@@ -1,9 +1,10 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: antena_bocina
 categoria: antena
 fabricante: Genérico
 modelo: Bocina de doble cresta 1–18 GHz
-parametros:
+campos:
   rango_frecuencia: [1 GHz, 18 GHz]
   tipo: bocina
   polarizaciones: [H, V]
+  conector: { familia: N, genero: hembra }

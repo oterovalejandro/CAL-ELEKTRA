@@ -1,6 +1,6 @@
 # Kit TOSM N — caduca pronto (aviso)
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: KIT-N-01
 modelo: kit_n_tosm
 estado: en_servicio
-calibracion: { certificado: "EJEMPLO-KITN-2025", fecha: 2025-11-05, proxima: 2026-11-05 }
+calibracion: { certificado: EJEMPLO-KITN-2025, fecha: 2025-11-05, proxima: 2026-11-05 }

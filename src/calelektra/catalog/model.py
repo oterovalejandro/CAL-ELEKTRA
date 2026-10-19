@@ -2,6 +2,10 @@
 
 YAML keys are Spanish (they are the lab-facing data format); Python attribute
 names are English and map to the YAML keys through aliases.
+
+Each category declares its typed fields (``campos``, see ``catalog/fields.py``).
+Models hold the values common to a model; equipment holds its own values and,
+where the field level allows it, overrides the model.
 """
 
 from __future__ import annotations
@@ -10,12 +14,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
-from calelektra.core.frequency import FrequencyRange
-from calelektra.core.units import UnitError
+from calelektra.catalog.fields import FieldSpec, ResolvedField, resolve
 
 FORMAT_PREFIX = "calelektra/"
+FORMAT_VERSION = "0.3"
 
 
 class CatalogItem(BaseModel):
@@ -34,15 +38,27 @@ class CatalogItem(BaseModel):
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
+class PortDef(BaseModel):
+    """A port of the equipment and the field that holds its connector."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(alias="nombre")
+    connector_field: str | None = Field(default=None, alias="conector")
+
+
 class PortTemplate(BaseModel):
+    """Numbered ports, e.g. ``P1 … P{num_puertos}`` of a VNA."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     template: str = Field(alias="plantilla")  # e.g. "P{n}"
-    count_parameter: str = Field(alias="cantidad")  # model parameter holding the count
+    count_field: str = Field(alias="cantidad")  # field holding the number of ports
+    connector_field: str | None = Field(default=None, alias="conector")
 
 
 class Category(CatalogItem):
-    format: str = Field(default="calelektra/categoria@0.2", alias="formato")
+    format: str = Field(default=f"calelektra/categoria@{FORMAT_VERSION}", alias="formato")
     id: str
     name: str = Field(alias="nombre")
     kind: Literal["instrumento", "pasivo", "posicionador", "recinto"] = Field(alias="clase")
@@ -51,14 +67,44 @@ class Category(CatalogItem):
     requires_calibration: bool = Field(default=False, alias="requiere_calibracion")
     requires_s_parameters: bool = Field(default=False, alias="requiere_datos_s")
     s_parameter_ports: int | None = Field(default=None, alias="puertos_datos_s")
-    ports: list[str] | PortTemplate = Field(default_factory=list, alias="puertos")
-    parameters: dict[str, Any] = Field(default_factory=dict, alias="parametros")
-    operations: dict[str, Any] = Field(default_factory=dict, alias="operaciones")
+    ports: list[PortDef] | PortTemplate = Field(default_factory=list, alias="puertos")
+    fields: dict[str, FieldSpec] = Field(default_factory=dict, validation_alias=AliasChoices("campos", "fields"), serialization_alias="campos")
+    operations: Any = Field(default=None, alias="operaciones")
     specifications: dict[str, Any] = Field(default_factory=dict, alias="especificaciones")
+
+    @field_validator("ports", mode="before")
+    @classmethod
+    def _ports(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [{"nombre": item} if isinstance(item, str) else item for item in value]
+        return value
+
+    @property
+    def has_connection(self) -> bool:
+        """Instruments and positioners are remote-controlled (or simulated)."""
+        return self.kind in ("instrumento", "posicionador")
+
+    def port_defs(self, resolved: dict[str, ResolvedField]) -> list[PortDef]:
+        if isinstance(self.ports, PortTemplate):
+            field = resolved.get(self.ports.count_field)
+            count = int(field.value) if field is not None and field.value else 0
+            return [
+                PortDef(name=self.ports.template.format(n=n), connector_field=self.ports.connector_field)
+                for n in range(1, count + 1)
+            ]
+        return list(self.ports)
+
+
+def _values_field() -> Any:
+    return Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("campos", "parametros", "values"),
+        serialization_alias="campos",
+    )
 
 
 class EquipmentModel(CatalogItem):
-    format: str = Field(default="calelektra/modelo@0.2", alias="formato")
+    format: str = Field(default=f"calelektra/modelo@{FORMAT_VERSION}", alias="formato")
     id: str
     category: str = Field(alias="categoria")
     manufacturer: str = Field(alias="fabricante")
@@ -66,7 +112,7 @@ class EquipmentModel(CatalogItem):
     variant: str | None = Field(default=None, alias="variante")
     status: str | None = Field(default=None, alias="estado")
     description: str | None = Field(default=None, alias="descripcion")
-    parameters: dict[str, Any] = Field(default_factory=dict, alias="parametros")
+    values: dict[str, Any] = _values_field()
     communication: dict[str, Any] | None = Field(default=None, alias="comunicacion")
     specifications: list[Any] = Field(default_factory=list, alias="especificaciones")
     documents: list[Any] = Field(default_factory=list, alias="documentos")
@@ -76,15 +122,9 @@ class EquipmentModel(CatalogItem):
         name = f"{self.manufacturer} {self.designation}"
         return f"{name} ({self.variant})" if self.variant else name
 
-    def nominal_range(self) -> FrequencyRange | None:
-        value = self.parameters.get("rango_frecuencia")
-        return FrequencyRange.parse(value) if value is not None else None
-
-    def port_names(self, category: Category) -> list[str]:
-        if isinstance(category.ports, PortTemplate):
-            count = int(self.parameters.get(category.ports.count_parameter, 0))
-            return [category.ports.template.format(n=n) for n in range(1, count + 1)]
-        return list(category.ports)
+    @property
+    def driver(self) -> str | None:
+        return (self.communication or {}).get("driver")
 
 
 class Calibration(BaseModel):
@@ -111,32 +151,38 @@ class ConnectionSettings(BaseModel):
 
     simulated: bool = Field(default=False, alias="simulado")
     resource: str | None = Field(default=None, alias="recurso")
+    timeout_ms: int | None = Field(default=None, alias="timeout_ms")
 
 
 EquipmentStatus = Literal["en_servicio", "fuera_de_servicio", "en_calibracion"]
+STATUS_NAMES = {"en_servicio": "En servicio", "fuera_de_servicio": "Fuera de servicio", "en_calibracion": "En calibración"}
 
 
 class Equipment(CatalogItem):
-    format: str = Field(default="calelektra/equipo@0.2", alias="formato")
+    format: str = Field(default=f"calelektra/equipo@{FORMAT_VERSION}", alias="formato")
     id: str
     model_id: str = Field(alias="modelo")
     serial_number: str | None = Field(default=None, alias="numero_serie")
     status: EquipmentStatus = Field(default="en_servicio", alias="estado")
     description: str | None = Field(default=None, alias="descripcion")
-    parameters: dict[str, Any] = Field(default_factory=dict, alias="parametros")  # overrides the model
+    values: dict[str, Any] = _values_field()  # own values / overrides of the model
     connection: ConnectionSettings | None = Field(default=None, alias="conexion")
     calibration: Calibration | None = Field(default=None, alias="calibracion")
     s_parameters: SParameterData | None = Field(default=None, alias="datos_s")
     location: str | None = Field(default=None, alias="ubicacion")
     notes: str | None = Field(default=None, alias="notas")
 
-    def range_override(self) -> FrequencyRange | None:
-        value = self.parameters.get("rango_frecuencia")
-        return FrequencyRange.parse(value) if value is not None else None
+    @property
+    def simulated(self) -> bool:
+        return bool(self.connection and self.connection.simulated)
+
+
+def resolved_fields(category: Category, model: EquipmentModel, equipment: Equipment | None = None) -> dict[str, ResolvedField]:
+    return resolve(category.fields, model.values, equipment.values if equipment else None)
 
 
 def parse_format(value: Any) -> tuple[str, str] | None:
-    """``"calelektra/equipo@0.2"`` → ``("equipo", "0.2")``."""
+    """``"calelektra/equipo@0.3"`` → ``("equipo", "0.3")``."""
     if not isinstance(value, str) or not value.startswith(FORMAT_PREFIX):
         return None
     kind, _, version = value[len(FORMAT_PREFIX) :].partition("@")
@@ -144,13 +190,16 @@ def parse_format(value: Any) -> tuple[str, str] | None:
 
 
 __all__ = [
+    "STATUS_NAMES",
     "Calibration",
     "Category",
     "ConnectionSettings",
     "Equipment",
     "EquipmentModel",
+    "FieldSpec",
+    "PortDef",
     "PortTemplate",
     "SParameterData",
-    "UnitError",
     "parse_format",
+    "resolved_fields",
 ]

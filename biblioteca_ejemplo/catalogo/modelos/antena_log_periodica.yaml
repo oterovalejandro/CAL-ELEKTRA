@@ -1,9 +1,10 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: antena_log_periodica
 categoria: antena
 fabricante: Genérico
 modelo: Antena log-periódica
-parametros:
+campos:
   rango_frecuencia: [200 MHz, 2 GHz]
   tipo: log_periodica
   polarizaciones: [H, V]
+  conector: { familia: N, genero: hembra }

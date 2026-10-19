@@ -1,9 +1,11 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: cable_coaxial_n
 categoria: cable
 fabricante: Genérico
-modelo: Cable coaxial N(m)–N(m)
-parametros:
+modelo: Cable coaxial N (m) – N (m)
+campos:
   rango_frecuencia: [DC, 18 GHz]
   conector_a: { familia: N, genero: macho }
   conector_b: { familia: N, genero: macho }
+  tipo_cable: RG-142 (ejemplo)
+  atenuacion_db_m_1ghz: 0.45

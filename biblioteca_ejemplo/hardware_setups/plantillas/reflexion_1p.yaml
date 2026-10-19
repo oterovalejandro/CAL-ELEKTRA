@@ -1,14 +1,13 @@
 # Hardware setup genérico: reflexión en 1 puerto con VNA (impedancia, RL, VSWR).
-formato: calelektra/plantilla_setup@0.2
+formato: calelektra/plantilla_setup@0.3
 id: reflexion_1p
 nombre: Reflexión en 1 puerto — VNA
-version: 0.2
+version: "0.3"
 estado: borrador
 roles:
   vna:
     categoria: vna
     etiqueta: VNA
-    puertos_min: 1
   cable_p1:
     categoria: cable_medida
     etiqueta: Cable de medida P1
@@ -24,18 +23,28 @@ roles:
     etiqueta: DUT
     es_dut: true
 planos_referencia:
-  PR1: { en: [adaptador_p1.B, cable_p1.B] }
+  PR1: { en: [adaptador_p1.B, cable_p1.B], puerto_vna: 1 }
 calibracion_vna:
-  metodos: [OSM, autocal]
+  metodos: [OSM]
   kit: kit_cal
+requisitos:
+  - id: vna_puertos
+    campo: vna.num_puertos
+    operador: ">="
+    valor: 1
+  - id: vna_osm
+    campo: vna.metodos_calibracion
+    operador: contiene
+    valor: OSM
+    mensaje: El VNA debe poder calibrar OSM en un puerto
 estados_conexion:
-  medida:
-    conexiones:
-      - [vna.P1, cable_p1.A]
-      - [cable_p1.B, adaptador_p1.A]
-      - [adaptador_p1.B, dut.A]
   calibracion:
     descripcion: Estándares Open / Short / Match en PR1
     conexiones:
       - [vna.P1, cable_p1.A]
       - [cable_p1.B, adaptador_p1.A]
+  medida:
+    conexiones:
+      - [vna.P1, cable_p1.A]
+      - [cable_p1.B, adaptador_p1.A]
+      - [adaptador_p1.B, dut.A]

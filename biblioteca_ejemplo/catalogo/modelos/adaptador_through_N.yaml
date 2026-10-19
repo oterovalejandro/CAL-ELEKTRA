@@ -1,8 +1,10 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: adaptador_through_n
 categoria: adaptador
 fabricante: Genérico
-modelo: Adaptador through N(f)–N(f)
-parametros:
+modelo: Through N (h) – N (h)
+campos:
   rango_frecuencia: [DC, 18 GHz]
   tipo: through
+  conector_a: { familia: N, genero: hembra }
+  conector_b: { familia: N, genero: hembra }

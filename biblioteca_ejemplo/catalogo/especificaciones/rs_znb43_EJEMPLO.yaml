@@ -16,7 +16,7 @@
 #                    rectangular (u = a/√3), normal (u = U/k), en_U (u = a/√2)
 # BORRADOR v0.2 — la incertidumbre se integrará en un paso posterior
 # ─────────────────────────────────────────────────────────────────────────────
-formato: calelektra/especificaciones@0.2
+formato: calelektra/especificaciones@0.3
 estado: EJEMPLO_NO_USAR
 
 aplica_a:

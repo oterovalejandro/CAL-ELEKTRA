@@ -1,38 +1,97 @@
 # Categoría VNA (analizador vectorial de redes).
-# Define qué describe a cualquier VNA: parámetros, puertos, operaciones de alto
-# nivel (las implementa el driver de cada fabricante o el VNA dummy) y el
-# vocabulario de especificaciones/incertidumbre (se usará más adelante).
-formato: calelektra/categoria@0.2
+# Los CAMPOS son lo que el software sabe de cualquier VNA: los hardware setups
+# los usan para comprobar compatibilidad (rango, puertos, conectores…) y los
+# procedimientos los consultan durante la medida (IFBW, potencia, puntos,
+# métodos de calibración…).
+formato: calelektra/categoria@0.3
 id: vna
 nombre: Analizador vectorial de redes (VNA)
 clase: instrumento
 rf: true
 requiere_calibracion: true
-puertos: { plantilla: "P{n}", cantidad: num_puertos }
-parametros:
-  rango_frecuencia:    { tipo: rango, unidad: Hz, obligatorio: true }
-  num_puertos:         { tipo: entero, min: 1, obligatorio: true }
-  conector_puertos:    { tipo: conector }
-  impedancia_ref:      { tipo: numero, unidad: ohm, por_defecto: 50 }
-  potencia_salida_dbm: { tipo: rango }
-  ifbw:                { tipo: rango_con_secuencia, unidad: Hz }
-  puntos_max:          { tipo: entero }
-operaciones:          # contrato de alto nivel (ver src/calelektra/instruments/base.py)
-  identificar:        { devuelve: texto }
-  preset:             {}
-  configurar_barrido: { argumentos: { inicio: Hz, fin: Hz, puntos: entero, tipo: texto } }
-  configurar_ifbw:    { argumentos: { valor: Hz } }
-  configurar_potencia: { argumentos: { valor: dBm } }
-  barrido_unico:      {}
-  leer_frecuencias:   { devuelve: vector_Hz }
-  leer_parametro_s:   { argumentos: { parametro: texto }, devuelve: vector_complejo }
-  estado_calibracion: { devuelve: booleano }
-especificaciones:     # vocabulario (la incertidumbre se integrará en un paso posterior)
-  directividad_efectiva:            { unidad: dB }
-  adaptacion_fuente_efectiva:       { unidad: dB }
-  seguimiento_reflexion_efectivo:   { unidad: dB }
-  adaptacion_carga_efectiva:        { unidad: dB }
+puertos: { plantilla: "P{n}", cantidad: num_puertos, conector: conector_puertos }
+campos:
+  rango_frecuencia:
+    etiqueta: Rango de frecuencia
+    tipo: rango_frecuencia
+    nivel: modelo
+    obligatorio: true
+    grupo: RF
+  num_puertos:
+    etiqueta: Nº de puertos de medida
+    tipo: entero
+    nivel: modelo
+    obligatorio: true
+    minimo: 1
+    grupo: RF
+  conector_puertos:
+    etiqueta: Conector de los puertos de medida
+    tipo: conector
+    nivel: ambos
+    obligatorio: true
+    grupo: RF
+    descripcion: >
+      Conector en el plano de los puertos. Si la unidad tiene cables de puerto o
+      adaptadores montados de forma permanente, indique en el equipo el conector
+      de su extremo.
+  impedancia_ref_ohm:
+    etiqueta: Impedancia de referencia
+    tipo: numero
+    unidad: Ω
+    nivel: modelo
+    por_defecto: 50
+    grupo: RF
+  potencia_salida_dbm:
+    etiqueta: Rango de potencia de salida
+    tipo: rango_numero
+    unidad: dBm
+    nivel: modelo
+    obligatorio: true
+    grupo: Fuente
+  ifbw:
+    etiqueta: Rango de IFBW
+    tipo: rango_frecuencia
+    nivel: modelo
+    obligatorio: true
+    grupo: Receptor
+  puntos_max:
+    etiqueta: Nº máximo de puntos por barrido
+    tipo: entero
+    nivel: modelo
+    obligatorio: true
+    minimo: 2
+    grupo: Receptor
+  metodos_calibracion:
+    etiqueta: Métodos de calibración disponibles
+    tipo: multiopcion
+    opciones: [OSM, TOSM, UOSM, TRL, TNA, autocal, normalizacion]
+    nivel: modelo
+    obligatorio: true
+    grupo: Calibración
+  opciones_instaladas:
+    etiqueta: Opciones instaladas
+    tipo: lista
+    nivel: ambos
+    grupo: Equipo
+operaciones:   # contrato de alto nivel (src/calelektra/instruments/base.py)
+  - identificar
+  - preset
+  - configurar_barrido
+  - configurar_ifbw
+  - configurar_potencia
+  - configurar_promedios
+  - iniciar_calibracion
+  - adquirir_estandar
+  - aplicar_calibracion
+  - estado_calibracion
+  - barrido_unico
+  - leer_frecuencias
+  - leer_parametros_s
+especificaciones:   # vocabulario (la incertidumbre se integrará más adelante)
+  directividad_efectiva: { unidad: dB }
+  adaptacion_fuente_efectiva: { unidad: dB }
+  seguimiento_reflexion_efectivo: { unidad: dB }
+  adaptacion_carga_efectiva: { unidad: dB }
   seguimiento_transmision_efectivo: { unidad: dB }
-  ruido_traza_magnitud:             { unidad: dB }
-  rango_dinamico:                   { unidad: dB }
-  linealidad_receptor:              { unidad: dB }
+  ruido_traza_magnitud: { unidad: dB }
+  rango_dinamico: { unidad: dB }

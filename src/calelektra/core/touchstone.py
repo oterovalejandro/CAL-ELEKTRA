@@ -150,17 +150,34 @@ def read_touchstone(path: str | Path) -> Touchstone:
     )
 
 
-def write_touchstone(path: str | Path, data: Touchstone) -> None:
-    """Write Touchstone 1.1 in Hz / RI format (2-port order 11 21 12 22)."""
+def _format_pair(value: complex, data_format: str) -> str:
+    if data_format == "RI":
+        return f"{value.real:.9g} {value.imag:.9g}"
+    angle = np.degrees(np.angle(value))
+    if data_format == "MA":
+        return f"{abs(value):.9g} {angle:.6f}"
+    with np.errstate(divide="ignore"):
+        magnitude_db = 20 * np.log10(abs(value)) if value != 0 else -400.0
+    return f"{magnitude_db:.6f} {angle:.6f}"
+
+
+def write_touchstone(path: str | Path, data: Touchstone, data_format: str = "RI", unit: str = "HZ") -> None:
+    """Write Touchstone 1.1 (2-port order 11 21 12 22) in RI, MA or DB with the given frequency unit."""
     path = Path(path)
+    data_format, unit = data_format.upper(), unit.upper()
+    if data_format not in ("RI", "MA", "DB"):
+        raise TouchstoneError(f"Formato Touchstone no válido: {data_format}")
+    if unit not in _FREQ_UNITS:
+        raise TouchstoneError(f"Unidad de frecuencia no válida: {unit}")
+    factor = _FREQ_UNITS[unit]
     lines = [f"! {comment}" for comment in data.comments]
-    lines.append(f"# HZ S RI R {data.reference_impedance:g}")
+    lines.append(f"# {unit} S {data_format} R {data.reference_impedance:g}")
     for k, freq in enumerate(data.frequencies):
         matrix = data.s[k]
         if data.n_ports == 2:
             ordered = [matrix[0, 0], matrix[1, 0], matrix[0, 1], matrix[1, 1]]
         else:
             ordered = list(matrix.reshape(-1))
-        numbers = " ".join(f"{value.real:.9g} {value.imag:.9g}" for value in ordered)
-        lines.append(f"{freq:.10g} {numbers}")
+        numbers = " ".join(_format_pair(complex(value), data_format) for value in ordered)
+        lines.append(f"{freq / factor:.12g} {numbers}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

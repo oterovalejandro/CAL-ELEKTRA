@@ -1,10 +1,12 @@
-formato: calelektra/categoria@0.2
+formato: calelektra/categoria@0.3
 id: recinto
 nombre: Recinto de ensayo (cámara)
 clase: recinto
 rf: false
 puertos: []
-parametros:
-  tipo:              { valores: [SAC, FAR, OATS] }
-  distancia_medida_m: { tipo: numero }
-  volumen_ensayo:    { tipo: mapa }
+campos:
+  tipo: { etiqueta: Tipo de recinto, tipo: opcion, opciones: [SAC, FAR, OATS], nivel: modelo, obligatorio: true }
+  distancia_medida_m: { etiqueta: Distancia de medida, tipo: numero, unidad: m, nivel: ambos, obligatorio: true }
+  volumen_diametro_m: { etiqueta: Diámetro del volumen de ensayo, tipo: numero, unidad: m, nivel: ambos }
+  volumen_altura_m: { etiqueta: Altura del volumen de ensayo, tipo: numero, unidad: m, nivel: ambos }
+  mesa_giratoria: { etiqueta: Mesa giratoria, tipo: booleano, nivel: ambos, por_defecto: true }

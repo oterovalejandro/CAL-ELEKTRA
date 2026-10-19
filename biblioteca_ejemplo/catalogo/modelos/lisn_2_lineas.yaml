@@ -1,10 +1,11 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: lisn_2_lineas
 categoria: lisn
 fabricante: Genérico
 modelo: LISN V-AMN de 2 líneas
-parametros:
+campos:
   rango_frecuencia: [9 kHz, 30 MHz]
   lineas: [L1, N]
-  red_nominal: "50 Ω ‖ (50 µH + 5 Ω)"
+  red_nominal: "50Ω‖(50µH+5Ω)"
   control: remoto
+  conector_rx: { familia: N, genero: hembra }

@@ -1,10 +1,15 @@
-formato: calelektra/categoria@0.2
+formato: calelektra/categoria@0.3
 id: preamplificador
 nombre: Preamplificador
 clase: pasivo
 rf: true
 requiere_datos_s: true
 puertos_datos_s: 2
-puertos: [IN, OUT]
-parametros:
-  rango_frecuencia: { tipo: rango, unidad: Hz }
+puertos:
+  - { nombre: IN, conector: conector_in }
+  - { nombre: OUT, conector: conector_out }
+campos:
+  rango_frecuencia: { etiqueta: Rango de frecuencia, tipo: rango_frecuencia, nivel: modelo, obligatorio: true, grupo: RF }
+  ganancia_db: { etiqueta: Ganancia nominal, tipo: numero, unidad: dB, nivel: modelo }
+  conector_in: { etiqueta: Conector de entrada, tipo: conector, nivel: modelo, obligatorio: true, grupo: Conectores }
+  conector_out: { etiqueta: Conector de salida, tipo: conector, nivel: modelo, obligatorio: true, grupo: Conectores }

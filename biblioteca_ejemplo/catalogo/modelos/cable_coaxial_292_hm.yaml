@@ -1,0 +1,11 @@
+formato: calelektra/modelo@0.3
+id: cable_coaxial_292_hm
+categoria: cable
+fabricante: Genérico
+modelo: Cable coaxial 2,92 mm (h) – 2,92 mm (m), 40 GHz (insertable)
+campos:
+  rango_frecuencia: [DC, 40 GHz]
+  conector_a: { familia: 2.92 mm, genero: hembra }
+  conector_b: { familia: 2.92 mm, genero: macho }
+  tipo_cable: flexible (ejemplo)
+  atenuacion_db_m_1ghz: 0.7

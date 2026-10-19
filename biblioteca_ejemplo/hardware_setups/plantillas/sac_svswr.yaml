@@ -1,9 +1,9 @@
 # Cámara semianecoica — S_VSWR, CISPR 16-1-4 método estándar de 6 posiciones,
 # con VNA. Las posiciones y alturas las fija la ejecución, no el setup.
-formato: calelektra/plantilla_setup@0.2
+formato: calelektra/plantilla_setup@0.3
 id: sac_svswr
 nombre: SAC — S_VSWR (6 posiciones) — VNA
-version: 0.2
+version: "0.3"
 estado: borrador
 rango_medida: [1 GHz, 18 GHz]
 roles:
@@ -14,7 +14,6 @@ roles:
   vna:
     categoria: vna
     etiqueta: VNA
-    puertos_min: 2
   path_tx:
     categoria: [path, cable_medida]
     etiqueta: Path TX
@@ -50,6 +49,21 @@ ejes:
   posicion:          { actuador: manual }
 calibracion_vna:
   metodos: [ninguna_obligatoria]
+requisitos:
+  - id: vna_puertos
+    campo: vna.num_puertos
+    operador: ">="
+    valor: 2
+  - id: recinto_tipo
+    campo: recinto.tipo
+    operador: en
+    valor: [SAC, FAR]
+    mensaje: El S_VSWR se aplica a SAC o FAR por encima de 1 GHz
+  - id: antena_rx_polarizacion
+    campo: antena_rx.polarizaciones
+    operador: contiene
+    valor: [H, V]
+    mensaje: El S_VSWR se mide en las dos polarizaciones
 estados_conexion:
   medida:
     conexiones:

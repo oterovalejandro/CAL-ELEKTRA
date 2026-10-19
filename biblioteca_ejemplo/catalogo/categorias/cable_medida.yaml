@@ -1,16 +1,18 @@
-# Cable de medida (cable de puerto del VNA, cables de setup…).
-# A efectos del hardware setup un cable ES su fichero S2P calibrado: su rango
-# de frecuencia útil sale de los datos S, que llevan una referencia editable.
-formato: calelektra/categoria@0.2
+# Cable de medida (cable de puerto, cable de setup). A efectos del hardware
+# setup un cable ES su fichero S2P calibrado, con su referencia.
+formato: calelektra/categoria@0.3
 id: cable_medida
 nombre: Cable de medida
 clase: pasivo
 rf: true
 requiere_datos_s: true
 puertos_datos_s: 2
-puertos: [A, B]
-parametros:
-  rango_frecuencia: { tipo: rango, unidad: Hz }
-  conector_a:       { tipo: conector }
-  conector_b:       { tipo: conector }
-  longitud_m:       { tipo: numero }
+puertos:
+  - { nombre: A, conector: conector_a }
+  - { nombre: B, conector: conector_b }
+campos:
+  rango_frecuencia: { etiqueta: Rango de frecuencia nominal, tipo: rango_frecuencia, nivel: modelo, obligatorio: true, grupo: RF }
+  conector_a: { etiqueta: Conector extremo A, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
+  conector_b: { etiqueta: Conector extremo B, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
+  longitud_m: { etiqueta: Longitud, tipo: numero, unidad: m, nivel: ambos, grupo: Mecánica }
+  estable_en_fase: { etiqueta: Estable en fase, tipo: booleano, nivel: modelo, por_defecto: true, grupo: Mecánica }

@@ -1,6 +1,6 @@
 # Antena omnidireccional S_VSWR
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: OMNI-01
 modelo: antena_omni_svswr
 estado: en_servicio
-calibracion: { certificado: "EJEMPLO-OMNI01", fecha: 2026-02-15, proxima: 2028-02-15 }
+calibracion: { certificado: EJEMPLO-OMNI01, fecha: 2026-02-15, proxima: 2028-02-15 }

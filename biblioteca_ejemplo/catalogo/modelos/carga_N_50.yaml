@@ -1,8 +1,9 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: carga_n_50
 categoria: carga
 fabricante: Genérico
-modelo: Carga N 50 Ω
-parametros:
+modelo: Carga N (m) 50 Ω
+campos:
   rango_frecuencia: [DC, 18 GHz]
   tipo: carga_50
+  conector: { familia: N, genero: macho }

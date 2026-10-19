@@ -1,9 +1,10 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: antena_biconica
 categoria: antena
 fabricante: Genérico
 modelo: Antena bicónica
-parametros:
+campos:
   rango_frecuencia: [30 MHz, 300 MHz]
   tipo: biconica
   polarizaciones: [H, V]
+  conector: { familia: N, genero: hembra }

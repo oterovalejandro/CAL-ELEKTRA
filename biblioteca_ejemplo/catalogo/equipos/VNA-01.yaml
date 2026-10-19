@@ -1,11 +1,11 @@
 # VNA principal (ZNB43, 2 puertos)
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: VNA-01
 modelo: rs_znb43
 estado: en_servicio
-numero_serie: "PENDIENTE"
+numero_serie: PENDIENTE
 conexion:
-  simulado: true            # usa el VNA dummy hasta integrar el driver real
+  simulado: true            # usa el VNA dummy hasta conectar el ZNB43 real
   recurso: "TCPIP::192.168.0.50::hislip0::INSTR"
-calibracion: { certificado: "EJEMPLO-VNA-2026", laboratorio: "Fabricante", fecha: 2026-02-10, proxima: 2027-02-10 }
+calibracion: { certificado: EJEMPLO-VNA-2026, laboratorio: Fabricante, fecha: 2026-02-10, proxima: 2027-02-10 }
 ubicacion: Sala de control

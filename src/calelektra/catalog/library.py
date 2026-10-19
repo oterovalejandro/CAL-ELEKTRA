@@ -1,14 +1,16 @@
-"""File-based library: the catalogue and the hardware setups stored as YAML.
+"""File-based library: the catalogue, hardware setups, procedures and test records.
 
 Folder layout under the library root::
 
-    catalogo/categorias/*.yaml        categories
-    catalogo/modelos/*.yaml           equipment models
-    catalogo/equipos/*.yaml           physical equipment (inventory)
-    catalogo/especificaciones/*.yaml  specification / uncertainty files (stored, not processed yet)
-    catalogo/datos_s/*.sNp            S-parameter files referenced by equipment
-    hardware_setups/plantillas/*.yaml generic hardware setup templates
+    catalogo/categorias/*.yaml          categories (typed fields, ports)
+    catalogo/modelos/*.yaml             equipment models
+    catalogo/equipos/*.yaml             physical equipment (inventory)
+    catalogo/especificaciones/*.yaml    specification / uncertainty files (stored, not processed yet)
+    catalogo/datos_s/*.sNp              S-parameter files referenced by equipment
+    hardware_setups/plantillas/*.yaml   generic hardware setup templates
     hardware_setups/configurados/*.yaml configured setups
+    procedimientos/*.yaml               measurement procedure templates
+    ensayos/<id>/ensayo.yaml            executed tests (calibrations) with their result files
 """
 
 from __future__ import annotations
@@ -21,11 +23,15 @@ from typing import Any, Callable, TypeVar
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from calelektra.catalog.model import Category, Equipment, EquipmentModel, parse_format
+from calelektra.catalog.fields import ResolvedField, missing_required, validate_values
+from calelektra.catalog.model import Category, Equipment, EquipmentModel, PortDef, parse_format, resolved_fields
+from calelektra.core.connectors import Connector
 from calelektra.core.frequency import FrequencyRange, intersect_all
 from calelektra.core.issues import Issue, Severity
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError
+from calelektra.procedures.model import ProcedureTemplate
+from calelektra.procedures.record import RECORD_FILE, TestRecord
 from calelektra.setups.model import ConfiguredSetup, SetupTemplate
 
 FOLDERS = {
@@ -35,8 +41,10 @@ FOLDERS = {
     "especificaciones": Path("catalogo/especificaciones"),
     "plantilla_setup": Path("hardware_setups/plantillas"),
     "setup": Path("hardware_setups/configurados"),
+    "procedimiento": Path("procedimientos"),
 }
 S_PARAMETER_FOLDER = Path("catalogo/datos_s")
+TESTS_FOLDER = Path("ensayos")
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -54,7 +62,7 @@ class LibraryError(ValueError):
     pass
 
 
-def _validation_message(exc: ValidationError) -> str:
+def validation_message(exc: ValidationError) -> str:
     parts = []
     for error in exc.errors():
         location = ".".join(str(item) for item in error["loc"])
@@ -78,6 +86,7 @@ class Library:
         self.equipment: dict[str, Equipment] = {}
         self.templates: dict[str, SetupTemplate] = {}
         self.setups: dict[str, ConfiguredSetup] = {}
+        self.procedures: dict[str, ProcedureTemplate] = {}
         self.specification_files: list[Path] = []
         self.load_issues: list[Issue] = []
         self._touchstone_cache: dict[Path, tuple[float, Touchstone]] = {}
@@ -99,6 +108,7 @@ class Library:
         self.equipment = self._load_kind("equipo", Equipment)
         self.templates = self._load_kind("plantilla_setup", SetupTemplate)
         self.setups = self._load_kind("setup", ConfiguredSetup)
+        self.procedures = self._load_kind("procedimiento", ProcedureTemplate)
         self.specification_files = sorted((self.root / FOLDERS["especificaciones"]).glob("*.yaml"))
         self._cross_check()
 
@@ -129,7 +139,7 @@ class Library:
             try:
                 item = cls.model_validate(data)
             except (ValidationError, UnitError, ValueError) as exc:
-                detail = _validation_message(exc) if isinstance(exc, ValidationError) else str(exc)
+                detail = validation_message(exc) if isinstance(exc, ValidationError) else str(exc)
                 self._issue(Severity.ERROR, "yaml.invalido", f"{path.name}: {detail}", path)
                 continue
             item.set_source_path(path)  # type: ignore[attr-defined]
@@ -142,19 +152,24 @@ class Library:
 
     def _cross_check(self) -> None:
         for model in self.models.values():
-            if model.category not in self.categories:
+            category = self.categories.get(model.category)
+            if category is None:
                 self._issue(
                     Severity.ERROR,
                     "modelo.categoria",
                     f"Modelo «{model.id}»: la categoría «{model.category}» no existe",
                     model.source_path,
                 )
-            try:
-                model.nominal_range()
-            except (UnitError, ValueError) as exc:
-                self._issue(Severity.ERROR, "modelo.rango", f"Modelo «{model.id}»: {exc}", model.source_path)
+                continue
+            owner = f"Modelo «{model.id}»"
+            self.load_issues.extend(
+                validate_values(category.fields, model.values, "modelo", owner, str(model.source_path))
+            )
+            resolved = resolved_fields(category, model)
+            self.load_issues.extend(missing_required(category.fields, resolved, owner, ("modelo",)))
         for eq in self.equipment.values():
-            if eq.model_id not in self.models:
+            model = self.models.get(eq.model_id)
+            if model is None:
                 self._issue(
                     Severity.ERROR,
                     "equipo.modelo",
@@ -162,6 +177,13 @@ class Library:
                     eq.source_path,
                     equipment_id=eq.id,
                 )
+                continue
+            category = self.categories.get(model.category)
+            if category is not None:
+                owner = f"Equipo «{eq.id}»"
+                self.load_issues.extend(validate_values(category.fields, eq.values, "equipo", owner, str(eq.source_path)))
+                resolved = resolved_fields(category, model, eq)
+                self.load_issues.extend(missing_required(category.fields, resolved, owner, ("equipo", "ambos")))
             if eq.s_parameters is not None and not self.s_parameter_path(eq).is_file():
                 self._issue(
                     Severity.ERROR,
@@ -188,6 +210,14 @@ class Library:
                         f"Plantilla «{template_id}»: el rol «{key}» no tiene categoría",
                         self.templates[template_id].source_path,
                     )
+                for category_id in role.categories:
+                    if category_id not in self.categories:
+                        self._issue(
+                            Severity.ERROR,
+                            "plantilla.categoria",
+                            f"Plantilla «{template_id}», rol «{key}»: la categoría «{category_id}» no existe",
+                            self.templates[template_id].source_path,
+                        )
         for setup in self.setups.values():
             if setup.template not in self.templates:
                 self._issue(
@@ -196,6 +226,15 @@ class Library:
                     f"Setup «{setup.id}»: la plantilla «{setup.template}» no existe",
                     setup.source_path,
                 )
+        for procedure in self.procedures.values():
+            for template_id in procedure.compatible_templates:
+                if template_id not in self.templates:
+                    self._issue(
+                        Severity.WARNING,
+                        "procedimiento.plantilla",
+                        f"Procedimiento «{procedure.id}»: la plantilla compatible «{template_id}» no existe",
+                        procedure.source_path,
+                    )
 
     # ── queries ────────────────────────────────────────────────────────────
     def model_of(self, equipment: Equipment) -> EquipmentModel | None:
@@ -212,6 +251,29 @@ class Library:
     def equipment_in_categories(self, categories: list[str]) -> list[Equipment]:
         return [eq for eq in self.equipment.values() if self.category_id_of(eq) in categories]
 
+    def fields_of(self, equipment: Equipment) -> dict[str, ResolvedField]:
+        """Effective field values of an equipment (equipment → model → default)."""
+        model = self.model_of(equipment)
+        category = self.category_of(equipment)
+        if model is None or category is None:
+            return {}
+        return resolved_fields(category, model, equipment)
+
+    def field(self, equipment: Equipment, key: str, default: Any = None) -> Any:
+        resolved = self.fields_of(equipment).get(key)
+        return resolved.value if resolved is not None and resolved.value is not None else default
+
+    def ports_of(self, equipment: Equipment) -> list[PortDef]:
+        category = self.category_of(equipment)
+        return category.port_defs(self.fields_of(equipment)) if category else []
+
+    def port_connector(self, equipment: Equipment, port: str) -> Connector | None:
+        for definition in self.ports_of(equipment):
+            if definition.name == port and definition.connector_field:
+                value = self.field(equipment, definition.connector_field)
+                return value if isinstance(value, Connector) else None
+        return None
+
     def resolved_template(self, template_id: str) -> SetupTemplate | None:
         template = self.templates.get(template_id)
         if template is None:
@@ -226,6 +288,20 @@ class Library:
         for child in reversed(chain[:-1]):
             resolved = child.merged_over(resolved)
         return resolved
+
+    def references_to(self, equipment_id: str) -> list[str]:
+        """Configured setups that use an equipment."""
+        users = []
+        for setup in self.setups.values():
+            ids = set()
+            for value in setup.assignments.values():
+                ids.update([value] if isinstance(value, str) else list(value or []))
+            for segment in setup.segments:
+                for value in segment.assignments.values():
+                    ids.update([value] if isinstance(value, str) else list(value or []))
+            if equipment_id in ids:
+                users.append(setup.id)
+        return users
 
     # ── S-parameters and frequency ranges ──────────────────────────────────
     def s_parameter_path(self, equipment: Equipment) -> Path:
@@ -253,25 +329,28 @@ class Library:
         return data
 
     def frequency_range_of(self, equipment: Equipment) -> EquipmentRange:
-        """Intersection of the model's nominal range, the unit's override and its S-parameter data."""
+        """Usable range: intersection of the model's range, the unit's own range and its S-parameter data."""
         result = EquipmentRange(range=None)
         ranges: list[FrequencyRange] = []
         model = self.model_of(equipment)
-        try:
-            nominal = model.nominal_range() if model else None
-        except (UnitError, ValueError):
-            nominal = None
-        if nominal is not None:
-            ranges.append(nominal)
-            result.sources.append(f"Modelo {model.display_name}: {nominal}")
-        try:
-            override = equipment.range_override()
-        except (UnitError, ValueError) as exc:
-            override = None
-            result.issues.append(Issue(Severity.ERROR, "equipo.rango", f"«{equipment.id}»: {exc}", equipment_id=equipment.id))
-        if override is not None:
-            ranges.append(override)
-            result.sources.append(f"Equipo {equipment.id}: {override}")
+        category = self.category_of(equipment)
+        spec = category.fields.get("rango_frecuencia") if category else None
+        for owner, values, label in (
+            ("modelo", model.values if model else {}, f"Modelo {model.display_name}" if model else ""),
+            ("equipo", equipment.values, f"Equipo {equipment.id}"),
+        ):
+            raw = values.get("rango_frecuencia")
+            if raw is None or (spec is not None and not spec.allowed_in(owner)):
+                continue
+            try:
+                value = FrequencyRange.parse(raw)
+            except (UnitError, ValueError) as exc:
+                result.issues.append(
+                    Issue(Severity.ERROR, "equipo.rango", f"«{equipment.id}»: {exc}", equipment_id=equipment.id)
+                )
+                continue
+            ranges.append(value)
+            result.sources.append(f"{label}: {value}")
         if equipment.s_parameters is not None:
             try:
                 data = self.touchstone_of(equipment)
@@ -298,7 +377,7 @@ class Library:
                 )
         return result
 
-    # ── saving and importing ───────────────────────────────────────────────
+    # ── saving, deleting and importing ─────────────────────────────────────
     def _target_path(self, kind: str, item_id: str, current: Path | None) -> Path:
         return current or (self.root / FOLDERS[kind] / f"{item_id}.yaml")
 
@@ -309,12 +388,34 @@ class Library:
         self.equipment[equipment.id] = equipment
         return path
 
+    def save_model(self, model: EquipmentModel) -> Path:
+        path = self._target_path("modelo", model.id, model.source_path)
+        dump_yaml(model.to_yaml_dict(), path, header="Modelo de equipo — editado con CAL-ELEKTRA")
+        model.set_source_path(path)
+        self.models[model.id] = model
+        return path
+
     def save_setup(self, setup: ConfiguredSetup) -> Path:
         path = self._target_path("setup", setup.id, setup.source_path)
         dump_yaml(setup.to_yaml_dict(), path, header="Hardware setup configurado — editado con CAL-ELEKTRA")
         setup.set_source_path(path)
         self.setups[setup.id] = setup
         return path
+
+    def save_procedure(self, procedure: ProcedureTemplate) -> Path:
+        path = self._target_path("procedimiento", procedure.id, procedure.source_path)
+        dump_yaml(procedure.to_yaml_dict(), path, header="Procedimiento de medida — editado con CAL-ELEKTRA")
+        procedure.set_source_path(path)
+        self.procedures[procedure.id] = procedure
+        return path
+
+    def delete_equipment(self, equipment_id: str) -> None:
+        users = self.references_to(equipment_id)
+        if users:
+            raise LibraryError(f"«{equipment_id}» se usa en: {', '.join(users)}. Quítelo de esos setups antes de borrarlo.")
+        equipment = self.equipment.pop(equipment_id)
+        if equipment.source_path and equipment.source_path.exists():
+            equipment.source_path.unlink()
 
     def copy_s_parameter_file(self, source: Path) -> str:
         """Copy an sNp file into the library and return its path relative to the equipment folder."""
@@ -326,7 +427,7 @@ class Library:
         return str(Path("..") / "datos_s" / source.name)
 
     def import_yaml(self, source: Path) -> tuple[str, Path]:
-        """Copy a catalogue/setup YAML into its folder (detected from ``formato``) and reload."""
+        """Copy a catalogue/setup/procedure YAML into its folder (detected from ``formato``) and reload."""
         data = yaml.safe_load(Path(source).read_text(encoding="utf-8"))
         fmt = parse_format(data.get("formato") if isinstance(data, dict) else None)
         if fmt is None or fmt[0] not in FOLDERS:
@@ -338,15 +439,38 @@ class Library:
             "equipo": Equipment.model_validate,
             "plantilla_setup": SetupTemplate.model_validate,
             "setup": ConfiguredSetup.model_validate,
+            "procedimiento": ProcedureTemplate.model_validate,
         }
         if kind in validators:
             try:
                 validators[kind](data)
             except ValidationError as exc:
-                raise LibraryError(f"{Path(source).name}: {_validation_message(exc)}") from exc
+                raise LibraryError(f"{Path(source).name}: {validation_message(exc)}") from exc
         target = self.root / FOLDERS[kind] / Path(source).name
         target.parent.mkdir(parents=True, exist_ok=True)
         if Path(source).resolve() != target.resolve():
             shutil.copy2(source, target)
         self.reload()
         return kind, target
+
+    @property
+    def tests_folder(self) -> Path:
+        return self.root / TESTS_FOLDER
+
+    def tests(self) -> list[TestRecord]:
+        """Executed tests (``ensayos/<id>/ensayo.yaml``), most recent first; unreadable ones are skipped."""
+        records = []
+        for path in sorted(self.tests_folder.glob(f"*/{RECORD_FILE}")):
+            try:
+                record = TestRecord.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+            except (OSError, yaml.YAMLError, ValidationError, TypeError):
+                continue
+            record.set_folder(path.parent)
+            records.append(record)
+        return sorted(records, key=lambda r: r.started, reverse=True)
+
+    def delete_test(self, test_id: str) -> None:
+        folder = self.tests_folder / test_id
+        if not (folder / RECORD_FILE).is_file():
+            raise LibraryError(f"No existe el ensayo «{test_id}»")
+        shutil.rmtree(folder)

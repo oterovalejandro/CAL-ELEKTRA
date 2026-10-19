@@ -1,6 +1,6 @@
 # Log-periódica receptora
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: LPDA-02
 modelo: antena_log_periodica
 estado: en_servicio
-calibracion: { certificado: "EJEMPLO-LPDA02", fecha: 2026-01-22, proxima: 2028-01-22 }
+calibracion: { certificado: EJEMPLO-LPDA02, fecha: 2026-01-22, proxima: 2028-01-22 }

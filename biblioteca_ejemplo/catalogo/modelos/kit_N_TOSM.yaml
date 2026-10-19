@@ -1,9 +1,11 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: kit_n_tosm
 categoria: kit_calibracion
 fabricante: Genérico
 modelo: Kit de calibración N 50 Ω (TOSM)
-parametros:
+campos:
   rango_frecuencia: [DC, 18 GHz]
-  conector: { familia: N }
+  familia_conector: N
+  generos_disponibles: [macho, hembra]
   metodos: [OSM, TOSM, UOSM]
+  nombre_kit_vna: N 50 Ohm Ideal Kit        # A CONFIRMAR: nombre del kit en vuestro VNA

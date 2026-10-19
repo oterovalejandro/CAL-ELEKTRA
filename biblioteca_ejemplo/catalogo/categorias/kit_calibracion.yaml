@@ -1,11 +1,25 @@
-formato: calelektra/categoria@0.2
+formato: calelektra/categoria@0.3
 id: kit_calibracion
-nombre: Kit / unidad de calibración del VNA
+nombre: Kit de calibración del VNA
 clase: pasivo
 rf: true
 requiere_calibracion: true
 puertos: []
-parametros:
-  rango_frecuencia: { tipo: rango, unidad: Hz }
-  conector:         { tipo: conector }
-  metodos:          { tipo: lista, valores: [OSM, TOSM, UOSM, TRL, autocal] }
+campos:
+  rango_frecuencia: { etiqueta: Rango de frecuencia, tipo: rango_frecuencia, nivel: modelo, obligatorio: true, grupo: RF }
+  familia_conector: { etiqueta: Familia de conector, tipo: familia_conector, nivel: modelo, obligatorio: true, grupo: RF }
+  generos_disponibles:
+    etiqueta: Géneros de los estándares
+    tipo: multiopcion
+    opciones: [macho, hembra]
+    nivel: modelo
+    por_defecto: [macho, hembra]
+    grupo: RF
+  metodos: { etiqueta: Métodos admitidos, tipo: multiopcion, opciones: [OSM, TOSM, UOSM, TRL], nivel: modelo, obligatorio: true, grupo: Calibración }
+  nombre_kit_vna:
+    etiqueta: Nombre del kit en el VNA
+    tipo: texto
+    nivel: ambos
+    obligatorio: true
+    grupo: Calibración
+    descripcion: Nombre con el que está definido el kit en el VNA (lo usa la calibración guiada).

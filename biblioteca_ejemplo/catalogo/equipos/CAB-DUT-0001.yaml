@@ -1,7 +1,9 @@
-# DUT de ejemplo
-formato: calelektra/equipo@0.2
+# DUT de ejemplo (N m–m)
+formato: calelektra/equipo@0.3
 id: CAB-DUT-0001
 modelo: cable_coaxial_n
 estado: en_servicio
-numero_serie: "CLIENTE-1234"
+numero_serie: CLIENTE-1234
 descripcion: Cable de cliente a calibrar
+campos:
+  longitud_m: 2.0

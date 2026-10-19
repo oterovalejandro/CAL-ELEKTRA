@@ -1,7 +1,9 @@
-formato: calelektra/modelo@0.2
+formato: calelektra/modelo@0.3
 id: path_camara
 categoria: path
 fabricante: Laboratorio
 modelo: Path de cámara (cable exterior + pasamuros + cable interior)
-parametros:
+campos:
   rango_frecuencia: [DC, 18 GHz]
+  conector_a: { familia: 2.92 mm, genero: hembra }   # lado VNA (adaptador incluido en el S2P)
+  conector_b: { familia: N, genero: macho }          # lado antena

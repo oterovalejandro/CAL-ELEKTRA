@@ -1,5 +1,5 @@
 # Path de la antena emisora
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: PATH-TX-01
 modelo: path_camara
 estado: en_servicio
@@ -7,4 +7,6 @@ datos_s:
   fichero: ../datos_s/PATH-TX-01.s2p
   referencia: "EJEMPLO — medida interna MI-2026-050 (datos sintéticos)"
   fecha: 2026-05-20
+campos:
+  componentes: [cable exterior 5 m, pasamuros N, cable interior 7 m]
 ubicacion: Cámara SAC — lado antena emisora

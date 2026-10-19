@@ -1,0 +1,10 @@
+formato: calelektra/modelo@0.3
+id: adaptador_n_mm
+categoria: adaptador
+fabricante: Genérico
+modelo: Adaptador N (m) – N (m)
+campos:
+  rango_frecuencia: [DC, 18 GHz]
+  tipo: coaxial
+  conector_a: { familia: N, genero: macho }
+  conector_b: { familia: N, genero: macho }

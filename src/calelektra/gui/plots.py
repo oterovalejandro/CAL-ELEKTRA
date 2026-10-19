@@ -27,7 +27,8 @@ from calelektra.catalog.model import Equipment
 from calelektra.core.touchstone import TouchstoneError
 from calelektra.core.units import UnitError, parse_frequency
 from calelektra.instruments.base import InstrumentError
-from calelektra.instruments.dummy_vna import STANDARD_DEVICES, DummyVna
+from calelektra.instruments.dummy_vna import DummyVna
+from calelektra.instruments.simulation import touchstone_model
 from calelektra.instruments.factory import open_vna
 
 TRACE_COLORS = {"S11": "#2b7bb9", "S21": "#c0392b", "S12": "#d98a00", "S22": "#2e8b57"}
@@ -121,8 +122,9 @@ class VnaCheckDialog(QDialog):
         self.power.setValue(-10)
         self.power.setSuffix(" dBm")
         self.device = QComboBox()
-        for standard in STANDARD_DEVICES:
-            self.device.addItem(f"Estándar: {standard}", standard)
+        self.device.addItem("Through plano P1–P2", "THROUGH")
+        for standard, text in (("OPEN", "Abierto"), ("SHORT", "Cortocircuito"), ("MATCH", "Carga adaptada")):
+            self.device.addItem(f"{text} en P1", standard)
         for other in library.equipment.values():
             if other.s_parameters is not None:
                 self.device.addItem(f"Red S2P: {other.id}", other.id)
@@ -133,7 +135,7 @@ class VnaCheckDialog(QDialog):
         sweep_button.clicked.connect(self.sweep)
         self.status = QLabel()
         self.status.setWordWrap(True)
-        mode = "SIMULACIÓN (VNA dummy)" if self.vna.simulated else "equipo real"
+        mode = "SIMULACIÓN (VNA simulado, sin calibrar: medida en bruto)" if self.vna.simulated else "equipo real"
         form.addRow(QLabel(f"<b>{self.vna.name}</b><br>{mode}<br>Especificación: {rng}, {self.vna.port_count} puertos"))
         form.addRow("Inicio", self.start)
         form.addRow("Fin", self.stop)
@@ -171,10 +173,13 @@ class VnaCheckDialog(QDialog):
                 vna.identify()
             device = self.device.currentData()
             if isinstance(vna, DummyVna):
-                if device in STANDARD_DEVICES:
-                    vna.connect_device(device)
+                if device == "THROUGH":
+                    vna.connect_through((1, 2))
+                elif device in ("OPEN", "SHORT", "MATCH"):
+                    vna.connect_standard(device, 1)
                 else:
-                    vna.connect_device(self.library.touchstone_of(self.library.equipment[device]), device)
+                    data = self.library.touchstone_of(self.library.equipment[device])
+                    vna.connect_network(touchstone_model(data), (1, 2), device)
             vna.configure_sweep(start, stop, self.points.value(), self.sweep_type.currentText())
             vna.set_if_bandwidth(ifbw)
             vna.set_power(self.power.value())

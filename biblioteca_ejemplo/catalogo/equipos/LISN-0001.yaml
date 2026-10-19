@@ -1,7 +1,7 @@
 # DUT de ejemplo
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: LISN-0001
 modelo: lisn_2_lineas
 estado: en_servicio
-numero_serie: "CLIENTE-5678"
+numero_serie: CLIENTE-5678
 descripcion: LISN de cliente a calibrar

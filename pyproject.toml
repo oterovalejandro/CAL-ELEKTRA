@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Conexión con los VNA reales (VISA). Además hace falta un backend VISA: R&S VISA, NI-VISA o pyvisa-py.
+instrumentos = ["pyvisa>=1.13"]
 
 [project.gui-scripts]
 cal-elektra = "calelektra.gui.app:main"

@@ -1,6 +1,6 @@
 # Bicónica emisora
-formato: calelektra/equipo@0.2
+formato: calelektra/equipo@0.3
 id: BIC-01
 modelo: antena_biconica
 estado: en_servicio
-calibracion: { certificado: "EJEMPLO-BIC01", fecha: 2026-01-20, proxima: 2028-01-20 }
+calibracion: { certificado: EJEMPLO-BIC01, fecha: 2026-01-20, proxima: 2028-01-20 }

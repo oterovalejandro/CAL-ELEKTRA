@@ -1,0 +1,34 @@
+# Procedimiento de medida: impedancia de LISN/AMN en el terminal EUT con VNA
+# de 1 puerto (CISPR 16-1-2). Mide cada línea indicada en el campo «Líneas»
+# de la LISN y compara con su «Red nominal» (campos del equipo).
+formato: calelektra/procedimiento@0.3
+id: impedancia_lisn
+nombre: Impedancia de LISN (1 puerto) → .s1p por línea
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración OSM en el extremo del cable de medida, medida de la reflexión
+  en el terminal EUT de cada línea, impedancia y desviación respecto a la red
+  nominal. Exporta un .s1p y un CSV por línea.
+algoritmo: vna_1_puerto
+plantillas_compatibles: [lisn_impedancia, reflexion_1p]
+barrido:
+  puntos: 201
+  tipo: logaritmico
+  ifbw: 100 Hz
+  potencia_dbm: -10
+  promedios: 1
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  s11_max_db: -35
+exportacion:
+  formato: MA
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true
+opciones:
+  lineas: todas                 # o una lista, p. ej. [L1, N]
+  tolerancia_z_pct: 20          # A CONFIRMAR con la norma / el procedimiento del laboratorio
+  tolerancia_fase_grados: 11.5  # A CONFIRMAR con la norma / el procedimiento del laboratorio

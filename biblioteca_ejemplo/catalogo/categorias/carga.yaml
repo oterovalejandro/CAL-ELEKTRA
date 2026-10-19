@@ -1,10 +1,12 @@
-formato: calelektra/categoria@0.2
+formato: calelektra/categoria@0.3
 id: carga
 nombre: Carga / terminación
 clase: pasivo
 rf: true
-puertos: [P]
-parametros:
-  rango_frecuencia: { tipo: rango, unidad: Hz }
-  tipo:             { valores: [carga_50, cortocircuito, abierto] }
-  conector:         { tipo: conector }
+puertos:
+  - { nombre: P, conector: conector }
+campos:
+  rango_frecuencia: { etiqueta: Rango de frecuencia, tipo: rango_frecuencia, nivel: modelo, obligatorio: true, grupo: RF }
+  tipo: { etiqueta: Tipo, tipo: opcion, opciones: [carga_50, cortocircuito, abierto], nivel: modelo, obligatorio: true }
+  conector: { etiqueta: Conector, tipo: conector, nivel: modelo, obligatorio: true, grupo: Conectores }
+  impedancia_ohm: { etiqueta: Impedancia, tipo: numero, unidad: Ω, nivel: modelo, por_defecto: 50 }

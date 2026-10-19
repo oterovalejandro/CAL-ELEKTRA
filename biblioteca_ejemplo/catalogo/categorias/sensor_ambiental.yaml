@@ -1,9 +1,9 @@
-formato: calelektra/categoria@0.2
+formato: calelektra/categoria@0.3
 id: sensor_ambiental
 nombre: Sensor ambiental
 clase: instrumento
 rf: false
 requiere_calibracion: true
 puertos: []
-parametros:
-  magnitudes: { tipo: lista }
+campos:
+  magnitudes: { etiqueta: Magnitudes, tipo: multiopcion, opciones: [temperatura, humedad, presion], nivel: modelo, obligatorio: true }

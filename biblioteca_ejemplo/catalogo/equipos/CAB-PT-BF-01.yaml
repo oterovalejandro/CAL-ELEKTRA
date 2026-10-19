@@ -1,0 +1,9 @@
+# Cable de puerto N para el VNA de baja frecuencia
+formato: calelektra/equipo@0.3
+id: CAB-PT-BF-01
+modelo: cable_medida_n_bf
+estado: en_servicio
+datos_s:
+  fichero: ../datos_s/CAB-PT-BF-01.s2p
+  referencia: "EJEMPLO — medida interna MI-2026-060 (datos sintéticos)"
+  fecha: 2026-08-03

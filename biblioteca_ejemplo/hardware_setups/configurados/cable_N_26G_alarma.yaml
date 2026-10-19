@@ -1,6 +1,6 @@
 # Ejemplo con ALARMA: el VNA llega a 43,5 GHz, pero los cables de medida N
 # (S2P de 5 Hz a 18 GHz) y el kit N limitan el rango efectivo a 100 kHz – 18 GHz.
-formato: calelektra/setup@0.2
+formato: calelektra/setup@0.3
 id: cable_N_26G_alarma
 nombre: Cable N hasta 26,5 GHz (ejemplo con alarma)
 plantilla: componente_2p

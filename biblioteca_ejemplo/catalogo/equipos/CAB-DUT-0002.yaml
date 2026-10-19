@@ -1,0 +1,9 @@
+# DUT de ejemplo (2,92 mm h–h)
+formato: calelektra/equipo@0.3
+id: CAB-DUT-0002
+modelo: cable_coaxial_292_hh
+estado: en_servicio
+numero_serie: CLIENTE-2001
+descripcion: Cable de cliente a calibrar (se conecta directamente a los puertos del ZNB43)
+campos:
+  longitud_m: 0.5

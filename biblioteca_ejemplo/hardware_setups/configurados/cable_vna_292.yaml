@@ -1,0 +1,12 @@
+# Calibración de un cable 2,92 mm hembra–hembra conectado directamente a los
+# puertos 2,92 mm macho del ZNB43. Los planos (macho–macho) no se pueden unir:
+# la calibración será UOSM (through desconocido).
+formato: calelektra/setup@0.3
+id: cable_vna_292
+nombre: Cable 2,92 mm — solo VNA (ZNB43)
+plantilla: cable_vna
+rango_requerido: [100 kHz, 40 GHz]
+asignaciones:
+  vna: VNA-01
+  kit_cal: KIT-292-01
+  dut: CAB-DUT-0002

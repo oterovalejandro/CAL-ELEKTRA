@@ -1,13 +1,17 @@
 # Path: conjunto de componentes en serie (cable + pasamuros + cable…) tratado
 # como un único bloque caracterizado por su fichero S2P.
-formato: calelektra/categoria@0.2
+formato: calelektra/categoria@0.3
 id: path
 nombre: Path (camino de señal compuesto)
 clase: pasivo
 rf: true
 requiere_datos_s: true
 puertos_datos_s: 2
-puertos: [A, B]
-parametros:
-  rango_frecuencia: { tipo: rango, unidad: Hz }
-  componentes:      { tipo: lista }
+puertos:
+  - { nombre: A, conector: conector_a }
+  - { nombre: B, conector: conector_b }
+campos:
+  rango_frecuencia: { etiqueta: Rango de frecuencia nominal, tipo: rango_frecuencia, nivel: ambos, obligatorio: true, grupo: RF }
+  conector_a: { etiqueta: Conector extremo A (lado VNA), tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
+  conector_b: { etiqueta: Conector extremo B (lado antena), tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
+  componentes: { etiqueta: Componentes, tipo: lista, nivel: equipo }

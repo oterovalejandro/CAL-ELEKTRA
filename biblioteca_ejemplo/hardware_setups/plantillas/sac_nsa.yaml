@@ -1,10 +1,10 @@
 # Cámara semianecoica — NSA, CISPR 16-1-4 método clásico con factores de
 # antena, siempre con VNA. Antenas por segmento de frecuencia (p. ej. bicónicas
 # y log-periódicas). Alturas y posiciones las fija la ejecución, no el setup.
-formato: calelektra/plantilla_setup@0.2
+formato: calelektra/plantilla_setup@0.3
 id: sac_nsa
 nombre: SAC — NSA (método clásico) — VNA
-version: 0.2
+version: "0.3"
 estado: borrador
 rango_medida: [30 MHz, 1 GHz]
 roles:
@@ -15,7 +15,6 @@ roles:
   vna:
     categoria: vna
     etiqueta: VNA
-    puertos_min: 2
   path_tx:
     categoria: [path, cable_medida]
     etiqueta: Path TX
@@ -57,6 +56,38 @@ ejes:
 calibracion_vna:
   metodos: [normalizacion]
   estado: normalizacion
+requisitos:
+  - id: vna_puertos
+    campo: vna.num_puertos
+    operador: ">="
+    valor: 2
+  - id: recinto_tipo
+    campo: recinto.tipo
+    operador: en
+    valor: [SAC, OATS]
+    mensaje: La NSA (método clásico) se aplica a SAC u OATS
+  - id: recinto_distancia
+    campo: recinto.distancia_medida_m
+    operador: en
+    valor: [3, 10, 30]
+    gravedad: aviso
+    mensaje: Distancias normalizadas de CISPR 16-1-4 (3, 10 o 30 m)
+  - id: antena_tx_polarizacion
+    campo: antena_tx.polarizaciones
+    operador: contiene
+    valor: [H, V]
+    mensaje: La NSA se mide en polarización horizontal y vertical
+  - id: antena_rx_polarizacion
+    campo: antena_rx.polarizaciones
+    operador: contiene
+    valor: [H, V]
+    mensaje: La NSA se mide en polarización horizontal y vertical
+  - id: mastil_rx
+    campo: soporte_rx.motorizado
+    operador: "=="
+    valor: true
+    gravedad: aviso
+    mensaje: La altura de la antena receptora se barre durante la NSA; con un soporte manual se pedirá cada altura al operador
 estados_conexion:
   medida:
     descripcion: Antenas montadas en sus soportes

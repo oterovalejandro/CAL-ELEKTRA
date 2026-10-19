@@ -1,0 +1,12 @@
+# Cable de puerto 2,92 mm con extremo HEMBRA (plano de referencia hembra).
+formato: calelektra/modelo@0.3
+id: cable_medida_292_hh_40g
+categoria: cable_medida
+fabricante: Genérico
+modelo: Cable de medida 2,92 mm (h) – 2,92 mm (h), 40 GHz
+campos:
+  rango_frecuencia: [DC, 40 GHz]
+  conector_a: { familia: 2.92 mm, genero: hembra }
+  conector_b: { familia: 2.92 mm, genero: hembra }
+  longitud_m: 1.0
+  estable_en_fase: true

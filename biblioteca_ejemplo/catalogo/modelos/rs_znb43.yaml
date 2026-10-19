@@ -1,23 +1,23 @@
 # R&S ZNB43, 2 puertos, 100 kHz – 43,5 GHz.
-# Parámetros a verificar con el datasheet. El driver real (comandos del
-# fabricante) se integrará más adelante; mientras, el equipo VNA-01 se marca
-# como "simulado" y el software usa el VNA dummy con estos parámetros.
-formato: calelektra/modelo@0.2
+# Valores a verificar con el datasheet. Driver: adaptador sobre los comandos
+# del driver RsZnx de R&S (ver src/calelektra/instruments/rs_znx.py).
+formato: calelektra/modelo@0.3
 id: rs_znb43
 categoria: vna
 fabricante: Rohde & Schwarz
 modelo: ZNB43
 variante: 2 puertos
-parametros:
+campos:
   rango_frecuencia: [100 kHz, 43.5 GHz]
   num_puertos: 2
-  conector_puertos: { familia: "2.92 mm", genero: macho }   # A CONFIRMAR
-  impedancia_ref: 50
+  conector_puertos: { familia: 2.92 mm, genero: macho }   # A CONFIRMAR
+  impedancia_ref_ohm: 50
   potencia_salida_dbm: [-40, 0]                             # A CONFIRMAR
-  ifbw: { rango: [1 Hz, 10 MHz], secuencia: [1, 1.5, 2, 3, 5, 7] }
+  ifbw: [1 Hz, 10 MHz]
   puntos_max: 100001
+  metodos_calibracion: [OSM, TOSM, UOSM, TRL, TNA, autocal, normalizacion]
 comunicacion:
-  driver: rs_znb            # adaptador sobre los comandos del fabricante (pendiente)
+  driver: rs_znx
   transportes:
     - { tipo: visa, recurso: "TCPIP::{host}::hislip0::INSTR", preferido: true }
     - { tipo: visa, recurso: "TCPIP::{host}::inst0::INSTR" }
@@ -25,4 +25,4 @@ especificaciones:
   - fichero: ../especificaciones/rs_znb43_EJEMPLO.yaml
 documentos:
   - { tipo: datasheet, referencia: "R&S ZNB – Specifications (indicar versión)" }
-  - { tipo: manual, referencia: "R&S ZNB/ZNBT – User Manual (indicar versión de firmware)" }
+  - { tipo: driver, referencia: "R&S RsZnx IVI.NET driver 4.25.0" }

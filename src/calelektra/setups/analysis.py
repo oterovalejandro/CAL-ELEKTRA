@@ -1,13 +1,16 @@
 """Validation of a configured hardware setup.
 
 Checks, per role: cardinality, category, service state, calibration validity,
-ports, allowed types and S-parameter data. Per frequency segment: the
-effective range (intersection of every measuring equipment) must contain the
-required range; otherwise an alarm names the equipment limiting each edge.
+ports, allowed types and S-parameter data. Then the field-based requirements
+of the template (``requisitos``), the connectors of every connection and the
+VNA calibration (reference planes, method, cal kit). Per frequency segment:
+the effective range (intersection of every measuring equipment) must contain
+the required range; otherwise an alarm names the equipment limiting each edge.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -18,7 +21,11 @@ from calelektra.core.frequency import CoverageResult, FrequencyRange, RangeContr
 from calelektra.core.issues import Issue, Severity, has_errors
 from calelektra.core.touchstone import TouchstoneError
 from calelektra.core.units import format_frequency
+from calelektra.setups.connections import CalibrationDesign, ConnectionCheck, check_connections, design_calibration
 from calelektra.setups.model import ConfiguredSetup, Role, Segment, SetupTemplate
+from calelektra.setups.requirements import RequirementResult, evaluate
+
+REQUIREMENT_SEVERITY = {"error": Severity.ERROR, "aviso": Severity.WARNING, "info": Severity.INFO}
 
 CALIBRATION_WARNING_DAYS = 30
 
@@ -30,12 +37,30 @@ class SegmentAnalysis:
 
 
 @dataclass
+class Check:
+    """One line of the compatibility table shown with the setup."""
+
+    group: str  # Requisito | Conexión | Calibración
+    subject: str
+    status: str  # ok | error | aviso | info | sin_datos
+    detail: str
+    segment: str | None = None
+
+
+STATUS_OF = {None: "ok", Severity.ERROR: "error", Severity.WARNING: "aviso", Severity.INFO: "info"}
+
+
+@dataclass
 class SetupAnalysis:
     setup: ConfiguredSetup
     template: SetupTemplate | None
     issues: list[Issue] = field(default_factory=list)
     segments: list[SegmentAnalysis] = field(default_factory=list)
     role_severity: dict[str, Severity] = field(default_factory=dict)
+    checks: list[Check] = field(default_factory=list)
+    requirements: list[RequirementResult] = field(default_factory=list)
+    connections: list[ConnectionCheck] = field(default_factory=list)
+    calibration: CalibrationDesign | None = None
 
     @property
     def ok(self) -> bool:
@@ -83,8 +108,114 @@ class _Analyzer:
             for key, role in self.template.roles.items():
                 if role.per_segment:
                     self._check_role(key, role, segment, label)
-            self._check_coverage(segment, label)
+        self._check_requirements(named)
+        self._check_connections(named)
+        self._check_vna_calibration()
+        for segment in self.setup.effective_segments():
+            self._check_coverage(segment, segment.name if named else None)
         return self.result
+
+    # ── requirements on the fields of the assigned equipment ───────────────
+    def _check_requirements(self, named: bool) -> None:
+        assert self.template is not None
+        labels = {key: role.display(key) for key, role in self.template.roles.items()}
+        seen: set[tuple[str, str, bool | None]] = set()
+        for requirement in self.template.requirements:
+            roles = [r for r in requirement.roles() if r in self.template.roles]
+            per_segment = any(self.template.roles[r].per_segment for r in roles)
+            contexts: list[Segment | None] = list(self.setup.effective_segments()) if per_segment else [None]
+            for segment in contexts:
+                choices = []
+                for role_key in roles:
+                    role = self.template.roles[role_key]
+                    ids = self.setup.ids_for(role_key, segment if role.per_segment else None)
+                    choices.append([(role_key, self.library.equipment[i]) for i in ids if i in self.library.equipment])
+                if not all(choices):
+                    continue  # a role is not assigned: reported elsewhere (or optional)
+                required_range = segment.range if segment is not None else self.setup.required_range
+                segment_label = segment.name if (segment is not None and named) else None
+                for combination in itertools.product(*choices):
+                    result = evaluate(requirement, dict(combination), self.library, labels, required_range)
+                    key = (result.subject, result.detail, result.ok)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    self.result.requirements.append(result)
+                    equipment_id = combination[0][1].id
+                    if result.ok:
+                        status, severity = "ok", None
+                    elif result.ok is None:
+                        status, severity = "sin_datos", Severity.WARNING
+                    else:
+                        severity = REQUIREMENT_SEVERITY[requirement.severity]
+                        status = STATUS_OF[severity]
+                    self.result.checks.append(Check("Requisito", result.subject, status, result.detail, segment_label))
+                    if severity is not None:
+                        prefix = "No se puede comprobar un requisito" if result.ok is None else "Requisito no cumplido"
+                        self.result.add(
+                            Issue(
+                                severity,
+                                "requisito",
+                                f"{prefix}: {result.subject} — {result.detail}",
+                                role=requirement.role,
+                                equipment_id=equipment_id,
+                                segment=segment_label,
+                            )
+                        )
+
+    # ── connectors of every connection ─────────────────────────────────────
+    def _check_connections(self, named: bool) -> None:
+        assert self.template is not None
+        per_segment = any(role.per_segment for role in self.template.roles.values())
+        contexts: list[Segment | None] = list(self.setup.effective_segments()) if per_segment else [None]
+        seen: set[tuple[frozenset[str], str]] = set()
+        for segment in contexts:
+            segment_label = segment.name if (segment is not None and named) else None
+            for check in check_connections(self.template, self.setup, self.library, segment):
+                key = (frozenset((check.a.text(), check.b.text())), check.message)
+                if key in seen:
+                    continue
+                seen.add(key)
+                self.result.connections.append(check)
+                state = self.template.connection_states[check.state].description or check.state
+                bridged = f" (sin {', '.join(check.bridged)})" if check.bridged else ""
+                subject = f"{check.a.text()} ↔ {check.b.text()}{bridged}"
+                self.result.checks.append(
+                    Check("Conexión", subject, STATUS_OF[check.severity], f"{check.message} — estado «{state}»", segment_label)
+                )
+                if check.severity in (Severity.ERROR, Severity.WARNING):
+                    role = check.a.endpoint.role if check.a.equipment else check.b.endpoint.role
+                    self.result.add(
+                        Issue(
+                            check.severity,
+                            "conexion.conectores",
+                            f"Conexión {subject}: {check.message}",
+                            role=role,
+                            segment=segment_label,
+                        )
+                    )
+                    other = check.b.endpoint.role
+                    if other != role:
+                        current = self.result.role_severity.get(other)
+                        if current is None or check.severity > current:
+                            self.result.role_severity[other] = check.severity
+
+    # ── calibration of the VNA ports ───────────────────────────────────────
+    def _check_vna_calibration(self) -> None:
+        assert self.template is not None
+        design = design_calibration(self.template, self.setup, self.library)
+        self.result.calibration = design
+        if design.method is None:
+            if self.template.vna_calibration:
+                self.result.checks.append(Check("Calibración", "Calibración del VNA", "info", design.reason))
+            return
+        planes = "; ".join(plane.text() for plane in design.planes)
+        self.result.checks.append(Check("Calibración", f"Método {design.method}", "ok" if design.ok else "error", f"{design.reason}. {planes}"))
+        kit_role = self.template.vna_calibration.get("kit")
+        for severity, message in design.checks:
+            self.result.checks.append(Check("Calibración", "Calibración del VNA", STATUS_OF[severity], message))
+            if severity in (Severity.ERROR, Severity.WARNING):
+                self.result.add(Issue(severity, "calibracion.vna", message, role=kit_role if "kit" in message.lower() else None))
 
     # ── roles ──────────────────────────────────────────────────────────────
     def _check_unknown_roles(self) -> None:
@@ -163,11 +294,11 @@ class _Analyzer:
         if not role.is_dut:
             self._check_calibration(equipment, category.requires_calibration, add)
         if role.min_ports:
-            count = len(model.port_names(category)) or int(model.parameters.get("num_puertos", 0))
+            count = len(self.library.ports_of(equipment))
             if count < role.min_ports:
                 add(Severity.ERROR, "equipo.puertos", f"«{label}» necesita al menos {role.min_ports} puertos y «{equipment_id}» tiene {count}")
         if role.allowed_types:
-            kind = equipment.parameters.get("tipo", model.parameters.get("tipo"))
+            kind = self.library.field(equipment, "tipo")
             if kind not in role.allowed_types:
                 add(
                     Severity.ERROR,
@@ -179,7 +310,7 @@ class _Analyzer:
             requires_s = category.requires_s_parameters and not role.is_dut
         if requires_s:
             self._check_s_parameters(equipment, category.s_parameter_ports, label, add)
-        if category.kind == "posicionador" and model.parameters.get("motorizado") is False:
+        if category.kind == "posicionador" and self.library.field(equipment, "motorizado") is False:
             add(
                 Severity.INFO,
                 "posicionador.manual",
