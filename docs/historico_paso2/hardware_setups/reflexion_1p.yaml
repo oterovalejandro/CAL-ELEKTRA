@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HARDWARE SETUP GENÉRICO: medida de reflexión en 1 puerto con VNA
+# Base para: impedancia de LISN/AMN (ver lisn_impedancia.yaml), VSWR de
+# antenas, pérdidas de retorno de cargas o atenuadores, etc.
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/hardware_setup@0.1
+id: reflexion_1p
+nombre: "Reflexión en 1 puerto — VNA"
+version: 0.1
+estado: borrador
+
+roles:
+  vna:
+    categoria: vna
+    requisitos: ["num_puertos >= 1", "rango_frecuencia cubre rango_medida", calibracion_vigente]
+    ajustes:
+      puerto: { por_defecto: 1 }
+      ifbw: { por_defecto: 100 Hz }
+      potencia: { por_defecto: -10 dBm }
+      puntos: { por_defecto: 801 }
+      tipo_barrido: { por_defecto: logaritmico }
+  cable_p1:
+    categoria: cable_medida
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  adaptador_p1:
+    categoria: adaptador
+    cardinalidad: "0..1"
+  kit_cal:
+    categoria: kit_calibracion
+    requisitos: ["conector compatible con PR1", "rango_frecuencia cubre rango_medida", calibracion_vigente]
+  dut:
+    categoria: cualquiera            # cualquier equipo con un puerto RF accesible
+    es_dut: true
+    puerto_medida: { por_defecto: RF }
+  terminaciones:
+    categoria: carga                 # cargas en los OTROS puertos del DUT, si los tiene
+    cardinalidad: "0..n"
+
+planos_referencia:
+  PR1: { en: [adaptador_p1.B, cable_p1.B] }
+
+estados_conexion:
+  calibracion:
+    descripcion: "Estándares Open / Short / Match en PR1"
+    conexiones:
+      - [vna.P1, cable_p1.A]
+      - [cable_p1.B, adaptador_p1.A]
+  medida:
+    conexiones:
+      - [vna.P1, cable_p1.A]
+      - [cable_p1.B, adaptador_p1.A]
+      - [adaptador_p1.B, "dut.{puerto_medida}"]
+
+calibracion_vna:
+  estado: calibracion
+  puertos: [1]
+  metodos: [OSM, autocal]
+  kit: kit_cal
+  validez: { max_horas: 8, max_variacion_temperatura_K: 1 }
+
+medidas:
+  estado: medida
+  parametros_s: [S11]
+
+resultados:
+  - { id: s1p,             tipo: touchstone }
+  - { id: perdidas_retorno, unidad: dB,  ecuacion: "-dB(S11)" }
+  - { id: vswr,             unidad: "",  ecuacion: "(1+|S11|)/(1-|S11|)" }
+  - { id: Z,                unidad: ohm, ecuacion: "Z0*(1+S11)/(1-S11)" }       # complejo
+  - { id: modulo_Z,         unidad: ohm, ecuacion: "|Z|" }
+  - { id: fase_Z,           unidad: deg, ecuacion: "fase(Z)" }
+
+incertidumbre:
+  modelo: "Términos de error residuales de 1 puerto (EURAMET cg-12)"
+  contribuciones:
+    - { de: vna,      magnitudes: [directividad_efectiva, adaptacion_fuente_efectiva, seguimiento_reflexion_efectivo, ruido_traza_magnitud] }
+    - { de: cable_p1, magnitudes: [estabilidad_flexion_magnitud, estabilidad_flexion_fase] }
+    - { de: kit_cal,  magnitudes: [repetibilidad_conector] }
+  nota: "La incertidumbre de |Z| crece al alejarse de Z0; se propaga desde la de S11."
+
+validaciones:
+  - "rango_medida ⊆ vna ∩ cable_p1 ∩ kit_cal ∩ dut"
+  - "conectores compatibles en cada conexión"
+  - "calibración vigente de vna y kit_cal"
+  - "calibración de 1 puerto activa y dentro de su validez"
+
+graficas:
+  - { titulo: "Pérdidas de retorno", y: [perdidas_retorno] }
+  - { titulo: "Impedancia",          y: [modulo_Z, fase_Z], ejes_y: 2 }

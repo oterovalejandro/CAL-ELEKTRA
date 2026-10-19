@@ -1,0 +1,76 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MODELO DE EQUIPO: VNA Rohde & Schwarz, 100 kHz – 43,5 GHz
+#
+# Supuesto: R&S ZNB43 → A CONFIRMAR (modelo, nº de puertos, conector y opciones).
+#
+# Un modelo rellena los parámetros de su categoría (../categorias/vna.yaml),
+# declara su PROTOCOLO de comunicación (cómo se traduce cada operación
+# abstracta a comandos del equipo) y enlaza sus ESPECIFICACIONES.
+#
+# ⚠ Los comandos SCPI son orientativos y deben verificarse con el manual
+#   del firmware del equipo antes de usarse.
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/modelo@0.1
+categoria: vna
+fabricante: Rohde & Schwarz
+modelo: ZNB43                        # A CONFIRMAR
+variante: "2 puertos"                # A CONFIRMAR (2 o 4)
+
+parametros:                          # verificar todos contra el datasheet
+  rango_frecuencia: [100 kHz, 43.5 GHz]
+  num_puertos: 2
+  conector_puertos: { familia: "2.92 mm", genero: macho }      # A CONFIRMAR
+  impedancia_ref: 50
+  potencia_salida: [-40 dBm, 0 dBm]                             # A CONFIRMAR
+  ifbw: { rango: [1 Hz, 10 MHz], secuencia: [1, 1.5, 2, 3, 5, 7] }
+  puntos_max: 100001
+  tipos_barrido: [lineal, logaritmico, segmentado, cw, potencia]
+  metodos_calibracion: [OSM, TOSM, UOSM, TRL, autocal, normalizacion]
+  opciones: []                                                   # p. ej. dominio del tiempo
+
+comunicacion:
+  driver: scpi_generico              # o "plugin:<nombre>" si hace falta lógica a medida
+  transportes:                       # el EQUIPO concreto elige uno y pone host/dirección
+    - { tipo: visa, recurso: "TCPIP::{host}::hislip0::INSTR", preferido: true }   # HiSLIP
+    - { tipo: visa, recurso: "TCPIP::{host}::inst0::INSTR" }                      # VXI-11
+    - { tipo: visa, recurso: "GPIB{placa}::{direccion}::INSTR" }
+  timeout_ms: 10000
+  terminador: "\n"
+  identificacion: { consulta: "*IDN?", patron: "^Rohde-Schwarz,ZNB43" }
+  errores:        { consulta: "SYST:ERR:ALL?", sin_error: "^0," }
+  sincronizacion: "*OPC?"
+  datos:          { preparar: "FORM:DATA REAL,64", bloque: ieee488.2 }
+
+  traducciones:                      # valores abstractos → valores del protocolo
+    tipo:   { lineal: LIN, logaritmico: LOG, segmentado: SEGM, cw: CW, potencia: POW }
+    activo: { true: "ON", false: "OFF" }
+
+  comandos:                          # operación abstracta (categoría) → comandos
+    identificar: "*IDN?"
+    preset: ["*RST", "*CLS"]
+    configurar_barrido:
+      - "SENS{canal}:SWE:TYPE {tipo}"
+      - "SENS{canal}:FREQ:STAR {inicio}"
+      - "SENS{canal}:FREQ:STOP {fin}"
+      - "SENS{canal}:SWE:POIN {puntos}"
+    configurar_ifbw: "SENS{canal}:BWID {valor}"
+    configurar_potencia: "SOUR{canal}:POW {valor}"
+    definir_parametros_s:
+      para_cada: parametro
+      comando: "CALC{canal}:PAR:SDEF 'Trc_{parametro}','{parametro}'"
+    barrido_unico: ["INIT{canal}:CONT OFF", "INIT{canal}:IMM", "*OPC?"]
+    barrido_continuo: "INIT{canal}:CONT {activo}"
+    leer_frecuencias: "CALC{canal}:DATA:STIM?"
+    leer_parametro_s: ["CALC{canal}:PAR:SEL 'Trc_{parametro}'", "CALC{canal}:DATA? SDAT"]
+    cargar_calibracion: "MMEM:LOAD:CORR {canal},'{nombre}'"
+    estado_calibracion: "SENS{canal}:CORR:STAT?"
+    guardar_touchstone: "MMEM:STOR:TRAC:PORT {canal},'{fichero}',COMP,{puertos}"
+    leer_errores: "SYST:ERR:ALL?"
+
+especificaciones:                    # uno o varios ficheros importables
+  - fichero: ../especificaciones/rs_znb43_EJEMPLO.yaml
+
+documentos:
+  - { tipo: datasheet, referencia: "R&S ZNB – Specifications (indicar versión)" }
+  - { tipo: manual,    referencia: "R&S ZNB/ZNBT – User Manual (indicar versión de firmware)" }

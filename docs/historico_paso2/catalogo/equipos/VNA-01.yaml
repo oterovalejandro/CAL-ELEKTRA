@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# EQUIPO (unidad física del inventario)
+# Hereda parámetros, protocolo y especificaciones de su MODELO y añade lo
+# propio de la unidad: nº de serie, dirección, calibración y datos propios.
+# Las especificaciones de nivel "equipo" (certificado o caracterización)
+# PREVALECEN sobre las del modelo (datasheet) para la misma magnitud.
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/equipo@0.1
+id: VNA-01
+modelo: { categoria: vna, fabricante: Rohde & Schwarz, modelo: ZNB43 }
+numero_serie: "A RELLENAR"
+opciones_instaladas: []
+estado: en_servicio                  # en_servicio | fuera_de_servicio | en_calibracion
+
+conexion:
+  transporte: visa
+  recurso: "TCPIP::192.168.0.50::hislip0::INSTR"   # ejemplo
+
+calibracion:                         # si está caducada, los setups NO validan
+  certificado: "A RELLENAR"
+  laboratorio: "A RELLENAR"
+  fecha: 2026-01-15                  # ejemplo
+  proxima: 2027-01-15                # ejemplo
+  comprobaciones_intermedias:
+    periodo: 3 meses                 # ejemplo; se registra cada comprobación
+
+especificaciones:                    # opcional: sustituyen a las del modelo
+  - fichero: null                    # p. ej. ../especificaciones/VNA-01_caracterizacion_2026.yaml
+
+ubicacion: "Sala de control cámara SAC"

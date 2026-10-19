@@ -10,7 +10,7 @@ rango_medida: [30 MHz, 1 GHz]
 roles:
   recinto:
     categoria: recinto
-    etiqueta: Recinto (DUT)
+    etiqueta: Recinto
     es_dut: true
   vna:
     categoria: vna

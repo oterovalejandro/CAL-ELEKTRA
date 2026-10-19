@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORÍA DE EQUIPO: POSICIONADOR
+# Mástil de antena, mesa giratoria, carril lineal, trípode motorizado…
+# Un posicionador expone uno o varios EJES. Si un eje no está motorizado,
+# el hardware setup lo marca como "manual" y el software pide la acción
+# al operador y espera confirmación (idea tomada de ELEKTRA).
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/categoria@0.1
+id: posicionador
+nombre: Posicionador (mástil, mesa giratoria, carril, trípode)
+clase: posicionador
+
+parametros:
+  ejes:                          # mapa nombre_eje → definición
+    tipo: mapa
+    obligatorio: true
+    esquema:
+      tipo:        { valores: [lineal, rotacional, discreto] }
+      rango:       { tipo: rango }          # lineal / rotacional
+      valores:     { tipo: lista }          # discreto (p. ej. [H, V])
+      unidad:      { tipo: texto }
+      velocidad:   { tipo: rango }
+      resolucion:  { tipo: numero }
+      movimiento_continuo: { tipo: booleano, por_defecto: false }   # permite leer posición en marcha
+
+puertos:
+  soporte: { tipo: mecanico }    # donde se monta una antena u otro equipo
+
+operaciones:
+  mover:                { argumentos: { eje: texto, valor: numero_o_texto } }
+  esperar_llegada:      { argumentos: { eje: texto, timeout_s: numero } }
+  leer_posicion:        { argumentos: { eje: texto }, devuelve: numero_o_texto }
+  en_movimiento:        { argumentos: { eje: texto }, devuelve: booleano }
+  parar:                { argumentos: { eje: texto } }
+  configurar_velocidad: { argumentos: { eje: texto, valor: numero }, opcional: true }
+
+especificaciones:
+  exactitud_posicion:     { unidad: segun_eje }
+  repetibilidad_posicion: { unidad: segun_eje }

@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HARDWARE SETUP: verificación de cámara semianecoica (SAC) — S_VSWR
+# CISPR 16-1-4, método estándar de 6 posiciones, 1 GHz – 18 GHz, VNA.
+#
+# Posiciones del volumen y alturas: EJEMPLO a confirmar con vuestra edición
+# de la norma y con las dimensiones del volumen de ensayo.
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/hardware_setup@0.1
+id: sac_svswr
+nombre: "SAC — S_VSWR, método estándar de 6 posiciones — VNA"
+version: 0.1
+estado: borrador
+
+rango_medida: [1 GHz, 18 GHz]
+
+roles:
+  recinto:
+    categoria: recinto
+    es_dut: true
+    usa: [distancia_medida, volumen_ensayo, posiciones_svswr, alturas_svswr]
+  vna:
+    categoria: vna
+    requisitos: ["num_puertos >= 2", "rango_frecuencia cubre rango_medida", calibracion_vigente]
+    ajustes:
+      puertos: { por_defecto: [1, 2] }
+      ifbw: { por_defecto: 1 kHz }
+      potencia: { por_defecto: 0 dBm }
+      puntos: { por_defecto: 341 }     # paso de 50 MHz en 1–18 GHz (paso máximo admitido)
+      tipo_barrido: { por_defecto: lineal }
+  path_tx:
+    categoria: path
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  path_rx:
+    categoria: path
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  preamplificador:
+    categoria: preamplificador
+    cardinalidad: "0..1"
+  antena_tx:
+    categoria: antena
+    requisitos:
+      - "tipo == omnidireccional_svswr"
+      - "rango_frecuencia cubre rango_medida"
+      - "diagrama conforme con CISPR 16-1-4 (datos del fabricante o certificado)"
+    montado_en: posicionador_tx.soporte
+  antena_rx:
+    categoria: antena
+    requisitos: ["tipo == bocina", "rango_frecuencia cubre rango_medida"]
+    montado_en: mastil_rx.soporte
+  posicionador_tx:
+    categoria: posicionador            # carril lineal + soporte de altura (manual o motorizado)
+    ejes_requeridos: [desplazamiento, altura, polarizacion]
+    requisitos: ["eje desplazamiento cubre [0 cm, 40 cm]"]
+  mastil_rx:
+    categoria: posicionador
+    ejes_requeridos: [altura, polarizacion]
+  sensor_ambiental:
+    categoria: sensor_ambiental
+    cardinalidad: "0..1"
+
+estados_conexion:
+  medida:
+    conexiones:
+      - [vna.P1, path_tx.A]
+      - [path_tx.B, antena_tx.RF]
+      - { entre: [antena_tx, antena_rx], tipo: radiado }
+      - [antena_rx.RF, path_rx.B]
+      - [path_rx.A, preamplificador.OUT]   # si no hay preamplificador: [path_rx.A, vna.P2]
+      - [preamplificador.IN, vna.P2]
+
+calibracion_vna:
+  metodo: ninguna_obligatoria          # medida relativa (máx − mín); normalización opcional
+  validez: null
+
+ejes:
+  posicion:
+    valores: "recinto.posiciones_svswr"   # p. ej. [delante, izquierda, derecha, centro]
+    actuador: manual
+    instruccion_operador: "Coloque el carril de la antena TX en la posición {posicion}"
+  altura:
+    valores: "recinto.alturas_svswr"      # p. ej. [1 m, altura superior del volumen]
+    actuador: posicionador_tx.altura
+    acoplado_con:
+      eje: mastil_rx.altura
+      regla: "altura RX = altura TX"
+  polarizacion:
+    valores: [H, V]
+    actuador: mastil_rx.polarizacion
+    acoplado_con:
+      eje: posicionador_tx.polarizacion
+      actuador: manual
+      instruccion_operador: "Gire la antena TX a polarización {polarizacion}"
+  desplazamiento:
+    valores: [0 cm, 2 cm, 10 cm, 18 cm, 30 cm, 40 cm]   # hacia la antena RX
+    actuador: posicionador_tx.desplazamiento           # o manual con aviso
+    instruccion_operador: "Desplace la antena TX a {desplazamiento}"
+
+secuencia_sugerida:                    # prioridad 1 = bucle más interno
+  - { eje: desplazamiento, prioridad: 1 }
+  - { eje: polarizacion,   prioridad: 2 }
+  - { eje: altura,         prioridad: 3 }
+  - { eje: posicion,       prioridad: 4 }
+
+medidas:
+  sitio: { estado: medida, parametros_s: [S21], guarda: S21_desplazamiento }
+
+resultados:                            # por posición × altura × polarización
+  - { id: S21_dB,  unidad: dB, ecuacion: "dB(S21_desplazamiento)", por: desplazamiento }
+  - { id: S_VSWR,  unidad: dB, ecuacion: "max_desplazamiento(S21_dB) - min_desplazamiento(S21_dB)" }
+  - { id: margen,  unidad: dB, ecuacion: "6 - S_VSWR" }
+
+criterio:
+  - { magnitud: S_VSWR, maximo: 6 }
+
+incertidumbre:
+  contribuciones:
+    - { de: vna,     magnitudes: [ruido_traza_magnitud, linealidad_receptor] }
+    - { de: path_tx, magnitudes: [estabilidad_flexion_magnitud], nota: "el cable se mueve con el carril" }
+    - { de: setup,   magnitudes: [posicion_desplazamiento, repetibilidad_polarizacion] }
+
+validaciones:
+  - "rango_medida ⊆ vna ∩ path_tx ∩ path_rx ∩ antena_tx ∩ antena_rx"
+  - "paso de frecuencia ≤ 50 MHz"
+  - "carril cubre 0–40 cm y mástil cubre las alturas del volumen"
+  - "antena TX con diagrama conforme"
+
+graficas:
+  - { titulo: "S_VSWR",               y: [S_VSWR], limites: [6], por: [posicion, altura, polarizacion], combinada: true }
+  - { titulo: "S21 en las 6 posiciones", y: [S21_dB], superpuestas: desplazamiento, por: [posicion, altura, polarizacion] }
+
+pendiente:
+  - "¿Corrección por variación de distancia entre las 6 posiciones según vuestra edición?"
+  - "Carril de la antena TX: ¿manual o motorizado?"

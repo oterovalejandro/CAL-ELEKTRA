@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HARDWARE SETUP GENÉRICO: componente de 2 puertos con VNA
+# Uso principal: calibración / caracterización de CABLES. También sirve para
+# atenuadores, adaptadores, pasamuros, paths completos…
+#
+# Un setup genérico declara ROLES (huecos tipados), no equipos concretos.
+# Al configurarlo, cada rol se asigna a un equipo del inventario.
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/hardware_setup@0.1
+id: componente_2p
+nombre: "Componente de 2 puertos (cable) — VNA"
+version: 0.1
+estado: borrador
+
+roles:
+  vna:
+    categoria: vna
+    requisitos:
+      - "num_puertos >= 2"
+      - "rango_frecuencia cubre rango_medida"
+      - calibracion_vigente
+    ajustes:                         # "Settings" (los fija el procedimiento), no "Properties"
+      puertos: { por_defecto: [1, 2] }
+      ifbw: { por_defecto: 100 Hz }
+      potencia: { por_defecto: -10 dBm }
+      puntos: { por_defecto: 801 }
+      tipo_barrido: { por_defecto: lineal }
+      promedios: { por_defecto: 1 }
+  cable_p1:
+    categoria: cable_medida          # cable de medida estable en fase
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  cable_p2:
+    categoria: cable_medida
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  adaptador_p1:
+    categoria: adaptador
+    cardinalidad: "0..1"             # solo si el conector del DUT lo exige
+  adaptador_p2:
+    categoria: adaptador
+    cardinalidad: "0..1"
+  kit_cal:
+    categoria: kit_calibracion       # kit manual o unidad de calibración automática
+    requisitos:
+      - "conector compatible con PR1 y PR2"
+      - "rango_frecuencia cubre rango_medida"
+      - calibracion_vigente
+  dut:
+    categoria: [cable, atenuador, adaptador, path, componente_2p]
+    es_dut: true
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  sensor_ambiental:
+    categoria: sensor_ambiental
+    cardinalidad: "0..1"
+
+planos_referencia:                   # dónde queda calibrado el VNA
+  PR1: { en: [adaptador_p1.B, cable_p1.B] }    # el primero que exista
+  PR2: { en: [adaptador_p2.B, cable_p2.B] }
+
+estados_conexion:
+  calibracion:
+    descripcion: "Estándares del kit conectados en PR1 y PR2"
+    conexiones:
+      - [vna.P1, cable_p1.A]
+      - [cable_p1.B, adaptador_p1.A]
+      - [vna.P2, cable_p2.A]
+      - [cable_p2.B, adaptador_p2.A]
+  medida:
+    descripcion: "DUT insertado entre PR1 y PR2"
+    conexiones:
+      - [vna.P1, cable_p1.A]
+      - [cable_p1.B, adaptador_p1.A]
+      - [adaptador_p1.B, dut.A]
+      - [dut.B, adaptador_p2.B]
+      - [adaptador_p2.A, cable_p2.B]
+      - [cable_p2.A, vna.P2]
+
+calibracion_vna:
+  estado: calibracion
+  puertos: [1, 2]
+  metodos: [TOSM, UOSM, TRL, autocal]
+  seleccion:                         # regla sugerida
+    - { si: "dut insertable", metodo: TOSM }
+    - { si: "dut no insertable (mismo género o distinta familia)", metodo: UOSM }
+  kit: kit_cal
+  validez: { max_horas: 8, max_variacion_temperatura_K: 1 }   # a decidir con el lab
+
+medidas:
+  estado: medida
+  parametros_s: [S11, S21, S12, S22]
+
+resultados:
+  - { id: s2p,                tipo: touchstone }
+  - { id: perdidas_insercion, unidad: dB, ecuacion: "-dB(S21)" }
+  - { id: perdidas_retorno_1, unidad: dB, ecuacion: "-dB(S11)" }
+  - { id: perdidas_retorno_2, unidad: dB, ecuacion: "-dB(S22)" }
+  - { id: vswr_1,             unidad: "",  ecuacion: "(1+|S11|)/(1-|S11|)" }
+  - { id: vswr_2,             unidad: "",  ecuacion: "(1+|S22|)/(1-|S22|)" }
+  - { id: fase_S21,           unidad: deg, ecuacion: "fase_desenrollada(S21)", opcional: true }
+  - { id: retardo_grupo,      unidad: s,   ecuacion: "-d(fase(S21))/d(omega)", opcional: true }
+  # Cierre de trazabilidad: el resultado pasa a ser una tabla del inventario
+  - { id: tabla_atenuacion,   tipo: tabla_inventario, desde: perdidas_insercion, registrar_en: dut }
+
+criterio:                            # opcional: muchos cables solo se caracterizan
+  tipo: especificacion_dut           # p. ej. pérdidas ≤ X dB, RL ≥ Y dB del fabricante
+  obligatorio: false
+
+incertidumbre:
+  modelo: "Términos de error residuales del VNA (EURAMET cg-12) + contribuciones del setup"
+  contribuciones:
+    - { de: vna,      magnitudes: [directividad_efectiva, adaptacion_fuente_efectiva, adaptacion_carga_efectiva, seguimiento_reflexion_efectivo, seguimiento_transmision_efectivo] }
+    - { de: vna,      magnitudes: [ruido_traza_magnitud, linealidad_receptor, deriva_temperatura_magnitud] }
+    - { de: cable_p1, magnitudes: [estabilidad_flexion_magnitud, estabilidad_flexion_fase] }
+    - { de: cable_p2, magnitudes: [estabilidad_flexion_magnitud, estabilidad_flexion_fase] }
+    - { de: kit_cal,  magnitudes: [repetibilidad_conector] }
+
+validaciones:
+  - "rango_medida ⊆ vna ∩ cable_p1 ∩ cable_p2 ∩ kit_cal ∩ dut"
+  - "conectores compatibles (familia y género) en cada conexión del estado"
+  - "calibración vigente de vna y kit_cal"
+  - "calibración del VNA activa, en esos puertos y rango, y dentro de su validez (tiempo, temperatura)"
+
+graficas:
+  - { titulo: "Pérdidas de inserción", y: [perdidas_insercion] }
+  - { titulo: "Pérdidas de retorno",   y: [perdidas_retorno_1, perdidas_retorno_2] }
+  - { titulo: "VSWR",                  y: [vswr_1, vswr_2], opcional: true }

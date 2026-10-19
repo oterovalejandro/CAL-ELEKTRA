@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HARDWARE SETUP: verificación de cámara semianecoica (SAC) — NSA
+# CISPR 16-1-4, método clásico con factores de antena, 30 MHz – 1 GHz, VNA.
+#
+# Valores de posiciones y alturas: EJEMPLO a confirmar con vuestra edición
+# de la norma y con las dimensiones del volumen de ensayo.
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/hardware_setup@0.1
+id: sac_nsa
+nombre: "SAC — Atenuación de sitio normalizada (NSA), método clásico — VNA"
+version: 0.1
+estado: borrador
+
+rango_medida: [30 MHz, 1 GHz]
+
+roles:
+  recinto:
+    categoria: recinto
+    es_dut: true                       # lo que se verifica es la cámara
+    requisitos: ["tipo == SAC"]
+    usa: [distancia_medida, volumen_ensayo, posiciones_nsa]
+  vna:
+    categoria: vna
+    requisitos: ["num_puertos >= 2", "rango_frecuencia cubre rango_medida", calibracion_vigente]
+    ajustes:
+      puertos: { por_defecto: [1, 2] }
+      ifbw: { por_defecto: 1 kHz }
+      potencia: { por_defecto: 0 dBm }
+      puntos: { por_defecto: 971 }     # paso de 1 MHz en 30 MHz – 1 GHz
+      tipo_barrido: { por_defecto: lineal }
+  path_tx:
+    categoria: path                    # cable exterior + pasamuros + cable interior
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  path_rx:
+    categoria: path
+    requisitos: ["rango_frecuencia cubre rango_medida"]
+  preamplificador:
+    categoria: preamplificador
+    cardinalidad: "0..1"
+  adaptador_through:
+    categoria: adaptador               # une path_tx y path_rx para la normalización
+    requisitos: ["conectores compatibles con los extremos de path_tx y path_rx"]
+  antena_tx:
+    categoria: antena
+    por_segmento: true                 # puede cambiar por segmento de frecuencia
+    requisitos:
+      - "tipo in [biconica, log_periodica, hibrida]"
+      - "rango_frecuencia cubre el segmento"
+      - "tiene tabla AF con certificado vigente"
+    montado_en: soporte_tx.soporte
+  antena_rx:
+    categoria: antena
+    por_segmento: true
+    requisitos:
+      - "tipo in [biconica, log_periodica, hibrida]"
+      - "rango_frecuencia cubre el segmento"
+      - "tiene tabla AF con certificado vigente"
+    montado_en: mastil_rx.soporte
+  soporte_tx:
+    categoria: posicionador            # trípode (manual) o mástil motorizado
+    ejes_requeridos: [altura, polarizacion]
+  mastil_rx:
+    categoria: posicionador
+    ejes_requeridos: [altura, polarizacion]
+    requisitos: ["eje altura cubre [1 m, 4 m]"]
+  sensor_ambiental:
+    categoria: sensor_ambiental
+    cardinalidad: "0..1"
+
+segmentos:                             # ELEKTRA: un hardware setup por rango de frecuencia
+  ejemplo_dos_pares:
+    - { f: [30 MHz, 200 MHz], antenas: biconica }
+    - { f: [200 MHz, 1 GHz],  antenas: log_periodica }
+  ejemplo_hibrida:
+    - { f: [30 MHz, 1 GHz],   antenas: hibrida }
+
+estados_conexion:
+  normalizacion:
+    descripcion: "Antenas desconectadas; path_tx y path_rx unidos con el adaptador through"
+    conexiones:
+      - [vna.P1, path_tx.A]
+      - [path_tx.B, adaptador_through.A]
+      - [adaptador_through.B, path_rx.B]
+      - [path_rx.A, preamplificador.OUT]   # si no hay preamplificador: [path_rx.A, vna.P2]
+      - [preamplificador.IN, vna.P2]
+  medida:
+    descripcion: "Antenas conectadas en sus soportes"
+    conexiones:
+      - [vna.P1, path_tx.A]
+      - [path_tx.B, antena_tx.RF]
+      - { entre: [antena_tx, antena_rx], tipo: radiado }
+      - [antena_rx.RF, path_rx.B]
+      - [path_rx.A, preamplificador.OUT]
+      - [preamplificador.IN, vna.P2]
+
+calibracion_vna:
+  metodo: normalizacion                # V_DIRECTA del método clásico = S21 en estado normalizacion
+  estado: normalizacion
+  validez: { max_horas: 8, rehacer_si_cambia: [path_tx, path_rx, preamplificador] }
+
+ejes:                                  # grados de libertad (los "bucles" de ELEKTRA)
+  posicion:
+    valores: "recinto.posiciones_nsa"  # p. ej. [centro, izquierda, derecha, delante, detras]
+    actuador: manual
+    instruccion_operador: "Coloque la antena TX en la posición {posicion} del volumen de ensayo"
+  polarizacion:
+    valores: [H, V]
+    actuador: mastil_rx.polarizacion
+    acoplado_con:                      # ambas antenas con la misma polarización
+      eje: soporte_tx.polarizacion
+      actuador: manual
+      instruccion_operador: "Gire la antena TX a polarización {polarizacion}"
+  altura_tx:
+    valores: { H: [1 m, 2 m], V: [1 m, 1.5 m] }   # EJEMPLO, depende de polarización
+    actuador: soporte_tx.altura        # o manual si es un trípode
+    instruccion_operador: "Ajuste la altura de la antena TX a {altura_tx}"
+  altura_rx:
+    rango: [1 m, 4 m]
+    actuador: mastil_rx.altura
+    modo:                              # a decidir
+      opciones: [continuo, por_pasos]
+      continuo: "el VNA barre de forma repetida mientras sube el mástil"
+      por_pasos: { paso: 0.05 m }      # EJEMPLO
+    reduccion: maximo_por_frecuencia   # max-hold sobre el barrido de altura
+
+secuencia_sugerida:                    # prioridad 1 = bucle más interno (como ELEKTRA)
+  - { eje: altura_rx,    prioridad: 1 }
+  - { eje: altura_tx,    prioridad: 2 }
+  - { eje: polarizacion, prioridad: 3 }
+  - { eje: posicion,     prioridad: 4 }
+
+medidas:
+  normalizacion: { estado: normalizacion, parametros_s: [S21], guarda: S21_norm }
+  sitio:
+    estado: medida
+    parametros_s: [S21]
+    guarda: [S21_barrido_altura]       # cada barrido con su altura (para el mapa de calor)
+
+resultados:                            # por posición × polarización × altura_tx
+  - { id: S21_norm_dB,     unidad: dB, ecuacion: "dB(S21_norm)" }
+  - { id: S21_max_dB,      unidad: dB, ecuacion: "max_altura(dB(S21_barrido_altura))" }
+  - { id: altura_rx_max,   unidad: m,  ecuacion: "argmax_altura(dB(S21_barrido_altura))" }
+  - { id: AF_tx,           unidad: dB/m, desde: "antena_tx.tabla_AF" }
+  - { id: AF_rx,           unidad: dB/m, desde: "antena_rx.tabla_AF" }
+  - { id: dAF_tot,         unidad: dB,   ecuacion: "0", nota: "solo para dipolos sintonizados" }
+  - { id: NSA_medida,      unidad: dB, ecuacion: "S21_norm_dB - S21_max_dB - AF_tx - AF_rx - dAF_tot" }
+  - { id: NSA_teorica,     unidad: dB, desde: "tabla_normativa(distancia, altura_tx, polarizacion)" }
+  - { id: delta_NSA,       unidad: dB, ecuacion: "NSA_medida - NSA_teorica" }
+  - { id: margen,          unidad: dB, ecuacion: "4 - |delta_NSA|" }
+
+criterio:
+  - { magnitud: delta_NSA, tolerancia: 4 }
+  - nota: "Regla de decisión a confirmar (los ±4 dB de la norma ya incluyen margen para la incertidumbre)"
+
+incertidumbre:
+  contribuciones:
+    - { de: antena_tx, magnitudes: [incertidumbre_AF] }
+    - { de: antena_rx, magnitudes: [incertidumbre_AF] }
+    - { de: vna,       magnitudes: [incertidumbre_transmision_magnitud, linealidad_receptor, ruido_traza_magnitud] }
+    - { de: path_tx,   magnitudes: [estabilidad_flexion_magnitud] }
+    - { de: path_rx,   magnitudes: [estabilidad_flexion_magnitud], nota: "se mueve con el mástil" }
+    - { de: setup,     magnitudes: [desadaptacion_antena_path, resolucion_barrido_altura, posicion_distancia, posicion_altura] }
+
+validaciones:
+  - "rango de cada segmento ⊆ vna ∩ path_tx ∩ path_rx ∩ antena_tx ∩ antena_rx"
+  - "tablas AF vigentes y que cubren el segmento"
+  - "eje altura del mástil cubre 1–4 m"
+  - "normalización existente y posterior al último cambio de path o preamplificador"
+  - "modo continuo: velocidad_mastil × tiempo_barrido ≤ resolución de altura admitida"
+  - "margen dinámico: S21 mínimo esperado ≥ suelo de ruido del VNA (rango_dinamico corregido por IFBW) + margen"
+
+graficas:
+  - { titulo: "ΔNSA",                  y: [delta_NSA], limites: [-4, 4], por: [posicion, polarizacion, altura_tx], combinada: true }
+  - { titulo: "NSA medida vs teórica", y: [NSA_medida, NSA_teorica], por: [posicion, polarizacion, altura_tx] }
+  - { titulo: "Altura del máximo",     y: [altura_rx_max], por: [posicion, polarizacion] }
+  - { titulo: "Mapa de calor altura × frecuencia", tipo: mapa_calor, z: "dB(S21_barrido_altura)", opcional: true }

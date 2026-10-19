@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MODELO DE EQUIPO: controlador de MÁSTIL (PLANTILLA)
+#
+# ⚠ Fabricante, modelo y COMANDOS son FICTICIOS: falta saber qué controlador
+#   tenéis (Maturo, innco, ETS-Lindgren, Frankonia…) y su protocolo real.
+#
+# Muestra los tres transportes previstos:
+#   - tcp / serie       → comandos de texto enviados por socket o puerto serie
+#   - comando_externo   → el software lanza una utilidad de línea de comandos
+#                         del fabricante y lee su salida
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/modelo@0.1
+categoria: posicionador
+estado: PLANTILLA
+fabricante: "A RELLENAR"
+modelo: "A RELLENAR"
+
+parametros:
+  ejes:
+    altura:
+      tipo: lineal
+      rango: [1 m, 4 m]
+      unidad: m
+      resolucion: 0.01
+      velocidad: [0.05 m/s, 0.5 m/s]       # FICTICIO
+      movimiento_continuo: true
+    polarizacion:
+      tipo: discreto
+      valores: [H, V]
+
+comunicacion:
+  driver: texto_generico
+  transportes:
+    - { tipo: tcp, host: "{host}", puerto: 2000, preferido: true }      # FICTICIO
+    - { tipo: serie, puerto: "{com}", baudios: 9600, paridad: none }
+    - { tipo: comando_externo, ejecutable: "C:/Fabricante/mastctl.exe" } # FICTICIO
+  terminador: "\r\n"
+  unidades_protocolo: { altura: cm }      # el driver convierte m → cm
+
+  comandos:                               # FICTICIOS (transporte tcp / serie)
+    mover:
+      altura: "HEIGHT {valor}"
+      polarizacion: "POL {valor}"
+    leer_posicion:
+      altura: "HEIGHT?"
+      polarizacion: "POL?"
+    en_movimiento: "BUSY?"
+    parar: "STOP"
+
+  comandos_externos:                      # FICTICIOS (transporte comando_externo)
+    mover:
+      altura: ["--axis", "height", "--goto", "{valor}"]
+    leer_posicion:
+      altura: { argumentos: ["--axis", "height", "--read"], salida: "^(?P<valor>[0-9.]+)" }
+
+especificaciones: []

@@ -9,7 +9,7 @@ rango_medida: [1 GHz, 18 GHz]
 roles:
   recinto:
     categoria: recinto
-    etiqueta: Recinto (DUT)
+    etiqueta: Recinto
     es_dut: true
   vna:
     categoria: vna

@@ -10,7 +10,7 @@ rango_medida: [9 kHz, 30 MHz]
 roles:
   dut:
     categoria: lisn
-    etiqueta: LISN (DUT)
+    etiqueta: LISN
   adaptador_p1:
     etiqueta: Adaptador de calibración LISN
     cardinalidad: "1"

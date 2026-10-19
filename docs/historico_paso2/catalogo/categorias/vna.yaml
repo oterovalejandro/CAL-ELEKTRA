@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORÍA DE EQUIPO: VNA (analizador vectorial de redes)
+#
+# Una categoría define QUÉ describe a cualquier equipo de ese tipo:
+#   - parametros:        esquema que todo MODELO de VNA debe/puede rellenar
+#   - puertos:           cómo se nombran sus puertos físicos
+#   - operaciones:       contrato abstracto que usa el motor (independiente del fabricante)
+#   - especificaciones:  vocabulario normalizado de magnitudes que puede traer
+#                        un fichero de especificaciones / incertidumbre
+#
+# Los modelos concretos (p. ej. ../modelos/rs_znb43.yaml) rellenan esta plantilla.
+# BORRADOR v0.1 — para revisar juntos.
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/categoria@0.1
+id: vna
+nombre: Analizador vectorial de redes (VNA)
+clase: instrumento            # instrumento | pasivo | posicionador | recinto
+
+parametros:
+  rango_frecuencia:  { tipo: rango, unidad: Hz, obligatorio: true }
+  num_puertos:       { tipo: entero, min: 1, obligatorio: true }
+  conector_puertos:  { tipo: conector, obligatorio: true }      # familia + género
+  impedancia_ref:    { tipo: numero, unidad: ohm, por_defecto: 50 }
+  potencia_salida:   { tipo: rango, unidad: dBm }
+  ifbw:              { tipo: rango_con_secuencia, unidad: Hz }   # p. ej. 1 Hz…10 MHz en pasos 1-1.5-2-3-5-7
+  puntos_max:        { tipo: entero }
+  tipos_barrido:     { tipo: lista, valores: [lineal, logaritmico, segmentado, cw, potencia] }
+  metodos_calibracion: { tipo: lista, valores: [OSM, TOSM, UOSM, TRL, TNA, autocal, normalizacion] }
+  opciones:          { tipo: lista }                              # opciones de hardware/firmware
+
+puertos:
+  plantilla: "P{n}"             # genera P1 … P{num_puertos}
+  conector: conector_puertos
+
+operaciones:
+  identificar:          { devuelve: texto }
+  preset:               {}
+  configurar_barrido:   { argumentos: { canal: entero, inicio: Hz, fin: Hz, puntos: entero, tipo: texto } }
+  configurar_ifbw:      { argumentos: { canal: entero, valor: Hz } }
+  configurar_potencia:  { argumentos: { canal: entero, valor: dBm } }
+  definir_parametros_s: { argumentos: { canal: entero, parametros: lista } }   # p. ej. [S11, S21]
+  barrido_unico:        { argumentos: { canal: entero } }                     # bloquea hasta terminar
+  barrido_continuo:     { argumentos: { canal: entero, activo: booleano } }
+  leer_frecuencias:     { argumentos: { canal: entero }, devuelve: vector_Hz }
+  leer_parametro_s:     { argumentos: { canal: entero, parametro: texto }, devuelve: vector_complejo }
+  cargar_calibracion:   { argumentos: { canal: entero, nombre: texto } }
+  estado_calibracion:   { argumentos: { canal: entero }, devuelve: booleano }
+  guardar_touchstone:   { argumentos: { canal: entero, puertos: lista, fichero: texto }, opcional: true }
+  leer_errores:         { devuelve: lista }
+
+especificaciones:               # vocabulario admitido en los ficheros de especificaciones
+  # Datos de sistema efectivos (errores residuales tras calibrar con un kit dado)
+  directividad_efectiva:            { unidad: dB }
+  adaptacion_fuente_efectiva:       { unidad: dB }
+  seguimiento_reflexion_efectivo:   { unidad: dB }
+  adaptacion_carga_efectiva:        { unidad: dB }
+  seguimiento_transmision_efectivo: { unidad: dB }
+  aislamiento_efectivo:             { unidad: dB }
+  # Receptor / fuente
+  ruido_traza_magnitud:             { unidad: dB,  nota: "valor rms" }
+  ruido_traza_fase:                 { unidad: deg, nota: "valor rms" }
+  rango_dinamico:                   { unidad: dB,  nota: "referido a una IFBW" }
+  linealidad_receptor:              { unidad: dB }
+  exactitud_potencia:               { unidad: dB }
+  deriva_temperatura_magnitud:      { unidad: dB/K }
+  deriva_temperatura_fase:          { unidad: deg/K }
+  # Incertidumbre de medida ya combinada (si el fabricante o el lab la da así)
+  incertidumbre_transmision_magnitud: { unidad: dB,  depende_de: [frecuencia, nivel_S21] }
+  incertidumbre_transmision_fase:     { unidad: deg, depende_de: [frecuencia, nivel_S21] }
+  incertidumbre_reflexion_magnitud:   { unidad: lineal, depende_de: [frecuencia, modulo_S11] }
+  incertidumbre_reflexion_fase:       { unidad: deg,    depende_de: [frecuencia, modulo_S11] }

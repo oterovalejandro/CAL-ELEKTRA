@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HARDWARE SETUP ESPECIALIZADO: impedancia de LISN / AMN (CISPR 16-1-2)
+# Extiende el setup genérico reflexion_1p: hereda todo y solo redefine o
+# añade lo que cambia.
+# BORRADOR v0.1
+# ─────────────────────────────────────────────────────────────────────────────
+formato: calmc/hardware_setup@0.1
+id: lisn_impedancia
+extiende: reflexion_1p
+nombre: "Impedancia de LISN/AMN en el terminal EUT — VNA 1 puerto"
+version: 0.1
+estado: borrador
+
+rango_medida_tipico: [9 kHz, 30 MHz]   # depende de la red nominal de la LISN
+# ⚠ El VNA supuesto (ZNB43) empieza en 100 kHz: la validación avisará de que
+#   no cubre 9 kHz – 100 kHz. Hace falta otro equipo o limitar el rango.
+
+roles:
+  dut:
+    categoria: lisn
+    es_dut: true
+    puerto_medida: "EUT.{linea}"       # el terminal de la línea seleccionada
+    ajustes:                           # estado de la LISN durante la medida
+      filtro_paso_alto: { por_defecto: desactivado }
+      limitador_pulsos: { por_defecto: desactivado }
+      mano_artificial:  { por_defecto: desconectada }
+  adaptador_p1:
+    categoria: adaptador_lisn          # del terminal EUT (schuko, bornas…) a conector N
+    cardinalidad: "1"
+    tratamiento:                       # una de las dos opciones (a decidir)
+      opciones: [calibrar_en_salida_del_adaptador, deembedding_con_s2p_del_certificado]
+  carga_receptor:
+    categoria: carga
+    requisitos: ["impedancia = 50 ohm", "RL ≥ especificado en el procedimiento"]
+  terminacion_red:
+    categoria: terminacion            # estado del puerto de red según procedimiento
+    cardinalidad: "0..1"
+
+estados_conexion:
+  medida:
+    conexiones:
+      - [vna.P1, cable_p1.A]
+      - [cable_p1.B, adaptador_p1.A]
+      - [adaptador_p1.B, "dut.EUT.{linea}"]
+      - [dut.RX, carga_receptor.P]
+      - [dut.RED, terminacion_red.P]
+
+ejes:
+  linea:
+    valores: "dut.lineas"              # p. ej. [L1, N] o [L1, L2, L3, N]
+    actuador:
+      si: "dut.control == remoto"
+      entonces: dut.selector_linea     # como el control TTL de LISN en ELEKTRA
+      si_no: manual
+    instruccion_operador: "Seleccione la línea {linea} en la LISN y confirme"
+
+resultados:                            # añade a los heredados (Z, |Z|, fase…)
+  - { id: modulo_Z_nominal, unidad: ohm, desde: "tabla_normativa(dut.red_nominal)" }
+  - { id: fase_Z_nominal,   unidad: deg, desde: "tabla_normativa(dut.red_nominal)" }
+  - { id: desviacion_modulo_pct, unidad: "%", ecuacion: "100*(modulo_Z - modulo_Z_nominal)/modulo_Z_nominal" }
+  - { id: desviacion_fase,       unidad: deg, ecuacion: "fase_Z - fase_Z_nominal" }
+
+criterio:                              # CISPR 16-1-2 (a confirmar con vuestra edición)
+  - { magnitud: desviacion_modulo_pct, tolerancia: 20 }
+  - { magnitud: desviacion_fase,       tolerancia: 11.5 }
+
+graficas:
+  - { titulo: "|Z| por línea",  y: [modulo_Z], referencia: modulo_Z_nominal, banda: "±20 %", por: linea, combinada: true }
+  - { titulo: "Fase Z por línea", y: [fase_Z], referencia: fase_Z_nominal,  banda: "±11,5°", por: linea, combinada: true }
+
+pendiente:
+  - "¿Entran también factor de división de tensión y aislamiento? (son de 2 puertos → componente_2p con la LISN como DUT)"
+  - "Estado exigido del puerto de red durante la medida"
+  - "Adaptador: calibrar en su salida o hacer de-embedding con su S2P"
