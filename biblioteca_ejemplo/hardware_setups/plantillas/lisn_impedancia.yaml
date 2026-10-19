@@ -1,0 +1,32 @@
+# Especialización de reflexion_1p para la impedancia de LISN/AMN (CISPR 16-1-2).
+# Hereda roles y estados; aquí solo se redefine o añade lo que cambia.
+formato: calelektra/plantilla_setup@0.2
+id: lisn_impedancia
+extiende: reflexion_1p
+nombre: Impedancia de LISN/AMN — VNA 1 puerto
+version: 0.2
+estado: borrador
+rango_medida: [9 kHz, 30 MHz]
+roles:
+  dut:
+    categoria: lisn
+    etiqueta: LISN (DUT)
+  adaptador_p1:
+    etiqueta: Adaptador de calibración LISN
+    cardinalidad: "1"
+    tipos: [lisn]
+  carga_receptor:
+    categoria: carga
+    etiqueta: Carga 50 Ω (puerto receptor)
+    tipos: [carga_50]
+ejes:
+  linea:
+    descripcion: Línea de la LISN bajo medida (L1, N, …)
+    actuador: dut          # remoto si la LISN lo permite; si no, manual con confirmación
+estados_conexion:
+  medida:
+    conexiones:
+      - [vna.P1, cable_p1.A]
+      - [cable_p1.B, adaptador_p1.A]
+      - [adaptador_p1.B, dut.EUT]
+      - [dut.RX, carga_receptor.P]

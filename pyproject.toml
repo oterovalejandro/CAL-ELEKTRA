@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cal-elektra"
+version = "0.1.0"
+description = "Software para laboratorio de calibración de equipos de MC: catálogo de equipos, hardware setups y control de VNA"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6-Essentials>=6.8",
+    "pyqtgraph>=0.13.7",
+    "numpy>=1.26",
+    "PyYAML>=6.0",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.gui-scripts]
+cal-elektra = "calelektra.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

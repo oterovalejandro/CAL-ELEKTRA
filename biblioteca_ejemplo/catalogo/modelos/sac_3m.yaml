@@ -1,0 +1,9 @@
+formato: calelektra/modelo@0.2
+id: sac_3m
+categoria: recinto
+fabricante: Laboratorio
+modelo: Cámara semianecoica 3 m
+parametros:
+  tipo: SAC
+  distancia_medida_m: 3
+  volumen_ensayo: { diametro_m: 2.0, altura_m: 2.0 }   # EJEMPLO

@@ -1,0 +1,10 @@
+formato: calelektra/categoria@0.2
+id: carga
+nombre: Carga / terminación
+clase: pasivo
+rf: true
+puertos: [P]
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }
+  tipo:             { valores: [carga_50, cortocircuito, abierto] }
+  conector:         { tipo: conector }

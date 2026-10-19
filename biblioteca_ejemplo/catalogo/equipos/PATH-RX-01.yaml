@@ -1,0 +1,10 @@
+# Path de la antena receptora
+formato: calelektra/equipo@0.2
+id: PATH-RX-01
+modelo: path_camara
+estado: en_servicio
+datos_s:
+  fichero: ../datos_s/PATH-RX-01.s2p
+  referencia: "EJEMPLO — medida interna MI-2026-051 (datos sintéticos)"
+  fecha: 2026-05-20
+ubicacion: Cámara SAC — lado mástil receptor

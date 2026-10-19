@@ -1,0 +1,10 @@
+formato: calelektra/categoria@0.2
+id: preamplificador
+nombre: Preamplificador
+clase: pasivo
+rf: true
+requiere_datos_s: true
+puertos_datos_s: 2
+puertos: [IN, OUT]
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }

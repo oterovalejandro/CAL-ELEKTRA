@@ -1,0 +1,20 @@
+formato: calelektra/setup@0.2
+id: sac_nsa_3m
+nombre: NSA cámara SAC 3 m
+plantilla: sac_nsa
+rango_requerido: [30 MHz, 1 GHz]
+asignaciones:
+  recinto: SAC-01
+  vna: VNA-01
+  path_tx: PATH-TX-01
+  path_rx: PATH-RX-01
+  adaptador_through: ADP-THRU-N-01
+  soporte_tx: MAST-01
+  soporte_rx: MAST-02
+segmentos:
+  - nombre: Bicónicas
+    rango: [30 MHz, 200 MHz]
+    asignaciones: { antena_tx: BIC-01, antena_rx: BIC-02 }
+  - nombre: Log-periódicas
+    rango: [200 MHz, 1 GHz]
+    asignaciones: { antena_tx: LPDA-01, antena_rx: LPDA-02 }

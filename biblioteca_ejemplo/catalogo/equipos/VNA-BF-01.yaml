@@ -1,0 +1,7 @@
+# VNA de baja frecuencia (modelo pendiente)
+formato: calelektra/equipo@0.2
+id: VNA-BF-01
+modelo: vna_bf_pendiente
+estado: en_servicio
+conexion: { simulado: true }
+calibracion: { certificado: "EJEMPLO-VNABF-2026", fecha: 2026-03-01, proxima: 2027-03-01 }

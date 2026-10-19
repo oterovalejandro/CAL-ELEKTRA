@@ -1,0 +1,6 @@
+# Mástil automatizado (emisora)
+formato: calelektra/equipo@0.2
+id: MAST-01
+modelo: mastil_automatizado
+estado: en_servicio
+ubicacion: Cámara SAC — antena emisora

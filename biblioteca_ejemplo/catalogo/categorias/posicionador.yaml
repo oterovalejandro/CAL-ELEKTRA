@@ -1,0 +1,16 @@
+# Mástil, trípode, mesa giratoria o carril. Expone EJES; si no está
+# motorizado (trípode), el software pedirá confirmación al operador.
+formato: calelektra/categoria@0.2
+id: posicionador
+nombre: Posicionador (mástil, trípode, mesa, carril)
+clase: posicionador
+rf: false
+puertos: []
+parametros:
+  motorizado: { tipo: booleano }
+  ejes:       { tipo: mapa }
+operaciones:
+  mover:           { argumentos: { eje: texto, valor: numero_o_texto } }
+  esperar_llegada: { argumentos: { eje: texto } }
+  leer_posicion:   { argumentos: { eje: texto } }
+  parar:           { argumentos: { eje: texto } }

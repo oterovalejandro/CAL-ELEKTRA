@@ -1,0 +1,77 @@
+# Cámara semianecoica — NSA, CISPR 16-1-4 método clásico con factores de
+# antena, siempre con VNA. Antenas por segmento de frecuencia (p. ej. bicónicas
+# y log-periódicas). Alturas y posiciones las fija la ejecución, no el setup.
+formato: calelektra/plantilla_setup@0.2
+id: sac_nsa
+nombre: SAC — NSA (método clásico) — VNA
+version: 0.2
+estado: borrador
+rango_medida: [30 MHz, 1 GHz]
+roles:
+  recinto:
+    categoria: recinto
+    etiqueta: Recinto (DUT)
+    es_dut: true
+  vna:
+    categoria: vna
+    etiqueta: VNA
+    puertos_min: 2
+  path_tx:
+    categoria: [path, cable_medida]
+    etiqueta: Path TX
+  path_rx:
+    categoria: [path, cable_medida]
+    etiqueta: Path RX
+  preamplificador:
+    categoria: preamplificador
+    etiqueta: Preamplificador
+    cardinalidad: "0..1"
+  adaptador_through:
+    categoria: adaptador
+    etiqueta: Through de normalización
+    tipos: [through]
+  antena_tx:
+    categoria: antena
+    etiqueta: Antena TX
+    por_segmento: true
+    tipos: [biconica, log_periodica, hibrida]
+    montado_en: soporte_tx
+  antena_rx:
+    categoria: antena
+    etiqueta: Antena RX
+    por_segmento: true
+    tipos: [biconica, log_periodica, hibrida]
+    montado_en: soporte_rx
+  soporte_tx:
+    categoria: posicionador
+    etiqueta: Mástil / trípode TX
+  soporte_rx:
+    categoria: posicionador
+    etiqueta: Mástil RX
+ejes:
+  altura_tx:    { actuador: soporte_tx }
+  polarizacion_tx: { actuador: soporte_tx }
+  altura_rx:    { actuador: soporte_rx }
+  polarizacion_rx: { actuador: soporte_rx }
+  posicion:     { actuador: manual, descripcion: Posición de la antena TX en el volumen de ensayo }
+calibracion_vna:
+  metodos: [normalizacion]
+  estado: normalizacion
+estados_conexion:
+  medida:
+    descripcion: Antenas montadas en sus soportes
+    conexiones:
+      - [vna.P1, path_tx.A]
+      - [path_tx.B, antena_tx.RF]
+      - { entre: [antena_tx.RF, antena_rx.RF], tipo: radiado }
+      - [antena_rx.RF, path_rx.B]
+      - [path_rx.A, preamplificador.OUT]
+      - [preamplificador.IN, vna.P2]
+  normalizacion:
+    descripcion: Antenas desconectadas; paths unidos con el through (V_DIRECTA)
+    conexiones:
+      - [vna.P1, path_tx.A]
+      - [path_tx.B, adaptador_through.A]
+      - [adaptador_through.B, path_rx.B]
+      - [path_rx.A, preamplificador.OUT]
+      - [preamplificador.IN, vna.P2]

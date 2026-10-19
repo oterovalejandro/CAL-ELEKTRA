@@ -1,0 +1,11 @@
+formato: calelektra/setup@0.2
+id: cable_N_18G
+nombre: Cable N hasta 18 GHz
+plantilla: componente_2p
+rango_requerido: [100 kHz, 18 GHz]
+asignaciones:
+  vna: VNA-01
+  cable_p1: CAB-PT-N-01
+  cable_p2: CAB-PT-N-02
+  kit_cal: KIT-N-01
+  dut: CAB-DUT-0001

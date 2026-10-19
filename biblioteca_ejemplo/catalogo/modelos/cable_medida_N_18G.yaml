@@ -1,0 +1,10 @@
+formato: calelektra/modelo@0.2
+id: cable_medida_n_18g
+categoria: cable_medida
+fabricante: Genérico
+modelo: Cable de medida N(m)–N(f) 18 GHz
+parametros:
+  rango_frecuencia: [DC, 18 GHz]
+  conector_a: { familia: N, genero: macho }
+  conector_b: { familia: N, genero: hembra }
+  longitud_m: 1.5

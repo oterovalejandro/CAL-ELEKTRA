@@ -1,0 +1,9 @@
+formato: calelektra/modelo@0.2
+id: antena_omni_svswr
+categoria: antena
+fabricante: Genérico
+modelo: Antena omnidireccional para S_VSWR
+parametros:
+  rango_frecuencia: [1 GHz, 18 GHz]
+  tipo: omnidireccional_svswr
+  polarizaciones: [H, V]

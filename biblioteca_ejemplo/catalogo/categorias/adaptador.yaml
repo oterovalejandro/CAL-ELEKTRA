@@ -1,0 +1,11 @@
+formato: calelektra/categoria@0.2
+id: adaptador
+nombre: Adaptador
+clase: pasivo
+rf: true
+puertos: [A, B]
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }
+  tipo:             { valores: [coaxial, through, lisn] }
+  conector_a:       { tipo: conector }
+  conector_b:       { tipo: conector }

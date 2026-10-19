@@ -1,0 +1,9 @@
+formato: calelektra/modelo@0.2
+id: kit_292_tosm
+categoria: kit_calibracion
+fabricante: Genérico
+modelo: Kit de calibración 2,92 mm (TOSM)
+parametros:
+  rango_frecuencia: [DC, 40 GHz]
+  conector: { familia: "2.92 mm" }
+  metodos: [OSM, TOSM, UOSM]

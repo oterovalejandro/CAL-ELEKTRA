@@ -1,0 +1,5 @@
+# Adaptador de calibración de LISN
+formato: calelektra/equipo@0.2
+id: ADP-LISN-01
+modelo: adaptador_lisn
+estado: en_servicio

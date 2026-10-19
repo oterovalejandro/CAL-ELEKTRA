@@ -1,0 +1,8 @@
+formato: calelektra/modelo@0.2
+id: carga_n_50
+categoria: carga
+fabricante: Genérico
+modelo: Carga N 50 Ω
+parametros:
+  rango_frecuencia: [DC, 18 GHz]
+  tipo: carga_50

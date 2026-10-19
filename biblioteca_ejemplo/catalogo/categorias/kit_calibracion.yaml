@@ -1,0 +1,11 @@
+formato: calelektra/categoria@0.2
+id: kit_calibracion
+nombre: Kit / unidad de calibración del VNA
+clase: pasivo
+rf: true
+requiere_calibracion: true
+puertos: []
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }
+  conector:         { tipo: conector }
+  metodos:          { tipo: lista, valores: [OSM, TOSM, UOSM, TRL, autocal] }

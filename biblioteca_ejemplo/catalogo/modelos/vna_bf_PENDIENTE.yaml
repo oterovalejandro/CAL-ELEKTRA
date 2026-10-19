@@ -1,0 +1,14 @@
+# VNA de baja frecuencia del laboratorio: modelo real PENDIENTE de identificar.
+# Rango supuesto 5 Hz – 3 GHz solo para poder trabajar con el dummy.
+formato: calelektra/modelo@0.2
+id: vna_bf_pendiente
+categoria: vna
+fabricante: "PENDIENTE"
+modelo: VNA baja frecuencia
+estado: PLANTILLA
+parametros:
+  rango_frecuencia: [5 Hz, 3 GHz]        # SUPUESTO
+  num_puertos: 2
+  potencia_salida_dbm: [-45, 10]         # SUPUESTO
+comunicacion:
+  driver: dummy

@@ -1,0 +1,12 @@
+formato: calelektra/categoria@0.2
+id: antena
+nombre: Antena
+clase: pasivo
+rf: true
+requiere_calibracion: true
+puertos: [RF]
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }
+  tipo:             { valores: [biconica, log_periodica, hibrida, bocina, omnidireccional_svswr] }
+  polarizaciones:   { tipo: lista }
+  conector:         { tipo: conector }

@@ -1,0 +1,6 @@
+# Bocina 1–18 GHz
+formato: calelektra/equipo@0.2
+id: HORN-01
+modelo: antena_bocina
+estado: en_servicio
+calibracion: { certificado: "EJEMPLO-HORN01", fecha: 2026-02-15, proxima: 2028-02-15 }

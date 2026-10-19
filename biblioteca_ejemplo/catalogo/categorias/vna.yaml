@@ -1,0 +1,38 @@
+# Categoría VNA (analizador vectorial de redes).
+# Define qué describe a cualquier VNA: parámetros, puertos, operaciones de alto
+# nivel (las implementa el driver de cada fabricante o el VNA dummy) y el
+# vocabulario de especificaciones/incertidumbre (se usará más adelante).
+formato: calelektra/categoria@0.2
+id: vna
+nombre: Analizador vectorial de redes (VNA)
+clase: instrumento
+rf: true
+requiere_calibracion: true
+puertos: { plantilla: "P{n}", cantidad: num_puertos }
+parametros:
+  rango_frecuencia:    { tipo: rango, unidad: Hz, obligatorio: true }
+  num_puertos:         { tipo: entero, min: 1, obligatorio: true }
+  conector_puertos:    { tipo: conector }
+  impedancia_ref:      { tipo: numero, unidad: ohm, por_defecto: 50 }
+  potencia_salida_dbm: { tipo: rango }
+  ifbw:                { tipo: rango_con_secuencia, unidad: Hz }
+  puntos_max:          { tipo: entero }
+operaciones:          # contrato de alto nivel (ver src/calelektra/instruments/base.py)
+  identificar:        { devuelve: texto }
+  preset:             {}
+  configurar_barrido: { argumentos: { inicio: Hz, fin: Hz, puntos: entero, tipo: texto } }
+  configurar_ifbw:    { argumentos: { valor: Hz } }
+  configurar_potencia: { argumentos: { valor: dBm } }
+  barrido_unico:      {}
+  leer_frecuencias:   { devuelve: vector_Hz }
+  leer_parametro_s:   { argumentos: { parametro: texto }, devuelve: vector_complejo }
+  estado_calibracion: { devuelve: booleano }
+especificaciones:     # vocabulario (la incertidumbre se integrará en un paso posterior)
+  directividad_efectiva:            { unidad: dB }
+  adaptacion_fuente_efectiva:       { unidad: dB }
+  seguimiento_reflexion_efectivo:   { unidad: dB }
+  adaptacion_carga_efectiva:        { unidad: dB }
+  seguimiento_transmision_efectivo: { unidad: dB }
+  ruido_traza_magnitud:             { unidad: dB }
+  rango_dinamico:                   { unidad: dB }
+  linealidad_receptor:              { unidad: dB }

@@ -1,0 +1,14 @@
+# Mástil automatizado. Fabricante, controlador y protocolo PENDIENTES.
+formato: calelektra/modelo@0.2
+id: mastil_automatizado
+categoria: posicionador
+fabricante: "PENDIENTE"
+modelo: Mástil de antena automatizado
+estado: PLANTILLA
+parametros:
+  motorizado: true
+  ejes:
+    altura: { tipo: lineal, rango: [1 m, 4 m] }
+    polarizacion: { tipo: discreto, valores: [H, V] }
+comunicacion:
+  driver: pendiente

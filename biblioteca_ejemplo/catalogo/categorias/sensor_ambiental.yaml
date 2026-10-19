@@ -1,0 +1,9 @@
+formato: calelektra/categoria@0.2
+id: sensor_ambiental
+nombre: Sensor ambiental
+clase: instrumento
+rf: false
+requiere_calibracion: true
+puertos: []
+parametros:
+  magnitudes: { tipo: lista }

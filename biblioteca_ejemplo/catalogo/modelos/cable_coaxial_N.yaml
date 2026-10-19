@@ -1,0 +1,9 @@
+formato: calelektra/modelo@0.2
+id: cable_coaxial_n
+categoria: cable
+fabricante: Genérico
+modelo: Cable coaxial N(m)–N(m)
+parametros:
+  rango_frecuencia: [DC, 18 GHz]
+  conector_a: { familia: N, genero: macho }
+  conector_b: { familia: N, genero: macho }

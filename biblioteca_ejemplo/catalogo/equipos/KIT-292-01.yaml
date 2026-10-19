@@ -1,0 +1,6 @@
+# Kit TOSM 2,92 mm
+formato: calelektra/equipo@0.2
+id: KIT-292-01
+modelo: kit_292_tosm
+estado: en_servicio
+calibracion: { certificado: "EJEMPLO-KIT292-2026", fecha: 2026-04-01, proxima: 2027-04-01 }

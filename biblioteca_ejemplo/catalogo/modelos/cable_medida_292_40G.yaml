@@ -1,0 +1,10 @@
+formato: calelektra/modelo@0.2
+id: cable_medida_292_40g
+categoria: cable_medida
+fabricante: Genérico
+modelo: Cable de medida 2,92 mm 40 GHz
+parametros:
+  rango_frecuencia: [DC, 40 GHz]
+  conector_a: { familia: "2.92 mm", genero: hembra }
+  conector_b: { familia: "2.92 mm", genero: macho }
+  longitud_m: 1.0

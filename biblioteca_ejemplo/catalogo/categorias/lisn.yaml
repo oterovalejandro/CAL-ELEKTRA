@@ -1,0 +1,11 @@
+formato: calelektra/categoria@0.2
+id: lisn
+nombre: LISN / red artificial (AMN)
+clase: pasivo
+rf: true
+puertos: [EUT, RX, RED]
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }
+  lineas:           { tipo: lista }
+  red_nominal:      { tipo: texto }
+  control:          { valores: [manual, remoto] }

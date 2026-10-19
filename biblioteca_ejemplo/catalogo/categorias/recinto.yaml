@@ -1,0 +1,10 @@
+formato: calelektra/categoria@0.2
+id: recinto
+nombre: Recinto de ensayo (cámara)
+clase: recinto
+rf: false
+puertos: []
+parametros:
+  tipo:              { valores: [SAC, FAR, OATS] }
+  distancia_medida_m: { tipo: numero }
+  volumen_ensayo:    { tipo: mapa }

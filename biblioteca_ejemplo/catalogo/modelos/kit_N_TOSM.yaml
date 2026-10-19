@@ -1,0 +1,9 @@
+formato: calelektra/modelo@0.2
+id: kit_n_tosm
+categoria: kit_calibracion
+fabricante: Genérico
+modelo: Kit de calibración N 50 Ω (TOSM)
+parametros:
+  rango_frecuencia: [DC, 18 GHz]
+  conector: { familia: N }
+  metodos: [OSM, TOSM, UOSM]

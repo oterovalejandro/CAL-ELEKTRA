@@ -1,0 +1,13 @@
+# Path: conjunto de componentes en serie (cable + pasamuros + cable…) tratado
+# como un único bloque caracterizado por su fichero S2P.
+formato: calelektra/categoria@0.2
+id: path
+nombre: Path (camino de señal compuesto)
+clase: pasivo
+rf: true
+requiere_datos_s: true
+puertos_datos_s: 2
+puertos: [A, B]
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }
+  componentes:      { tipo: lista }

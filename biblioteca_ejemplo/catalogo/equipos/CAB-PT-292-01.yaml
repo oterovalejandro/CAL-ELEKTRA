@@ -1,0 +1,9 @@
+# Cable de puerto 2,92 mm, 1 m
+formato: calelektra/equipo@0.2
+id: CAB-PT-292-01
+modelo: cable_medida_292_40g
+estado: en_servicio
+datos_s:
+  fichero: ../datos_s/CAB-PT-292-01.s2p
+  referencia: "EJEMPLO — medida interna MI-2026-040 con VNA-01 (datos sintéticos)"
+  fecha: 2026-07-01

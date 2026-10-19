@@ -1,0 +1,7 @@
+formato: calelektra/modelo@0.2
+id: path_camara
+categoria: path
+fabricante: Laboratorio
+modelo: Path de cámara (cable exterior + pasamuros + cable interior)
+parametros:
+  rango_frecuencia: [DC, 18 GHz]

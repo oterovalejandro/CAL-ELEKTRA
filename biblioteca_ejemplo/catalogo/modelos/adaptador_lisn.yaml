@@ -1,0 +1,8 @@
+formato: calelektra/modelo@0.2
+id: adaptador_lisn
+categoria: adaptador
+fabricante: Genérico
+modelo: Adaptador de calibración LISN (terminal EUT a N)
+parametros:
+  rango_frecuencia: [DC, 100 MHz]
+  tipo: lisn

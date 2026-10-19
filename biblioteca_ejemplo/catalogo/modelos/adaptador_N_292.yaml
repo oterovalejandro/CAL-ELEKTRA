@@ -1,0 +1,8 @@
+formato: calelektra/modelo@0.2
+id: adaptador_n_292
+categoria: adaptador
+fabricante: Genérico
+modelo: Adaptador N(f)–2,92 mm(m)
+parametros:
+  rango_frecuencia: [DC, 18 GHz]
+  tipo: coaxial

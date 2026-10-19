@@ -1,0 +1,61 @@
+# Cámara semianecoica — S_VSWR, CISPR 16-1-4 método estándar de 6 posiciones,
+# con VNA. Las posiciones y alturas las fija la ejecución, no el setup.
+formato: calelektra/plantilla_setup@0.2
+id: sac_svswr
+nombre: SAC — S_VSWR (6 posiciones) — VNA
+version: 0.2
+estado: borrador
+rango_medida: [1 GHz, 18 GHz]
+roles:
+  recinto:
+    categoria: recinto
+    etiqueta: Recinto (DUT)
+    es_dut: true
+  vna:
+    categoria: vna
+    etiqueta: VNA
+    puertos_min: 2
+  path_tx:
+    categoria: [path, cable_medida]
+    etiqueta: Path TX
+  path_rx:
+    categoria: [path, cable_medida]
+    etiqueta: Path RX
+  preamplificador:
+    categoria: preamplificador
+    etiqueta: Preamplificador
+    cardinalidad: "0..1"
+  antena_tx:
+    categoria: antena
+    etiqueta: Antena TX (omnidireccional)
+    tipos: [omnidireccional_svswr]
+    montado_en: soporte_tx
+  antena_rx:
+    categoria: antena
+    etiqueta: Antena RX (bocina)
+    tipos: [bocina]
+    montado_en: soporte_rx
+  soporte_tx:
+    categoria: posicionador
+    etiqueta: Mástil / trípode TX
+  soporte_rx:
+    categoria: posicionador
+    etiqueta: Mástil RX
+ejes:
+  desplazamiento_tx: { actuador: soporte_tx, descripcion: "6 posiciones hacia la antena RX" }
+  altura_tx:         { actuador: soporte_tx }
+  polarizacion_tx:   { actuador: soporte_tx }
+  altura_rx:         { actuador: soporte_rx }
+  polarizacion_rx:   { actuador: soporte_rx }
+  posicion:          { actuador: manual }
+calibracion_vna:
+  metodos: [ninguna_obligatoria]
+estados_conexion:
+  medida:
+    conexiones:
+      - [vna.P1, path_tx.A]
+      - [path_tx.B, antena_tx.RF]
+      - { entre: [antena_tx.RF, antena_rx.RF], tipo: radiado }
+      - [antena_rx.RF, path_rx.B]
+      - [path_rx.A, preamplificador.OUT]
+      - [preamplificador.IN, vna.P2]

@@ -1,0 +1,12 @@
+# Trípode: altura y polarización fijas durante la medida. El software pedirá
+# confirmación al operador antes de lanzar la medida (por definir).
+formato: calelektra/modelo@0.2
+id: tripode_manual
+categoria: posicionador
+fabricante: Genérico
+modelo: Trípode de antena (manual)
+parametros:
+  motorizado: false
+  ejes:
+    altura: { tipo: lineal, ajuste: manual }
+    polarizacion: { tipo: discreto, valores: [H, V], ajuste: manual }

@@ -1,0 +1,12 @@
+# Cable o componente coaxial de 2 puertos que se CALIBRA (DUT).
+# No necesita datos S previos: son el resultado de su calibración.
+formato: calelektra/categoria@0.2
+id: cable
+nombre: Cable / componente coaxial (a calibrar)
+clase: pasivo
+rf: true
+puertos: [A, B]
+parametros:
+  rango_frecuencia: { tipo: rango, unidad: Hz }
+  conector_a:       { tipo: conector }
+  conector_b:       { tipo: conector }
