@@ -5,7 +5,7 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
-capturas/
+/capturas/
 
 # ensayos ejecutados sobre la biblioteca de ejemplo (datos de ejecución)
 biblioteca_ejemplo/ensayos/

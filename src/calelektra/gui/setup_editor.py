@@ -1,13 +1,14 @@
 """Editor of a configured hardware setup.
 
-Diagram (left) + role panel (right) + coverage chart / segments / validation
-(bottom). Every change re-runs the setup analysis and refreshes the views.
+Diagram (left) + role panel (right) + coverage chart / compatibility checks /
+VNA calibration / segments / validation (bottom). Every change re-runs the
+setup analysis and refreshes the views.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -36,10 +37,13 @@ from calelektra.catalog.library import Library
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.issues import Issue, Severity
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
+from calelektra.core.connectors import GENDERS
 from calelektra.gui import style
 from calelektra.gui.coverage_widget import CoverageWidget
+from calelektra.gui.icons import icon
 from calelektra.gui.setup_diagram import SetupDiagramView
-from calelektra.setups.analysis import SetupAnalysis, analyze_setup
+from calelektra.setups.analysis import Check, SetupAnalysis, analyze_setup
+from calelektra.setups.connections import CalibrationDesign
 from calelektra.setups.model import ConfiguredSetup, Role, Segment, SetupTemplate
 
 UNASSIGNED = "— sin asignar —"
@@ -207,10 +211,17 @@ class RolePanel(QWidget):
             parts.append(f"Nº serie: {equipment.serial_number}")
         parts.append(f"<b>Rango útil:</b> {info.range if info.range else 'sin definir'}")
         parts.extend(f"&nbsp;&nbsp;· {source}" for source in info.sources)
+        connectors = []
+        for port in self.library.ports_of(equipment):
+            connector = self.library.port_connector(equipment, port.name)
+            if connector is not None:
+                connectors.append(f"{port.name}: {connector.label()}")
+        if connectors:
+            parts.append("<b>Conectores:</b> " + " · ".join(connectors))
         if equipment.calibration and equipment.calibration.due:
             parts.append(f"Calibración válida hasta: {equipment.calibration.due:%d/%m/%Y}")
         if equipment.connection and equipment.connection.simulated:
-            parts.append("<i>Equipo en simulación (VNA dummy)</i>")
+            parts.append("<i>Instrumento en simulación</i>")
         return "<br>".join(parts)
 
 
@@ -334,9 +345,110 @@ class IssuesTree(QTreeWidget):
             self.role_requested.emit(role)
 
 
+class ChecksTable(QTreeWidget):
+    """Compatibility of the setup: requirements on the fields, connectors and calibration."""
+
+    role_requested = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setColumnCount(4)
+        self.setHeaderLabels(["Comprobación", "Resultado", "Detalle", "Segmento"])
+        self.setRootIsDecorated(True)
+        self.setWordWrap(True)
+        self.header().setStretchLastSection(False)
+        self.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+    def load(self, checks: list[Check]) -> None:
+        self.clear()
+        groups: dict[str, QTreeWidgetItem] = {}
+        icons = {"Requisito": "procedimientos", "Conexión": "cable", "Calibración": "vna"}
+        titles = {"Requisito": "Requisitos sobre los campos", "Conexión": "Conectores de cada conexión", "Calibración": "Calibración del VNA"}
+        for check in checks:
+            group = groups.get(check.group)
+            if group is None:
+                group = QTreeWidgetItem([titles.get(check.group, check.group), "", "", ""])
+                group.setIcon(0, icon(icons.get(check.group, "info"), style.PRIMARY.name()))
+                font = group.font(0)
+                font.setBold(True)
+                group.setFont(0, font)
+                self.addTopLevelItem(group)
+                groups[check.group] = group
+            item = QTreeWidgetItem([check.subject, style.status_text(check.status), check.detail, check.segment or ""])
+            item.setIcon(1, style.status_icon(check.status))
+            item.setForeground(1, style.status_color(check.status))
+            item.setToolTip(0, check.subject)
+            item.setToolTip(2, check.detail)
+            group.addChild(item)
+        for group in groups.values():
+            worst = max((group.child(i).text(1) for i in range(group.childCount())), key=lambda t: {"Error": 3, "Sin datos": 2, "Aviso": 2}.get(t, 0), default="")
+            counts = sum(1 for i in range(group.childCount()) if group.child(i).text(1) in ("Error", "Aviso", "Sin datos"))
+            group.setText(1, f"{counts} incidencia(s)" if counts else "correcto")
+            group.setIcon(1, style.status_icon("error" if worst == "Error" else ("aviso" if counts else "ok")))
+        self.expandAll()
+        self.resizeColumnToContents(0)
+        self.setColumnWidth(0, min(max(self.columnWidth(0), 260), 470))
+        self.resizeColumnToContents(1)
+        self.setColumnHidden(3, not any(check.segment for check in checks))
+
+
+class CalibrationPanel(QWidget):
+    """How the VNA ports will be calibrated (planes, method, kit), designed from the fields."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
+        self.planes = style.make_table(["Plano", "Puerto VNA", "Dónde", "Conector", "Estándares necesarios"], stretch_column=2)
+        self.planes.setMaximumHeight(110)
+        self.checks = QListWidget()
+        self.checks.setWordWrap(True)
+        layout.addWidget(self.summary)
+        layout.addWidget(self.planes)
+        layout.addWidget(self.checks, 1)
+
+    def load(self, design: CalibrationDesign | None) -> None:
+        self.planes.setRowCount(0)
+        self.checks.clear()
+        if design is None or design.method is None:
+            reason = design.reason if design else "La plantilla no define la calibración del VNA"
+            self.summary.setText(f"<b>Sin calibración de puertos.</b> {reason}.")
+            self.planes.setVisible(False)
+            return
+        self.planes.setVisible(True)
+        kit = f"«{design.kit.id}»" + (f" — en el VNA: <i>{design.kit_name}</i>" if design.kit_name else "") if design.kit else "sin kit asignado"
+        self.summary.setText(f"<b>Método: {design.method}</b> — {design.reason}.<br><b>Kit:</b> {kit}")
+        for plane in design.planes:
+            connector = plane.connector
+            standards = "—"
+            if connector is not None and connector.gender in ("macho", "hembra"):
+                standards = f"Open / Short / Match {GENDERS[connector.mating_gender()]}"
+            elif connector is not None:
+                standards = "Open / Short / Match"
+            values = [
+                plane.name,
+                str(plane.vna_port or "?"),
+                plane.endpoint.text() if plane.endpoint else "sin equipo",
+                connector.label() if connector else "—",
+                standards,
+            ]
+            row = self.planes.rowCount()
+            self.planes.insertRow(row)
+            for column, value in enumerate(values):
+                self.planes.setItem(row, column, QTableWidgetItem(value))
+        self.planes.resizeColumnsToContents()
+        for severity, message in design.checks:
+            self.checks.addItem(QListWidgetItem(style.severity_icon(self, severity), message))
+        if not design.checks:
+            self.checks.addItem(QListWidgetItem(style.severity_icon(self, None), "Kit, conectores y métodos compatibles"))
+
+
 class SetupEditor(QWidget):
     saved = Signal(str)
     dirty_changed = Signal(bool)
+    new_test = Signal(str)
 
     def __init__(self, library: Library, setup: ConfiguredSetup, is_new: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
@@ -355,6 +467,7 @@ class SetupEditor(QWidget):
     # ── layout ─────────────────────────────────────────────────────────────
     def _build(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 8)
         header = QHBoxLayout()
         controls = QHBoxLayout()
         self.name_edit = QLineEdit(self.setup.name)
@@ -371,9 +484,20 @@ class SetupEditor(QWidget):
         self.state_combo = QComboBox()
         for state_name in (self.template.connection_states if self.template else {}):
             self.state_combo.addItem(state_name)
+        if self.state_combo.findText("medida") >= 0:
+            self.state_combo.setCurrentIndex(self.state_combo.findText("medida"))
         self.state_combo.currentIndexChanged.connect(lambda _i: self._redraw_diagram())
-        self.save_button = QPushButton("Guardar")
+        self.action_save = QAction(icon("guardar", style.PRIMARY.name()), "Guardar", self)
+        self.action_save.triggered.connect(self.save)
+        self.action_test = QAction(icon("ejecutar", style.OK.name()), "Nuevo\nensayo", self)
+        self.action_test.triggered.connect(self._new_test)
+        self.action_fit = QAction(icon("buscar", style.PRIMARY.name()), "Ajustar\nvista", self)
+        self.action_fit.triggered.connect(lambda: self.diagram.fit())
+        self.save_button = QPushButton(icon("guardar", "#ffffff"), "Guardar")
+        self.save_button.setObjectName("primary")
         self.save_button.clicked.connect(self.save)
+        self.test_button = QPushButton(icon("ejecutar", style.OK.name()), "Nuevo ensayo…")
+        self.test_button.clicked.connect(self._new_test)
         fit_button = QPushButton("Ajustar vista")
         fit_button.clicked.connect(lambda: self.diagram.fit())
         self.badge = style.StatusBadge()
@@ -392,6 +516,7 @@ class SetupEditor(QWidget):
         controls.addWidget(self.state_combo)
         controls.addStretch(1)
         controls.addWidget(fit_button)
+        controls.addWidget(self.test_button)
         controls.addWidget(self.save_button)
         layout.addLayout(header)
         layout.addLayout(controls)
@@ -420,10 +545,14 @@ class SetupEditor(QWidget):
         self.segments_panel.changed.connect(self._changed)
         self.issues = IssuesTree()
         self.issues.role_requested.connect(self._role_clicked)
+        self.checks = ChecksTable()
+        self.calibration_panel = CalibrationPanel()
         self.bottom_tabs = QTabWidget()
-        self.bottom_tabs.addTab(coverage_scroll, "Cobertura en frecuencia")
-        self.bottom_tabs.addTab(self.segments_panel, "Segmentos de frecuencia")
-        self.bottom_tabs.addTab(self.issues, "Validación")
+        self.bottom_tabs.addTab(coverage_scroll, icon("grafica", style.PRIMARY.name()), "Cobertura en frecuencia")
+        self.bottom_tabs.addTab(self.checks, icon("ok", style.PRIMARY.name()), "Compatibilidad")
+        self.bottom_tabs.addTab(self.calibration_panel, icon("vna", style.PRIMARY.name()), "Calibración del VNA")
+        self.bottom_tabs.addTab(self.segments_panel, icon("ajustes", style.PRIMARY.name()), "Segmentos de frecuencia")
+        self.bottom_tabs.addTab(self.issues, icon("aviso", style.PRIMARY.name()), "Validación")
 
         vertical = QSplitter(Qt.Orientation.Vertical)
         vertical.addWidget(top)
@@ -440,9 +569,17 @@ class SetupEditor(QWidget):
         self.coverage.set_analysis(self.analysis)
         self.segments_panel.load(self.setup)
         self.issues.load(self.analysis.issues)
+        self.checks.load(self.analysis.checks)
+        self.calibration_panel.load(self.analysis.calibration)
         errors = sum(1 for i in self.analysis.issues if i.severity is Severity.ERROR)
         warnings = sum(1 for i in self.analysis.issues if i.severity is Severity.WARNING)
-        self.bottom_tabs.setTabText(2, f"Validación ({errors} errores, {warnings} avisos)")
+        failed = sum(1 for c in self.analysis.checks if c.status not in ("ok", "info"))
+        self.bottom_tabs.setTabText(1, f"Compatibilidad ({failed} incidencias)" if failed else "Compatibilidad")
+        method = self.analysis.calibration.method if self.analysis.calibration else None
+        self.bottom_tabs.setTabText(2, f"Calibración del VNA ({method})" if method else "Calibración del VNA")
+        self.bottom_tabs.setTabText(4, f"Validación ({errors} errores, {warnings} avisos)")
+        self.test_button.setEnabled(self.analysis.ok and not self.dirty)
+        self.action_test.setEnabled(self.test_button.isEnabled())
         if self.template:
             self.role_panel.show_role(self.template, self.setup, self.selected_role, self.analysis)
 
@@ -471,6 +608,17 @@ class SetupEditor(QWidget):
         if self.dirty != dirty:
             self.dirty = dirty
             self.dirty_changed.emit(dirty)
+        if hasattr(self, "test_button") and self.analysis is not None:
+            self.test_button.setEnabled(self.analysis.ok and not self.dirty)
+            self.test_button.setToolTip("Guarde el setup para lanzar un ensayo" if self.dirty else "")
+            self.action_test.setEnabled(self.test_button.isEnabled())
+
+    def _new_test(self) -> None:
+        if not self.dirty and self.analysis is not None and self.analysis.ok:
+            self.new_test.emit(self.setup.id)
+
+    def ribbon_actions(self) -> list[QAction | None]:
+        return [self.action_save, None, self.action_test, None, self.action_fit]
 
     def _changed(self) -> None:
         self._set_dirty()

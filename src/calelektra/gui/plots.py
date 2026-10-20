@@ -1,6 +1,8 @@
-"""Dialogs with charts: S-parameters of an equipment and the VNA functional check."""
+"""Charts of S-parameters (pyqtgraph) and the dialogs that use them."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
@@ -24,80 +26,176 @@ from PySide6.QtWidgets import (
 
 from calelektra.catalog.library import Library
 from calelektra.catalog.model import Equipment
-from calelektra.core.touchstone import TouchstoneError
+from calelektra.core.networks import gamma_to_impedance
+from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError, parse_frequency
+from calelektra.gui import style
 from calelektra.instruments.base import InstrumentError
 from calelektra.instruments.dummy_vna import DummyVna
-from calelektra.instruments.simulation import touchstone_model
 from calelektra.instruments.factory import open_vna
+from calelektra.instruments.simulation import touchstone_model
 
 TRACE_COLORS = {"S11": "#2b7bb9", "S21": "#c0392b", "S12": "#d98a00", "S22": "#2e8b57"}
+DATASET_COLORS = ["#2b7bb9", "#c0392b", "#2e8b57", "#d98a00", "#7b5ea7", "#4f8a8b", "#8d6e63"]
+MODES = {
+    "db": ("Magnitud", "dB"),
+    "fase": ("Fase", "°"),
+    "z": ("Impedancia |Z|", "Ω"),
+}
 
 pg.setConfigOptions(antialias=True, background="w", foreground="#2c3e50")
 
 
-def _frequency_axis_plot() -> pg.PlotWidget:
-    plot = pg.PlotWidget()
-    plot.showGrid(x=True, y=True, alpha=0.25)
-    plot.setLabel("bottom", "Frecuencia", units="Hz")
-    plot.setLabel("left", "Magnitud", units="dB")
-    plot.addLegend(offset=(10, 10))
-    return plot
-
-
 def _db(values: np.ndarray) -> np.ndarray:
     with np.errstate(divide="ignore"):
-        return 20 * np.log10(np.abs(values))
+        return 20 * np.log10(np.maximum(np.abs(values), 1e-15))
+
+
+class SParameterPlot(QWidget):
+    """Magnitude, phase or impedance of one or several S-parameter data sets."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.datasets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self.visible: dict[str, bool] = {}
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        controls = QHBoxLayout()
+        self.mode = QComboBox()
+        for key, (name, unit) in MODES.items():
+            self.mode.addItem(f"{name} ({unit})", key)
+        self.mode.currentIndexChanged.connect(lambda _i: self.redraw())
+        self.log_x = QCheckBox("Frecuencia logarítmica")
+        self.log_x.toggled.connect(lambda _on: self.redraw())
+        controls.addWidget(self.mode)
+        controls.addWidget(self.log_x)
+        controls.addSpacing(12)
+        self.trace_boxes = QHBoxLayout()
+        controls.addLayout(self.trace_boxes)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        self.plot = pg.PlotWidget()
+        self.plot.showGrid(x=True, y=True, alpha=0.25)
+        self.plot.setLabel("bottom", "Frecuencia", units="Hz")
+        self.legend = self.plot.addLegend(offset=(10, 10))
+        layout.addWidget(self.plot, 1)
+        self.empty = pg.TextItem("Sin datos", color="#8a94a3", anchor=(0.5, 0.5))
+        self.redraw()
+
+    def clear(self) -> None:
+        self.datasets.clear()
+        self.visible.clear()
+        self.redraw()
+
+    def set_data(self, name: str, frequencies: np.ndarray, s: np.ndarray, log_x: bool | None = None) -> None:
+        if s.ndim == 1:
+            s = s[:, None, None]
+        self.datasets[name] = (np.asarray(frequencies, dtype=float), np.asarray(s))
+        if log_x is not None:
+            self.log_x.blockSignals(True)
+            self.log_x.setChecked(bool(log_x))
+            self.log_x.blockSignals(False)
+        self.redraw()
+
+    def _traces(self) -> list[tuple[str, str, np.ndarray, np.ndarray, str]]:
+        """(trace key, label, f, values, colour) of every parameter of every data set."""
+        traces = []
+        several = len(self.datasets) > 1
+        for index, (dataset, (f, s)) in enumerate(self.datasets.items()):
+            n = s.shape[1]
+            for i in range(n):
+                for j in range(n):
+                    name = f"S{i + 1}{j + 1}"
+                    label = f"{dataset} · {name}" if several else name
+                    color = DATASET_COLORS[index % len(DATASET_COLORS)] if several and n == 1 else TRACE_COLORS.get(name, "#555")
+                    traces.append((label, name, f, s[:, i, j], color))
+        return traces
+
+    def redraw(self) -> None:
+        self.plot.clear()
+        self.legend.clear()
+        while self.trace_boxes.count():
+            widget = self.trace_boxes.takeAt(0).widget()
+            if widget:
+                widget.deleteLater()
+        mode = self.mode.currentData()
+        name, unit = MODES[mode]
+        self.plot.setLabel("left", name, units=unit if mode != "db" else None)
+        if mode == "db":
+            self.plot.setLabel("left", "Magnitud (dB)")
+        traces = self._traces()
+        if not traces:
+            self.plot.addItem(self.empty)
+            self.empty.setPos(0.5, 0.5)
+            return
+        log_x = self.log_x.isChecked() and all(f[0] > 0 for f, _ in self.datasets.values())
+        self.plot.setLogMode(x=log_x, y=False)
+        for label, parameter, f, values, color in traces:
+            reflection = parameter[1] == parameter[2]
+            if mode == "z" and not reflection:
+                continue
+            self.visible.setdefault(label, True)
+            box = QCheckBox(label)
+            box.setChecked(self.visible[label])
+            box.setStyleSheet(f"QCheckBox {{ color: {color}; font-weight: 600; }}")
+            box.toggled.connect(lambda on, key=label: self._toggle(key, on))
+            self.trace_boxes.addWidget(box)
+            if not self.visible[label]:
+                continue
+            if mode == "db":
+                y = _db(values)
+            elif mode == "fase":
+                y = np.degrees(np.angle(values))
+            else:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    y = np.abs(gamma_to_impedance(values))
+            self.plot.plot(np.maximum(f, 1e-3), y, pen=pg.mkPen(color, width=2), name=label)
+
+    def _toggle(self, key: str, on: bool) -> None:
+        self.visible[key] = on
+        self.redraw()
 
 
 class SParameterDialog(QDialog):
-    """|Sij| in dB of the Touchstone file of an equipment."""
+    """S-parameters of the Touchstone file of an equipment (or of any file)."""
 
-    def __init__(self, library: Library, equipment: Equipment, parent: QWidget | None = None):
+    def __init__(self, library: Library | None, equipment: Equipment | None, parent: QWidget | None = None, path: Path | None = None):
         super().__init__(parent)
-        self.setWindowTitle(f"Parámetros S — {equipment.id}")
-        self.resize(900, 560)
+        self.resize(980, 600)
         layout = QVBoxLayout(self)
         try:
-            data = library.touchstone_of(equipment)
-        except TouchstoneError as exc:
+            if equipment is not None and library is not None:
+                data = library.touchstone_of(equipment)
+                title = equipment.id
+                reference = equipment.s_parameters.reference if equipment.s_parameters else ""
+                source = equipment.s_parameters.file if equipment.s_parameters else ""
+            else:
+                assert path is not None
+                data = read_touchstone(path)
+                title, reference, source = path.name, "", str(path)
+        except (TouchstoneError, AssertionError) as exc:
+            self.setWindowTitle("Parámetros S")
             layout.addWidget(QLabel(f"No se pueden leer los datos S: {exc}"))
             return
-        reference = equipment.s_parameters.reference if equipment.s_parameters else ""
-        layout.addWidget(
-            QLabel(f"<b>{equipment.s_parameters.file}</b> — {reference}<br>{data.n_ports} puertos, {len(data.frequencies)} puntos, {data.frequency_range}")
+        self.setWindowTitle(f"Parámetros S — {title}")
+        header = style.PageHeader(
+            f"Parámetros S — {title}",
+            f"{Path(source).name}{' — ' + reference if reference else ''} · {data.n_ports} puertos · {len(data.frequencies)} puntos · {data.frequency_range}",
         )
-        controls = QHBoxLayout()
-        self.plot = _frequency_axis_plot()
-        self.log_x = QCheckBox("Eje X logarítmico")
-        self.log_x.setChecked(True)
-        self.log_x.toggled.connect(lambda on: self.plot.setLogMode(x=on, y=False))
-        controls.addWidget(self.log_x)
-        self.curves = {}
-        frequencies = np.maximum(data.frequencies, 1e-3)
-        for i in range(data.n_ports):
-            for j in range(data.n_ports):
-                name = f"S{i + 1}{j + 1}"
-                curve = self.plot.plot(frequencies, data.s_db(name), pen=pg.mkPen(TRACE_COLORS.get(name, "#555"), width=2), name=name)
-                self.curves[name] = curve
-                box = QCheckBox(name)
-                box.setChecked(True)
-                box.toggled.connect(curve.setVisible)
-                controls.addWidget(box)
-        controls.addStretch(1)
-        self.plot.setLogMode(x=True, y=False)
-        layout.addLayout(controls)
-        layout.addWidget(self.plot)
+        layout.addWidget(header)
+        self.plot = SParameterPlot()
+        self.plot.set_data(title, data.frequencies, data.s, log_x=bool(data.frequencies[0] > 0))
+        layout.addWidget(self.plot, 1)
 
 
 class VnaCheckDialog(QDialog):
-    """Functional check of a VNA through the high-level interface (dummy VNA for now)."""
+    """Functional check of a VNA through the high-level interface (raw sweep, no calibration)."""
 
     def __init__(self, library: Library, equipment: Equipment, parent: QWidget | None = None):
         super().__init__(parent)
         self.library = library
         self.setWindowTitle(f"Comprobación funcional — {equipment.id}")
-        self.resize(1100, 680)
+        self.resize(1150, 700)
         self.vna = None
         layout = QVBoxLayout(self)
         try:
@@ -112,7 +210,7 @@ class VnaCheckDialog(QDialog):
         self.start = QLineEdit(f"{max(rng.start, 1e6) / 1e6:g} MHz")
         self.stop = QLineEdit(f"{min(rng.stop, 18e9) / 1e9:g} GHz")
         self.points = QSpinBox()
-        self.points.setRange(2, 100001)
+        self.points.setRange(2, self.vna.max_points or 100001)
         self.points.setValue(401)
         self.sweep_type = QComboBox()
         self.sweep_type.addItems(["lineal", "logaritmico"])
@@ -128,14 +226,12 @@ class VnaCheckDialog(QDialog):
         for other in library.equipment.values():
             if other.s_parameters is not None:
                 self.device.addItem(f"Red S2P: {other.id}", other.id)
-        self.parameter = QComboBox()
-        self.parameter.addItems([f"S{i}{j}" for i in range(1, self.vna.port_count + 1) for j in range(1, self.vna.port_count + 1)])
-        self.parameter.setCurrentText("S21" if self.vna.port_count > 1 else "S11")
         sweep_button = QPushButton("Conectar y barrer")
+        sweep_button.setObjectName("primary")
         sweep_button.clicked.connect(self.sweep)
         self.status = QLabel()
         self.status.setWordWrap(True)
-        mode = "SIMULACIÓN (VNA simulado, sin calibrar: medida en bruto)" if self.vna.simulated else "equipo real"
+        mode = "SIMULACIÓN (medida en bruto, sin calibrar)" if self.vna.simulated else "equipo real (medida con la corrección activa del VNA)"
         form.addRow(QLabel(f"<b>{self.vna.name}</b><br>{mode}<br>Especificación: {rng}, {self.vna.port_count} puertos"))
         form.addRow("Inicio", self.start)
         form.addRow("Fin", self.stop)
@@ -143,12 +239,12 @@ class VnaCheckDialog(QDialog):
         form.addRow("Tipo de barrido", self.sweep_type)
         form.addRow("IFBW", self.ifbw)
         form.addRow("Potencia", self.power)
-        form.addRow("Dispositivo conectado", self.device)
-        form.addRow("Parámetro", self.parameter)
+        if self.vna.simulated:
+            form.addRow("Conectado (simulación)", self.device)
         form.addRow(sweep_button)
         form.addRow(self.status)
 
-        self.plot = _frequency_axis_plot()
+        self.plot = SParameterPlot()
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Registro de operaciones de alto nivel enviadas al VNA")
@@ -185,16 +281,14 @@ class VnaCheckDialog(QDialog):
             vna.set_power(self.power.value())
             vna.single_sweep()
             frequencies = vna.frequencies()
-            name = self.parameter.currentText()
-            trace = vna.read_s_parameter(name)
+            ports = tuple(range(1, min(vna.port_count, 2) + 1))
+            data = vna.read_s_matrix(ports)
         except (InstrumentError, UnitError, ValueError, TouchstoneError) as exc:
             self.status.setText(f"<span style='color:#c0392b'>{exc}</span>")
             self._show_log()
             return
-        self.plot.clear()
-        self.plot.plot(frequencies, _db(trace), pen=pg.mkPen(TRACE_COLORS.get(name, "#555"), width=2), name=name)
-        self.plot.setLogMode(x=self.sweep_type.currentText() == "logaritmico", y=False)
-        self.status.setText(f"<span style='color:#2e8b57'>Barrido completado: {len(frequencies)} puntos</span>")
+        self.plot.set_data("VNA", frequencies, data, log_x=self.sweep_type.currentText() == "logaritmico")
+        self.status.setText(f"<span style='color:#2e8b57'>Barrido completado: {len(frequencies)} puntos ({vna.calibration_status()})</span>")
         self._show_log()
 
     def _show_log(self) -> None:

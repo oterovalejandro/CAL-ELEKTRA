@@ -417,6 +417,16 @@ class Library:
         if equipment.source_path and equipment.source_path.exists():
             equipment.source_path.unlink()
 
+    def delete_setup(self, setup_id: str) -> None:
+        setup = self.setups.pop(setup_id)
+        if setup.source_path and setup.source_path.exists():
+            setup.source_path.unlink()
+
+    def delete_procedure(self, procedure_id: str) -> None:
+        procedure = self.procedures.pop(procedure_id)
+        if procedure.source_path and procedure.source_path.exists():
+            procedure.source_path.unlink()
+
     def copy_s_parameter_file(self, source: Path) -> str:
         """Copy an sNp file into the library and return its path relative to the equipment folder."""
         target_dir = self.root / S_PARAMETER_FOLDER
