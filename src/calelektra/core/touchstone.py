@@ -163,7 +163,11 @@ def _format_pair(value: complex, data_format: str) -> str:
 
 def write_touchstone(path: str | Path, data: Touchstone, data_format: str = "RI", unit: str = "HZ") -> None:
     """Write Touchstone 1.1 (2-port order 11 21 12 22) in RI, MA or DB with the given frequency unit."""
-    path = Path(path)
+    Path(path).write_text(touchstone_text(data, data_format, unit), encoding="utf-8")
+
+
+def touchstone_text(data: Touchstone, data_format: str = "RI", unit: str = "HZ") -> str:
+    """Contents of the Touchstone 1.1 file written by :func:`write_touchstone`."""
     data_format, unit = data_format.upper(), unit.upper()
     if data_format not in ("RI", "MA", "DB"):
         raise TouchstoneError(f"Formato Touchstone no válido: {data_format}")
@@ -180,4 +184,4 @@ def write_touchstone(path: str | Path, data: Touchstone, data_format: str = "RI"
             ordered = list(matrix.reshape(-1))
         numbers = " ".join(_format_pair(complex(value), data_format) for value in ordered)
         lines.append(f"{freq / factor:.12g} {numbers}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"

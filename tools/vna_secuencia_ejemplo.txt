@@ -1,0 +1,53 @@
+# Secuencia de ejemplo para depurar el control del VNA (R&S ZNB43).
+#   python -m calelektra.instruments.znx_debug --ip 192.168.0.50 --script tools/vna_secuencia_ejemplo.txt --log sesion.log
+#   python -m calelektra.instruments.znx_debug --simulado --script tools/vna_secuencia_ejemplo.txt
+# Una función por línea, con sus argumentos separados por espacios. «#» empieza un comentario.
+
+identify
+errors
+
+# Barrido lineal por número de puntos y por paso
+set_continuous off
+set_sweep_type LIN
+set_start 10MHz
+set_stop 18GHz
+set_points 801
+set_step 10MHz
+get_points
+get_stop
+
+# Barrido logarítmico y lista de frecuencias (barrido segmentado)
+set_sweep_type LOG
+set_points 401
+get_frequencies
+set_frequency_list biblioteca_ejemplo/hardware_setups/listas/puntos_cable_N.csv
+get_frequencies
+set_sweep_type LIN
+
+# Potencia, IFBW y promediado
+set_power -10
+set_if_bandwidth 1kHz
+set_averaging on
+set_average_count 10
+set_average_mode AUTO
+set_sweep_count 10
+
+# Las cuatro trazas S11, S21, S12, S22 en dB, suavizado y max hold de S21
+setup_s_parameters MLOG
+set_smoothing CE_S21 on
+set_smoothing_aperture CE_S21 2
+set_max_hold CE_S21 on
+
+# Tras conectar los cables: reiniciar el barrido y el promediado
+restart_sweep
+get_completed_sweeps
+
+# Datos: SDAT sin formato (lo que exporta el software) y FDAT (lo que se ve)
+read_trace CE_S21 SDAT
+read_trace CE_S21 FDAT
+save_s2p cable_software DB
+
+# Exportación Touchstone hecha por el propio VNA (necesita calibración completa de los dos puertos)
+get_touchstone_version
+export_and_download cable_vna.s2p LOGP
+errors

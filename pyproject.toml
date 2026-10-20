@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cal-elektra"
-version = "0.5.0"
+version = "0.5.1"
 description = "Software para laboratorio de calibración de equipos de MC: catálogo de equipos, hardware setups y control de VNA"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,9 @@ instrumentos = ["pyvisa>=1.13"]
 
 [project.gui-scripts]
 cal-elektra = "calelektra.gui.app:main"
+
+[project.scripts]
+cal-elektra-vna = "calelektra.instruments.znx_debug.console:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

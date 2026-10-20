@@ -14,6 +14,7 @@ check the command sequence with :class:`RecordingTransport`.
 from __future__ import annotations
 
 import re
+import socket
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator, Protocol, Sequence
 
@@ -40,6 +41,8 @@ class ScpiTransport(Protocol):
     def query(self, command: str, timeout_ms: int | None = None) -> str: ...
 
     def query_floats(self, command: str, timeout_ms: int | None = None) -> np.ndarray: ...
+
+    def query_block(self, command: str, timeout_ms: int | None = None) -> bytes: ...
 
     def close(self) -> None: ...
 
@@ -90,8 +93,91 @@ class PyVisaTransport:
             values = self._session.query_binary_values(command, datatype="f", is_big_endian=False, container=np.array)
         return np.asarray(values, dtype=float)
 
+    def query_block(self, command: str, timeout_ms: int | None = None) -> bytes:
+        """Payload of a definite-length binary block (``#<n><length><data>``)."""
+        with self._timeout(timeout_ms):
+            return bytes(self._session.query_binary_values(command, datatype="s", container=bytes))
+
     def close(self) -> None:
         self._session.close()
+
+
+class SocketTransport:
+    """Raw SCPI over TCP (port 5025 of the R&S analyzers): needs no VISA library."""
+
+    binary = True
+
+    def __init__(self, host: str, port: int = 5025, timeout_ms: int = 10_000):
+        self.address = f"{host}:{port}"
+        self.timeout_ms = timeout_ms
+        try:
+            self._socket = socket.create_connection((host, port), timeout=timeout_ms / 1000)
+        except OSError as exc:
+            raise InstrumentError(f"No se puede conectar con {self.address}: {exc}") from exc
+        self._buffer = bytearray()
+        self._after_block = False  # the analyzer ends a binary block with a line feed
+
+    @contextmanager
+    def _timeout(self, timeout_ms: int | None) -> Iterator[None]:
+        self._socket.settimeout((timeout_ms or self.timeout_ms) / 1000)
+        try:
+            yield
+        except socket.timeout as exc:
+            raise InstrumentError(f"{self.address}: sin respuesta (tiempo de espera agotado)") from exc
+
+    def _receive(self) -> None:
+        chunk = self._socket.recv(65536)
+        if not chunk:
+            raise InstrumentError(f"{self.address}: el equipo ha cerrado la conexión")
+        self._buffer.extend(chunk)
+
+    def _read_exact(self, count: int) -> bytes:
+        while len(self._buffer) < count:
+            self._receive()
+        data = bytes(self._buffer[:count])
+        del self._buffer[:count]
+        return data
+
+    def _skip_block_end(self) -> None:
+        if self._after_block:
+            if not self._buffer:
+                self._receive()
+            if self._buffer[:1] == b"\n":
+                del self._buffer[:1]
+            self._after_block = False
+
+    def write(self, command: str) -> None:
+        self._socket.sendall(command.encode("latin-1") + b"\n")
+
+    def query(self, command: str, timeout_ms: int | None = None) -> str:
+        with self._timeout(timeout_ms):
+            self.write(command)
+            self._skip_block_end()
+            while b"\n" not in self._buffer:
+                self._receive()
+            end = self._buffer.index(b"\n")
+            line = bytes(self._buffer[:end])
+            del self._buffer[: end + 1]
+        return line.decode("latin-1").strip()
+
+    def query_block(self, command: str, timeout_ms: int | None = None) -> bytes:
+        with self._timeout(timeout_ms):
+            self.write(command)
+            self._skip_block_end()
+            if self._read_exact(1) != b"#":
+                raise InstrumentError(f"{self.address}: «{command}» no ha devuelto un bloque binario")
+            digits = int(self._read_exact(1))
+            if digits == 0:
+                raise InstrumentError(f"{self.address}: bloque binario de longitud indefinida (#0) no admitido")
+            data = self._read_exact(int(self._read_exact(digits)))
+            self._after_block = True
+        return data
+
+    def query_floats(self, command: str, timeout_ms: int | None = None) -> np.ndarray:
+        return np.frombuffer(self.query_block(command, timeout_ms), dtype="<f4").astype(float)
+
+    def close(self) -> None:
+        self._socket.close()
 
 
 Response = str | Callable[[str], str]
@@ -135,6 +221,9 @@ class RecordingTransport:
     def query_floats(self, command: str, timeout_ms: int | None = None) -> np.ndarray:
         text = self.query(command, timeout_ms)
         return np.array([float(item) for item in text.split(",") if item.strip()])
+
+    def query_block(self, command: str, timeout_ms: int | None = None) -> bytes:
+        return self.query(command, timeout_ms).encode("latin-1")
 
     def close(self) -> None:
         self.commands.append("<cerrar sesión>")
