@@ -10,18 +10,18 @@ Ejemplos de lo que cubre:
 
 ## Estado
 
-**Versión 0.4** — funcional con el VNA simulado:
+**Versión 0.5** — funcional con el VNA simulado:
 
-- **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos.
-- **Hardware setups** con alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** en cada conexión y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM). El setup describe el banco de medida; el equipo a calibrar se elige en cada ensayo.
-- **Plantillas de ensayo** (las *test templates* de ELEKTRA) con el **rango de frecuencias** (lineal por nº de puntos o por paso, logarítmico o lista CSV), **IFBW, promedios y suavizado** para todas las trazas o por traza, calibración, verificación, **ficheros S2P de especificación** para el **pasa / falla** y exportación.
-- **Ensayos en carpetas**: se lanza una plantilla en la carpeta elegida, con un hardware setup compatible (visible como diagrama), el **cable a calibrar** y sus especificaciones. Cada ensayo guarda su definición, las copias de sus ficheros, los resultados (.s2p/.s1p, CSV), el **veredicto** con márgenes y la trazabilidad (equipos, certificados, datos S, kit, calibración).
+- **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**.
+- **Hardware setups** para cada grupo de equipos (p. ej. cables 2,92 mm) con sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM).
+- **Plantillas de ensayo** (las *test templates* de ELEKTRA): **llaman a un hardware setup**, que se ve como diagrama, y **definen el EUT**; además potencia, **IFBW y promedios** (todas las trazas o por traza), **suavizado de la visualización**, calibración, verificación y exportación, con comprobación continua.
+- **Ensayos**: registros de las plantillas lanzadas en una **carpeta** elegida por el usuario (explorador con carpetas externas). Cada ensayo guarda la plantilla tal como se lanzó, el setup y sus frecuencias, el EUT, las copias de las especificaciones, los resultados (.s2p/.s1p y CSV, sin suavizar), el **veredicto** con márgenes por parámetro y la trazabilidad (equipos, certificados, datos S, kit, calibración).
 - Setup sencillo de **calibración de cables solo con VNA**: calibra los dos puertos, verifica, mide S11, S21, S12 y S22 y exporta un .s2p. También impedancia de LISN por línea (.s1p).
 - **VNA simulado** realista (errores sistemáticos, calibración OSM/TOSM/UOSM, CAL/CAI) y **adaptador del R&S ZNB43** sobre los comandos del driver RsZnx, con barrido segmentado para las listas (pendiente de probar con el equipo).
 
 Todavía falta: incertidumbre, procedimientos de NSA y S_VSWR, mástiles, VNA de baja frecuencia real e informes. El detalle está en [`docs/04_algoritmo_medida_vna.md`](docs/04_algoritmo_medida_vna.md) y [`docs/05_plantillas_de_ensayo_y_ensayos.md`](docs/05_plantillas_de_ensayo_y_ensayos.md).
 
-![Ensayo de un cable con pasa / falla frente a la máscara de especificación](docs/capturas/v04/23_ensayo_grafica.png)
+![Ensayo de un cable con pasa / falla frente a las especificaciones de su modelo](docs/capturas/v05/23_ensayo_grafica.png)
 
 ## Puesta en marcha
 
@@ -44,11 +44,11 @@ También se puede indicar la biblioteca con la variable de entorno `CALELEKTRA_B
 src/calelektra/
   core/          unidades, rangos y cobertura, Touchstone, conectores, cálculo de la calibración
   catalog/       categorías con campos tipados, modelos, equipos y biblioteca YAML
-  setups/        plantillas, setups configurados, requisitos, conexiones y su validación
-  procedures/    plantillas de ensayo, frecuencias, especificaciones, motor y registro de ensayos
+  setups/        plantillas, setups configurados (con sus frecuencias), requisitos, conexiones y su validación
+  procedures/    plantillas de ensayo, pasa / falla, motor y registro de ensayos
   instruments/   interfaz de alto nivel del VNA, VNA simulado, adaptador R&S ZNx, factoría
   gui/           interfaz gráfica (PySide6)
-biblioteca_ejemplo/   catálogo, inventario, S2P sintéticos, setups, plantillas de ensayo, listas y especificaciones de ejemplo
+biblioteca_ejemplo/   catálogo (con especificaciones S de los modelos), inventario, S2P sintéticos, setups (con listas de frecuencias) y plantillas de ensayo
 docs/                 diseño paso a paso (01 ingeniería inversa … 05 plantillas de ensayo y ensayos)
 tools/                generador de S2P sintéticos y capturas de pantalla
 tests/                pruebas con pytest
@@ -60,4 +60,4 @@ tests/                pruebas con pytest
 2. [Catálogo de equipos y hardware setups (borrador del paso 2)](docs/02_catalogo_equipos_y_hardware_setups.md)
 3. [Arquitectura del software y primer incremento](docs/03_arquitectura_y_primer_incremento.md)
 4. [Campos de los equipos, algoritmo de medida con VNA y versión 0.3](docs/04_algoritmo_medida_vna.md)
-5. [Plantillas de ensayo (frecuencias, trazas, especificaciones) y ensayos en carpetas — versión 0.4](docs/05_plantillas_de_ensayo_y_ensayos.md)
+5. [Hardware setups con frecuencias, plantillas de ensayo (setup + EUT) y ensayos como registros — versión 0.5](docs/05_plantillas_de_ensayo_y_ensayos.md)

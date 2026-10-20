@@ -1,0 +1,45 @@
+# Plantilla de ensayo: calibración del cable 2,92 mm CAB-DUT-0002.
+#   - Hardware setup «cable_vna_292»: grupo de cables 2,92 mm, solo VNA; da las
+#     frecuencias (50 MHz – 40 GHz, paso 50 MHz).
+#   - EUT CAB-DUT-0002: su modelo (cable_coaxial_292_hh) da las
+#     especificaciones S para el pasa / falla.
+#   - Trazas: S21 y S12 con IFBW de 100 Hz y 4 promedios (barrido propio);
+#     S11 y S22 se ven suavizadas al 1 % (solo la visualización: los datos,
+#     el pasa / falla y el .s2p no se suavizan).
+# Cada vez que se lanza en una carpeta se crea un ensayo (registro de la medida).
+formato: calelektra/procedimiento@0.3
+id: cable_CAB-DUT-0002
+nombre: Calibración cable 2,92 mm CAB-DUT-0002 (CLIENTE-2001)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración de los dos puertos del VNA, verificación, medida de los cuatro
+  parámetros S del cable, pasa / falla frente a las especificaciones de su
+  modelo y exportación a .s2p y CSV.
+algoritmo: vna_2_puertos
+hardware_setup: cable_vna_292
+eut: CAB-DUT-0002
+barrido:
+  potencia_dbm: -10
+  ifbw: 1 kHz               # todas las trazas…
+  promedios: 1
+  suavizado_pct: 0          # suavizado de la visualización (% de los puntos)
+  por_traza: true           # …o cada traza (vacío = el valor de todas)
+  trazas:
+    S11: { suavizado_pct: 1 }
+    S21: { ifbw: 100 Hz, promedios: 4 }
+    S12: { ifbw: 100 Hz, promedios: 4 }
+    S22: { suavizado_pct: 1 }
+calibracion:
+  metodo: automatico        # automatico | TOSM | UOSM | existente
+  guardar_en_vna: false
+  nombre_en_vna: "CALELEKTRA_{ensayo}"
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1    # through plano: |S21| ± 0,1 dB; UOSM: reciprocidad del through
+  s11_max_db: -30           # reflexión residual de la carga adaptada
+exportacion:
+  formato: RI               # RI | MA | DB
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

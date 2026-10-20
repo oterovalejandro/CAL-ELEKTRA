@@ -1,11 +1,26 @@
+# Modelo de EUT de ejemplo: cable 2,92 mm hembra–macho (insertable) de 1 m.
+# Máscara SINTÉTICA de 1 m. El cable de ejemplo CAB-DUT-0003 mide 1,2 m y no
+# la cumple: es el ejemplo de FALLA.
 formato: calelektra/modelo@0.3
 id: cable_coaxial_292_hm
 categoria: cable
 fabricante: Genérico
-modelo: Cable coaxial 2,92 mm (h) – 2,92 mm (m), 40 GHz (insertable)
+modelo: Cable coaxial 2,92 mm (h) – 2,92 mm (m), 40 GHz, 1 m (insertable)
 campos:
   rango_frecuencia: [DC, 40 GHz]
   conector_a: { familia: 2.92 mm, genero: hembra }
   conector_b: { familia: 2.92 mm, genero: macho }
+  longitud_m: 1.0
   tipo_cable: flexible (ejemplo)
   atenuacion_db_m_1ghz: 0.7
+especificaciones_s:
+  - nombre: Pérdidas de inserción máximas
+    fichero: ../especificaciones/cable_292_1m_mascara.s2p
+    parametros: [S21, S12]
+    criterio: minimo
+    magnitud: magnitud_db
+  - nombre: Pérdidas de retorno mínimas
+    fichero: ../especificaciones/cable_292_1m_mascara.s2p
+    parametros: [S11, S22]
+    criterio: maximo
+    magnitud: magnitud_db

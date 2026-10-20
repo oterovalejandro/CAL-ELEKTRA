@@ -1,11 +1,21 @@
+# Modelo de EUT de ejemplo: cable N macho–macho de 2 m. Especificación: |S21|
+# y |S12| dentro de ± 0,5 dB de la curva de referencia del modelo (SINTÉTICA).
 formato: calelektra/modelo@0.3
 id: cable_coaxial_n
 categoria: cable
 fabricante: Genérico
-modelo: Cable coaxial N (m) – N (m)
+modelo: Cable coaxial N (m) – N (m), 2 m
 campos:
   rango_frecuencia: [DC, 18 GHz]
   conector_a: { familia: N, genero: macho }
   conector_b: { familia: N, genero: macho }
+  longitud_m: 2.0
   tipo_cable: RG-142 (ejemplo)
   atenuacion_db_m_1ghz: 0.45
+especificaciones_s:
+  - nombre: Atenuación frente a la referencia
+    fichero: ../especificaciones/cable_N_2m_referencia.s2p
+    parametros: [S21, S12]
+    criterio: tolerancia    # |medida − referencia| ≤ tolerancia
+    magnitud: magnitud_db
+    tolerancia: 0.5

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
@@ -229,8 +230,16 @@ class CatalogView(QWidget):
         extra = f"<b>Equipos de este modelo:</b> {', '.join(units) if units else 'ninguno'}"
         if model.documents:
             extra += "<br><b>Documentos:</b> " + "; ".join(html.escape(str(d.get('referencia', d)) if isinstance(d, dict) else str(d)) for d in model.documents)
+        if model.s_specifications:
+            items = "".join(
+                f"<li>{html.escape(spec.name)}: {html.escape(spec.describe())} — {html.escape(Path(spec.file).name)}"
+                + ("" if self.library.spec_path(model, spec).is_file() else " <b style='color:#c0392b'>(no se encuentra)</b>")
+                + "</li>"
+                for spec in model.s_specifications
+            )
+            extra += f"<br><b>Especificaciones S (pasa / falla de cada unidad):</b><ul style='margin-top:2px'>{items}</ul>"
         if model.specifications:
-            extra += "<br><b>Especificaciones:</b> " + "; ".join(html.escape(str(s.get('fichero', s)) if isinstance(s, dict) else str(s)) for s in model.specifications)
+            extra += "<br><b>Especificaciones (datasheet / incertidumbre):</b> " + "; ".join(html.escape(str(s.get('fichero', s)) if isinstance(s, dict) else str(s)) for s in model.specifications)
         extra_values = {k: v for k, v in model.values.items() if not category or k not in category.fields}
         if extra_values:
             extra += "<br><b>Valores no definidos en la categoría:</b> " + html.escape(", ".join(f"{k}={v}" for k, v in extra_values.items()))

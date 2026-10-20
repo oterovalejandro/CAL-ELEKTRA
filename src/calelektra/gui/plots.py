@@ -34,6 +34,7 @@ from calelektra.instruments.base import InstrumentError
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import open_vna
 from calelektra.instruments.simulation import touchstone_model
+from calelektra.procedures.processing import smooth
 from calelektra.procedures.specs import SpecCurve
 
 TRACE_COLORS = {"S11": "#2b7bb9", "S21": "#c0392b", "S12": "#d98a00", "S22": "#2e8b57"}
@@ -60,6 +61,7 @@ class SParameterPlot(QWidget):
         self.datasets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         self.visible: dict[str, bool] = {}
         self.limits: list[SpecCurve] = []
+        self.smoothing: dict[str, float] = {}  # trace (S11…) → % of the points; display only
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         controls = QHBoxLayout()
@@ -74,9 +76,15 @@ class SParameterPlot(QWidget):
         self.show_limits.setToolTip("Curvas de los ficheros de especificación (pasa / falla); discontinuas")
         self.show_limits.toggled.connect(lambda _on: self.redraw())
         self.show_limits.setVisible(False)
+        self.smooth_box = QCheckBox("Suavizado")
+        self.smooth_box.setChecked(True)
+        self.smooth_box.setToolTip("Suavizado de la plantilla de ensayo: solo cambia la visualización, no los datos")
+        self.smooth_box.toggled.connect(lambda _on: self.redraw())
+        self.smooth_box.setVisible(False)
         controls.addWidget(self.mode)
         controls.addWidget(self.log_x)
         controls.addWidget(self.show_limits)
+        controls.addWidget(self.smooth_box)
         controls.addStretch(1)
         layout.addLayout(controls)
         traces = QHBoxLayout()
@@ -96,6 +104,14 @@ class SParameterPlot(QWidget):
         self.datasets.clear()
         self.visible.clear()
         self.limits = []
+        self.smoothing = {}
+        self.redraw()
+
+    def set_smoothing(self, smoothing: dict[str, float]) -> None:
+        """Display smoothing per trace (% of the points); the data sets are not changed."""
+        self.smoothing = {name: pct for name, pct in smoothing.items() if pct > 0}
+        details = ", ".join(f"{name} {pct:g} %" for name, pct in self.smoothing.items())
+        self.smooth_box.setText(f"Suavizado ({details})" if details else "Suavizado")
         self.redraw()
 
     def set_limits(self, curves: list[SpecCurve]) -> None:
@@ -145,7 +161,11 @@ class SParameterPlot(QWidget):
             return
         log_x = self.log_x.isChecked() and all(f[0] > 0 for f, _ in self.datasets.values())
         self.plot.setLogMode(x=log_x, y=False)
+        self.smooth_box.setVisible(bool(self.smoothing))
+        smoothing = self.smoothing if self.smooth_box.isChecked() else {}
         for label, parameter, f, values, color in traces:
+            if parameter in smoothing:
+                values = smooth(values, smoothing[parameter])
             reflection = parameter[1] == parameter[2]
             if mode == "z" and not reflection:
                 continue

@@ -126,7 +126,7 @@ def _assignment_lines(key: str, per_segment: bool, setup: ConfiguredSetup, libra
             lines.append(f"{segment.name}: {', '.join(ids) if ids else '—'}")
         return lines, assigned
     ids = setup.ids_for(key)
-    return ([describe(i) for i in ids] or ["se elige en cada ensayo" if is_dut else "sin asignar"]), bool(ids)
+    return ([describe(i) for i in ids] or ["lo define la plantilla de ensayo" if is_dut else "sin asignar"]), bool(ids)
 
 
 def compute_layout(model: DiagramModel) -> dict[str, tuple[float, float]]:

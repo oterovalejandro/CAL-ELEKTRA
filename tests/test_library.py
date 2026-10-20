@@ -10,7 +10,9 @@ def test_example_library_loads_cleanly(library: Library):
     assert {"vna", "cable_medida", "antena", "posicionador"} <= set(library.categories)
     assert "rs_znb43" in library.models
     assert {"cable_vna", "componente_2p", "reflexion_1p", "lisn_impedancia", "sac_nsa", "sac_svswr"} <= set(library.templates)
-    assert {"cable_parametros_s", "impedancia_lisn"} <= set(library.procedures)
+    assert {"cable_CAB-DUT-0002", "cable_CAB-DUT-0003", "cable_CAB-DUT-0001", "lisn_LISN-0001"} <= set(library.procedures)
+    assert library.procedures["cable_CAB-DUT-0002"].setup_id == "cable_vna_292"  # a test template calls a hardware setup…
+    assert library.procedures["cable_CAB-DUT-0002"].eut_id == "CAB-DUT-0002"  # … and defines the EUT
     assert library.tests() == []
 
 

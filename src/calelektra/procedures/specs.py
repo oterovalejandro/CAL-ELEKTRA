@@ -1,7 +1,8 @@
 """Pass / fail of a measurement against S2P (S1P) specification files.
 
-Each specification of the test template names a Touchstone file, the
-parameters to compare and the criterion:
+The specifications belong to the model of the EUT (``especificaciones_s`` of
+the catalogue model). Each one names a Touchstone file, the parameters to
+compare and the criterion:
 
 * ``minimo``      medida ≥ especificación   (e.g. |S21| against the maximum insertion loss)
 * ``maximo``      medida ≤ especificación   (e.g. |S11| against the return-loss mask)
@@ -20,9 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
+from calelektra.catalog.model import SpecFile
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone
 from calelektra.core.units import format_frequency
-from calelektra.procedures.model import SpecFile
 
 VERDICTS = {"PASA": "Pasa", "FALLA": "Falla", "NO_EVALUADO": "No evaluado", "SIN_ESPECIFICACIONES": "Sin especificaciones"}
 

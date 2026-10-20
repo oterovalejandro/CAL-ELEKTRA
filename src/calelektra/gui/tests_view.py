@@ -1,8 +1,9 @@
 """Test explorer (ELEKTRA-like): test folders, the tests of the selected folder and the detail of a test.
 
-Each test lives in its own folder (``<carpeta>/<ensayo>/ensayo.yaml``) with
-its definition, the specification files it was defined with and, once run,
-the result files. A prepared test is opened in a test window to run it.
+A test is the record of a measurement launched from a test template in a
+folder: ``<carpeta>/<ensayo>/ensayo.yaml`` with the template as launched, the
+hardware setup and its frequencies, the EUT, the specification files used,
+the result files and the verdict.
 """
 
 from __future__ import annotations
@@ -32,12 +33,12 @@ from calelektra.catalog.library import Library, LibraryError
 from calelektra.gui import style
 from calelektra.gui.icons import icon
 from calelektra.gui.plots import SParameterPlot
+from calelektra.gui.test_common import is_logarithmic, record_datasets, record_smoothing, record_spec_curves, verdict_chip
 from calelektra.gui.test_folders import TestFolderTree
-from calelektra.gui.test_window import is_logarithmic, record_datasets, record_spec_curves, verdict_chip
 from calelektra.procedures.record import STATUS_NAMES, TestRecord
 from calelektra.procedures.specs import VERDICTS
 
-COLUMNS = ["Ensayo", "Carpeta", "Fecha", "Equipo calibrado", "Plantilla", "Setup", "Estado", "Veredicto"]
+COLUMNS = ["Ensayo", "Carpeta", "Fecha", "EUT", "Plantilla de ensayo", "Setup", "Estado", "Veredicto"]
 
 
 def record_key(record: TestRecord) -> str:
@@ -105,17 +106,16 @@ class TestDetail(QWidget):
         if record is None:
             self.title.setText("Seleccione un ensayo")
             self.subtitle.setText(
-                "Cada ensayo es una carpeta con su definición (ensayo.yaml), sus especificaciones, "
-                "los ficheros de resultados y el registro de operaciones."
+                "Cada ensayo es el registro de una plantilla lanzada en una carpeta: plantilla, setup, EUT, "
+                "especificaciones usadas, ficheros de resultados y registro de operaciones."
             )
             return
         self.title.setText(record.title)
         duration = f" · {(record.finished - record.started).total_seconds():.0f} s" if record.finished else ""
-        when = f"creado {record.created:%d/%m/%Y %H:%M}" if record.status == "preparado" and record.created else f"{record.started:%d/%m/%Y %H:%M:%S}{duration}"
         self.subtitle.setText(
-            f"{html.escape(record.procedure.get('nombre', '—'))} · setup {html.escape(record.setup.get('nombre', '—'))} · "
-            f"equipo a calibrar <b>{html.escape(record.dut_id or '—')}</b><br>"
-            f"{when} · operador: {html.escape(record.operator or '—')} · {html.escape(str(record.folder))}"
+            f"{html.escape(record.procedure.get('nombre', '—'))} · setup {html.escape(record.setup.get('nombre', record.setup.get('id', '—')))} · "
+            f"EUT <b>{html.escape(record.dut_id or '—')}</b><br>"
+            f"{record.started:%d/%m/%Y %H:%M:%S}{duration} · operador: {html.escape(record.operator or '—')} · {html.escape(str(record.folder))}"
         )
         top = Qt.AlignmentFlag.AlignTop
         self.chips.addWidget(style.chip(record.status_name, style.status_color(record.status)), 0, top)
@@ -139,7 +139,8 @@ class TestDetail(QWidget):
         for label, frequencies, s in record_datasets(record):
             self.plot.set_data(label, frequencies, s, log_x=is_logarithmic(record))
         if self.plot.datasets:
-            self.plot.set_limits(record_spec_curves(self.library, record))
+            self.plot.set_limits(record_spec_curves(record))
+            self.plot.set_smoothing(record_smoothing(record))
         self.plot_card.setVisible(bool(self.plot.datasets))
         self.files_card.setVisible(bool(record.files))
 
@@ -157,33 +158,19 @@ class TestDetail(QWidget):
                     f"<ul style='margin-top:2px; margin-bottom:4px'>{details}</ul>"
                 )
             self.specs.setText("".join(rows))
-            self.specs_card.setVisible(True)
-            return
-        template = None
-        if record.definition is not None:
-            try:
-                template = record.definition.template()
-            except ValueError:
-                template = None
-        if template is not None and template.specifications:
-            items = "".join(f"<li>{html.escape(s.name)}: {html.escape(s.describe())} ({html.escape(Path(s.file).name)})</li>" for s in template.specifications)
-            note = "Se evaluarán al ejecutar el ensayo." if record.status == "preparado" else "No se han evaluado."
-            self.specs.setText(f"{note}<ul style='margin-top:2px'>{items}</ul>")
+        elif record.verdict == "SIN_ESPECIFICACIONES":
+            self.specs.setText("El modelo del EUT no tiene especificaciones S: el ensayo no da veredicto.")
         else:
-            self.specs.setText("La plantilla no define especificaciones: el ensayo no da veredicto.")
+            self.specs.setText("Sin evaluación pasa / falla.")
         self.specs_card.setVisible(True)
 
     def _info_html(self, record: TestRecord) -> str:
         parts = []
         if record.message:
             parts.append(html.escape(record.message))
-        if record.status == "preparado" and record.definition is not None:
-            try:
-                sweep = record.definition.template().sweep
-                parts.append(f"<b>Frecuencias:</b> {html.escape(sweep.summary())}")
-            except ValueError:
-                pass
-            parts.append("Ensayo preparado: ábralo para revisar la comprobación previa y ejecutarlo.")
+        template = record.launched_template()
+        if template is not None:
+            parts.append(f"<b>Plantilla</b> (como se lanzó): {html.escape(template.name)} v{html.escape(template.version)}")
         calibration = record.calibration
         if calibration:
             text = f"<b>Calibración:</b> {calibration.get('metodo', '—')}"
@@ -215,8 +202,8 @@ class TestDetail(QWidget):
         sweep = record.sweep
         if sweep:
             text = (
-                f"<b>Barrido:</b> {html.escape(str(sweep.get('modo', sweep.get('tipo', ''))))} {sweep.get('inicio')} – {sweep.get('fin')}, "
-                f"{sweep.get('puntos')} puntos, IFBW {sweep.get('ifbw')}, {sweep.get('potencia_dbm')} dBm"
+                f"<b>Frecuencias</b> (del setup): {html.escape(str(sweep.get('modo', sweep.get('tipo', ''))))} {sweep.get('inicio')} – {sweep.get('fin')}, "
+                f"{sweep.get('puntos')} puntos · IFBW {sweep.get('ifbw')}, {sweep.get('potencia_dbm')} dBm"
             )
             if sweep.get("por_traza"):
                 text += " (ajustes por traza)"
@@ -235,9 +222,9 @@ class TestDetail(QWidget):
 class TestsView(QWidget):
     __test__ = False  # not a pytest test class
 
-    new_test = Signal(object)  # folder where to launch the test
+    launch_test = Signal(object)  # folder where to launch a test template
     open_test = Signal(object)  # folder of the test
-    repeat_test = Signal(object)  # folder of the test
+    repeat_test = Signal(object)  # folder of the test: launch its template again
     tests_changed = Signal()
     title = "Ensayos"
 
@@ -250,8 +237,8 @@ class TestsView(QWidget):
         layout.addWidget(
             style.PageHeader(
                 "Ensayos",
-                "Explorador de ensayos: cada ensayo se lanza en una carpeta con una plantilla de ensayo, un hardware setup "
-                "y el equipo a calibrar, y guarda su definición, especificaciones y resultados.",
+                "Explorador de ensayos: cada ensayo es el registro de una plantilla de ensayo lanzada en una carpeta, "
+                "con su hardware setup, su EUT, las especificaciones usadas, los resultados y el veredicto.",
             )
         )
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -313,15 +300,16 @@ class TestsView(QWidget):
         splitter.setSizes([250, 640, 560])
         layout.addWidget(splitter, 1)
 
-        self.action_new = QAction(icon("ejecutar", style.OK.name()), "Nuevo\nensayo", self)
+        self.action_new = QAction(icon("ejecutar", style.OK.name()), "Lanzar\nensayo", self)
         self.action_new.setToolTip("Lanzar una plantilla de ensayo en la carpeta seleccionada")
         self.action_open = QAction(icon("abrir", style.PRIMARY.name()), "Abrir\nensayo", self)
         self.action_repeat = QAction(icon("recargar", style.PRIMARY.name()), "Repetir", self)
+        self.action_repeat.setToolTip("Lanzar otra vez la plantilla del ensayo en su carpeta")
         self.action_new_folder = QAction(icon("carpeta_nueva", style.PRIMARY.name()), "Nueva\ncarpeta", self)
         self.action_external = QAction(icon("carpeta_externa", style.PRIMARY.name()), "Carpeta\nexterna", self)
         self.action_folder = QAction(icon("carpeta", style.PRIMARY.name()), "Abrir\ncarpeta", self)
         self.action_delete = QAction(icon("eliminar", style.ERROR.name()), "Eliminar", self)
-        self.action_new.triggered.connect(lambda: self.new_test.emit(self.folders.current_folder() or self.library.tests_folder))
+        self.action_new.triggered.connect(lambda: self.launch_test.emit(self.folders.current_folder() or self.library.tests_folder))
         self.action_open.triggered.connect(self._open)
         self.action_repeat.triggered.connect(self._repeat)
         self.action_new_folder.triggered.connect(self.folders.create_folder)
@@ -379,11 +367,10 @@ class TestsView(QWidget):
                     relative = "—" if str(parent) == "." else parent.as_posix()
                 except ValueError:
                     relative = str(record.folder.parent)
-            when = record.created if record.status == "preparado" and record.created else record.started
             values = [
                 record.title,
                 relative,
-                f"{when:%Y-%m-%d %H:%M}",
+                f"{record.started:%Y-%m-%d %H:%M}",
                 record.dut_id or "—",
                 record.procedure.get("nombre", "—"),
                 record.setup.get("nombre", "—"),
@@ -435,10 +422,9 @@ class TestsView(QWidget):
         record = self._record()
         has = record is not None
         self.action_open.setEnabled(has)
-        self.action_open.setText("Ejecutar\nensayo" if has and record.status == "preparado" else "Abrir\nensayo")
         self.action_folder.setEnabled(has)
         self.action_delete.setEnabled(has)
-        self.action_repeat.setEnabled(has and record.definition is not None and record.status != "preparado")
+        self.action_repeat.setEnabled(has and (record.template_id or "") in self.library.procedures)
 
     def _open(self) -> None:
         record = self._record()

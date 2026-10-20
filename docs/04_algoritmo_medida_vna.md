@@ -105,7 +105,7 @@ Ejemplo `cable_vna_N_alarma`: un cable N macho no se puede conectar a los puerto
 
 Un **procedimiento** (`procedimientos/*.yaml`, el *test template* de ELEKTRA) dice cómo medir: algoritmo, barrido, calibración, verificación y exportación. Se ejecuta sobre un setup cuya plantilla (o una antecesora) esté en `plantillas_compatibles`.
 
-> **Versión 0.4:** la plantilla de ensayo define también el rango de frecuencias (lineal por puntos o paso, logarítmico, lista CSV), los ajustes de cada traza y las especificaciones (pasa / falla); el ensayo se crea en una carpeta y el equipo a calibrar se elige en el ensayo, no en el setup. Se añade el paso *Evaluación pasa / falla*. Ver [05](05_plantillas_de_ensayo_y_ensayos.md).
+> **Versión 0.5:** el hardware setup da las frecuencias (lineal por puntos o paso, logarítmico, lista CSV); la plantilla de ensayo llama a un hardware setup y define el EUT, cuyo modelo da las especificaciones (pasa / falla); un ensayo es el registro de una plantilla lanzada en una carpeta. Se añade el paso *Evaluación pasa / falla*. Ver [05](05_plantillas_de_ensayo_y_ensayos.md).
 
 ```mermaid
 flowchart LR
@@ -139,7 +139,7 @@ Calibración OSM en el plano (extremo del cable de medida), verificación con la
 
 ### 3.3 Registro del ensayo
 
-`ensayos/<fecha>_<setup>/ensayo.yaml` (`calelektra/ensayo@0.3`; desde la versión 0.4, `<carpeta elegida>/<nombre del ensayo>/ensayo.yaml`, ver [05](05_plantillas_de_ensayo_y_ensayos.md)) guarda: estado, operador, procedimiento, setup, DUT, **todos los equipos con su certificado, vencimiento y referencia de datos S**, barrido, identificación del instrumento, calibración (método, motivo, planos, kit), verificación, resultados y ficheros. Junto a él quedan los `.sNp`, los CSV y `registro.txt` con todas las operaciones enviadas al VNA.
+`ensayos/<fecha>_<setup>/ensayo.yaml` (`calelektra/ensayo@0.3`; desde la versión 0.5, `<carpeta elegida>/<nombre del ensayo>/ensayo.yaml`, ver [05](05_plantillas_de_ensayo_y_ensayos.md)) guarda: estado, operador, procedimiento, setup, DUT, **todos los equipos con su certificado, vencimiento y referencia de datos S**, barrido, identificación del instrumento, calibración (método, motivo, planos, kit), verificación, resultados y ficheros. Junto a él quedan los `.sNp`, los CSV y `registro.txt` con todas las operaciones enviadas al VNA.
 
 ## 4. Modelo de error y cálculo de la calibración (`core/calibration.py`)
 

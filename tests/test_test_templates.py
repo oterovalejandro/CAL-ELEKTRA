@@ -1,4 +1,4 @@
-"""Test templates: frequency definition, trace settings, smoothing, specifications and tests in folders."""
+"""Frequencies of the setups, trace settings of the templates, display smoothing, specifications of the models and test records."""
 
 from pathlib import Path
 
@@ -6,60 +6,58 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from calelektra.catalog.library import LibraryError
+from calelektra.catalog.model import SpecFile
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.touchstone import Touchstone, write_touchstone
-from calelektra.procedures.frequencies import FrequencyError, plan_frequencies, read_frequency_list
-from calelektra.procedures.model import SpecFile, SweepSettings
+from calelektra.procedures.model import ProcedureTemplate, SweepSettings
 from calelektra.procedures.processing import smooth, smoothing_window
-from calelektra.procedures.record import TestDefinition
 from calelektra.procedures.specs import evaluate_spec, spec_curves, verdict
-from calelektra.catalog.library import LibraryError
+from calelektra.setups.analysis import analyze_setup
+from calelektra.setups.frequencies import FrequencyError, plan_frequencies, read_frequency_list
+from calelektra.setups.model import FrequencySettings
+
+from conftest import TODAY
 
 
-# ── frequency definition ───────────────────────────────────────────────────
+# ── frequencies of the hardware setup ──────────────────────────────────────
 def test_linear_by_points_and_by_step():
-    plan = plan_frequencies(SweepSettings(modo="lineal", inicio="1 GHz", fin="2 GHz", puntos=11))
+    plan = plan_frequencies(FrequencySettings(modo="lineal", puntos=11), FrequencyRange(1e9, 2e9))
     assert plan.points == 11 and plan.frequencies[1] == pytest.approx(1.1e9)
-    plan = plan_frequencies(SweepSettings(modo="lineal", definicion="paso", inicio="50 MHz", fin="40 GHz", paso="50 MHz"))
+    plan = plan_frequencies(FrequencySettings(modo="lineal", definicion="paso", paso="50 MHz"), FrequencyRange(50e6, 40e9))
     assert plan.points == 800 and plan.stop == pytest.approx(40e9) and not plan.note
     assert "paso 50 MHz" in plan.describe()
-    plan = plan_frequencies(SweepSettings(modo="lineal", definicion="paso", inicio="1 GHz", fin="2 GHz", paso="300 MHz"))
+    plan = plan_frequencies(FrequencySettings(modo="lineal", definicion="paso", paso="300 MHz"), FrequencyRange(1e9, 2e9))
     assert plan.points == 4 and plan.stop == pytest.approx(1.9e9) and "no es múltiplo" in plan.note
     with pytest.raises(FrequencyError, match="mayor que el rango"):
-        plan_frequencies(SweepSettings(modo="lineal", definicion="paso", inicio="1 GHz", fin="2 GHz", paso="3 GHz"))
+        plan_frequencies(FrequencySettings(modo="lineal", definicion="paso", paso="3 GHz"), FrequencyRange(1e9, 2e9))
 
 
-def test_logarithmic_and_setup_range():
-    sweep = SweepSettings(modo="logaritmico", puntos=201)
-    with pytest.raises(FrequencyError, match="inicio y fin"):
-        plan_frequencies(sweep)
-    plan = plan_frequencies(sweep, FrequencyRange(9e3, 30e6))
+def test_logarithmic():
+    plan = plan_frequencies(FrequencySettings(modo="logaritmico", puntos=201), FrequencyRange(9e3, 30e6))
     assert plan.points == 201 and plan.start == pytest.approx(9e3) and plan.stop == pytest.approx(30e6)
     assert plan.frequencies[1] / plan.frequencies[0] == pytest.approx(plan.frequencies[-1] / plan.frequencies[-2])
     with pytest.raises(FrequencyError, match="DC"):
-        plan_frequencies(sweep, FrequencyRange(0, 30e6))
+        plan_frequencies(FrequencySettings(modo="logaritmico"), FrequencyRange(0, 30e6))
 
 
-def test_sweep_validation_and_old_keys():
-    assert SweepSettings.model_validate({"tipo": "logaritmico", "puntos": 11}).mode == "logaritmico"  # files of v0.3
+def test_frequency_settings_validation():
     with pytest.raises(ValidationError, match="paso"):
-        SweepSettings(modo="lineal", definicion="paso")
+        FrequencySettings(modo="lineal", definicion="paso")
     with pytest.raises(ValidationError, match="CSV"):
-        SweepSettings(modo="lista")
-    with pytest.raises(ValidationError, match="mayor"):
-        SweepSettings(inicio="2 GHz", fin="1 GHz")
-    dumped = SweepSettings(modo="lineal", definicion="paso", inicio="50 MHz", fin="40 GHz", paso="50 MHz").model_dump(by_alias=True, mode="json")
-    assert dumped["modo"] == "lineal" and dumped["paso"] == "50 MHz" and dumped["inicio"] == "50 MHz"
-    assert SweepSettings(modo="lineal", definicion="paso", inicio="50 MHz", fin="40 GHz", paso="50 MHz").summary() == "Lineal 50 MHz – 40 GHz, paso 50 MHz"
+        FrequencySettings(modo="lista")
+    dumped = FrequencySettings(modo="lineal", definicion="paso", paso="50 MHz").model_dump(by_alias=True, exclude_none=True, mode="json")
+    assert dumped["modo"] == "lineal" and dumped["paso"] == "50 MHz"
+    assert FrequencySettings(modo="lineal", definicion="paso", paso="50 MHz").summary() == "Lineal, paso 50 MHz"
 
 
 def test_frequency_list_csv(tmp_path):
     path = tmp_path / "lista.csv"
     path.write_text("# puntos del laboratorio\nFrecuencia (MHz);Nota\n30;a\n1000,5;b\n100\n100\n2 GHz;c\n", encoding="utf-8")
-    frequencies = read_frequency_list(path)
-    assert list(frequencies) == pytest.approx([30e6, 100e6, 1000.5e6, 2e9])  # sorted, without repeated points
-    plan = plan_frequencies(SweepSettings(modo="lista", fichero_lista="lista.csv", inicio="50 MHz", fin="1,5 GHz"), list_path=path)
-    assert list(plan.frequencies) == pytest.approx([100e6, 1000.5e6])
+    assert list(read_frequency_list(path)) == pytest.approx([30e6, 100e6, 1000.5e6, 2e9])  # sorted, without repeated points
+    plan = plan_frequencies(FrequencySettings(modo="lista", fichero_lista="lista.csv"), FrequencyRange(50e6, 1.5e9), path)
+    assert list(plan.frequencies) == pytest.approx([100e6, 1000.5e6])  # only inside the required range
+    assert "2 frecuencias de la lista quedan fuera" in plan.note
     path.write_text("Frecuencia\n1e9\nabc\n", encoding="utf-8")
     with pytest.raises(FrequencyError, match="línea 3"):
         read_frequency_list(path)
@@ -67,16 +65,51 @@ def test_frequency_list_csv(tmp_path):
         read_frequency_list(tmp_path / "no_existe.csv")
 
 
+def test_setup_analysis_checks_the_frequencies(library):
+    setup = library.setups["cable_N_18G"]
+    analysis = analyze_setup(setup, library, TODAY)
+    assert analysis.frequency_plan.points == 268 and analysis.frequency_plan.mode == "lista"
+    assert library.setup_list_path(setup) == (library.root / "hardware_setups/listas/puntos_cable_N.csv").resolve()
+    setup = setup.model_copy(deep=True, update={"required_range": FrequencyRange(30e6, 1e9)})
+    analysis = analyze_setup(setup, library, TODAY)
+    assert analysis.frequency_plan.points == 98 and any(i.code == "frecuencias.aviso" for i in analysis.issues)
+    setup = library.setups["cable_vna_292"].model_copy(deep=True)
+    setup.frequencies = FrequencySettings(modo="lineal", puntos=200001)
+    analysis = analyze_setup(setup, library, TODAY)
+    assert not analysis.ok and any(i.code == "frecuencias.puntos" and "VNA-01" in i.message for i in analysis.issues)
+    setup.frequencies = FrequencySettings(modo="lista", fichero_lista="no_existe.csv")
+    analysis = analyze_setup(setup, library, TODAY)
+    assert not analysis.ok and any(i.code == "frecuencias.definicion" for i in analysis.issues)
+
+
+# ── trace settings of the template ─────────────────────────────────────────
 def test_trace_settings_inherit_from_all_traces():
     sweep = SweepSettings(ifbw="1 kHz", promedios=2, suavizado_pct=0, por_traza=True, trazas={"S21": {"ifbw": "100 Hz"}, "S11": {"suavizado_pct": 5}})
     assert sweep.trace("S21") == (100.0, 2, 0.0)
     assert sweep.trace("S11") == (1e3, 2, 5.0)
     assert sweep.trace("S22") == (1e3, 2, 0.0)
+    assert sweep.smoothing(("S11", "S21", "S12", "S22")) == {"S11": 5.0}
     sweep.per_trace = False
     assert sweep.trace("S21") == (1e3, 2, 0.0)  # per-trace values are kept but not used
 
 
-# ── smoothing ──────────────────────────────────────────────────────────────
+def test_templates_of_earlier_versions_load():
+    template = ProcedureTemplate.model_validate(
+        {
+            "id": "viejo",
+            "nombre": "Viejo",
+            "algoritmo": "vna_2_puertos",
+            "plantillas_compatibles": ["cable_vna"],
+            "barrido": {"modo": "lineal", "inicio": "1 GHz", "fin": "2 GHz", "puntos": 11, "ifbw": "100 Hz"},
+            "especificaciones": [{"nombre": "x", "fichero": "x.s2p"}],
+        }
+    )
+    assert template.sweep.if_bandwidth == 100.0 and template.setup_id is None
+    dumped = template.to_yaml_dict()
+    assert "plantillas_compatibles" not in dumped and "especificaciones" not in dumped and "modo" not in dumped["barrido"]
+
+
+# ── display smoothing ──────────────────────────────────────────────────────
 def test_smoothing_keeps_the_delay_and_reduces_the_ripple():
     assert smoothing_window(800, 1) == 9 and smoothing_window(100, 0.5) == 1
     f = np.linspace(1e9, 2e9, 801)
@@ -89,7 +122,7 @@ def test_smoothing_keeps_the_delay_and_reduces_the_ripple():
     assert np.allclose(smooth(trace, 0), trace)
 
 
-# ── specifications ─────────────────────────────────────────────────────────
+# ── specifications of the models ───────────────────────────────────────────
 def _spec_file(tmp_path: Path, s21_db: float, s11_db: float, start=1e9, stop=2e9) -> Path:
     f = np.linspace(start, stop, 11)
     s = np.zeros((f.size, 2, 2), dtype=complex)
@@ -143,21 +176,37 @@ def test_spec_file_validation():
     assert SpecFile(nombre="ref", fichero="a.s2p", parametros=["s21"], criterio="tolerancia", tolerancia=0.5).describe() == "|S21| (dB) = especificación ± 0.5 dB"
 
 
-# ── tests in folders ───────────────────────────────────────────────────────
-def test_tests_in_folders_and_external_roots(library, tmp_path):
-    procedure = library.procedures["cable_N_lista"]
-    definition = TestDefinition.from_template(procedure, "cable_N_18G", "CAB-DUT-0001")
-    first = library.create_test(library.tests_folder / "2026" / "cliente A", "Cable 1", definition, "ana")
-    second = library.create_test(library.tests_folder / "2026" / "cliente A", "Cable 1", definition, "ana")
-    assert first.folder.name == "Cable_1" and second.folder.name == "Cable_1_2"
-    assert (first.folder / "listas" / "puntos_cable_N.csv").is_file()
-    assert first.definition.template().sweep.list_file == "listas/puntos_cable_N.csv"
+def test_specifications_belong_to_the_model_of_the_eut(library, tmp_path):
+    specs = library.specifications_of(library.equipment["CAB-DUT-0002"])
+    assert [spec.name for spec, _ in specs] == ["Pérdidas de inserción máximas", "Pérdidas de retorno mínimas"]
+    assert all(path == (library.root / "catalogo/especificaciones/cable_292_0m5_mascara.s2p").resolve() for _, path in specs)
+    assert library.specifications_of(library.equipment["LISN-0001"]) == []
+    source = tmp_path / "nueva.s2p"
+    write_touchstone(source, Touchstone(2, np.array([1e9, 2e9]), np.full((2, 2, 2), 0.5 + 0j)))
+    reference = library.copy_spec_file(source)
+    assert reference == "../especificaciones/nueva.s2p" and (library.root / "catalogo/especificaciones/nueva.s2p").is_file()
+    model = library.models["cable_coaxial_n"]
+    model.s_specifications.append(SpecFile(nombre="Nueva", fichero=reference))
+    library.save_model(model)
+    library.reload()
+    assert [s.name for s in library.models["cable_coaxial_n"].s_specifications][-1] == "Nueva"
+    assert library.load_issues == []
+
+
+# ── tests: records of launched templates ───────────────────────────────────
+def test_test_folders_and_external_roots(library, tmp_path):
+    procedure = library.procedures["cable_CAB-DUT-0001"]
+    first = library.new_test_record(library.tests_folder / "2026" / "cliente A", "Cable 1", procedure, "ana")
+    second = library.new_test_record(library.tests_folder / "2026" / "cliente A", "Cable 1", procedure, "ana")
+    assert first.folder.name == "Cable_1" and second.folder.name == "Cable_1_2" and first.status == "en_curso"
+    assert library.load_test(first.folder).template["eut"] == "CAB-DUT-0001"
     assert library.test_folders(library.tests_folder) == [library.tests_folder / "2026"]
+    assert library.new_test_id(tmp_path, "Cable 2,92 mm nº 3 — Verificación") == "Cable_2_92_mm_no_3_Verificacion"
     external = tmp_path / "red" / "ensayos"
     external.mkdir(parents=True)
     library.add_test_root(external)
     assert library.test_roots() == [library.tests_folder, external.resolve()]
-    third = library.create_test(external, "Cable externo", definition)
+    third = library.new_test_record(external, "Cable externo", procedure)
     assert {t.folder for t in library.tests()} == {first.folder, second.folder, third.folder}
     assert [t.folder for t in library.tests(external)] == [third.folder]
     library.remove_test_root(external)
@@ -168,21 +217,11 @@ def test_tests_in_folders_and_external_roots(library, tmp_path):
         library.delete_test(second.folder)
 
 
-def test_redefine_a_prepared_test(library, tmp_path):
-    spec = tmp_path / "otra.s2p"
-    f = np.linspace(10e6, 40e9, 5)
-    write_touchstone(spec, Touchstone(2, f, np.full((5, 2, 2), 0.5 + 0j)))
-    procedure = library.procedures["cable_292_pasa_falla"]
-    record = library.create_test(tmp_path, "Ensayo", TestDefinition.from_template(procedure, "cable_vna_292", "CAB-DUT-0002"))
-    template = record.definition.template()
-    data = template.to_yaml_dict()
-    data["especificaciones"] = [{"nombre": "Otra", "fichero": str(spec), "parametros": ["S21"], "criterio": "minimo"}]
-    changed = TestDefinition.model_validate({"procedimiento": template.id, "setup": "componente_292_tosm", "dut": "CAB-DUT-0003", "configuracion": data})
-    library.redefine_test(record, changed)
-    reloaded = library.load_test(record.folder)
-    assert reloaded.definition.setup_id == "componente_292_tosm" and reloaded.dut_id == "CAB-DUT-0003"
-    assert reloaded.definition.template().specifications[0].file == "especificaciones/otra.s2p"
-    assert (record.folder / "especificaciones" / "otra.s2p").is_file()
-    reloaded.status = "completado"
-    with pytest.raises(LibraryError, match="preparado"):
-        library.redefine_test(reloaded, changed)
+def test_setups_and_equipment_used_by_templates_are_protected(library):
+    assert library.templates_using(setup_id="cable_vna_292") == ["cable_CAB-DUT-0002"]
+    assert library.templates_using(equipment_id="LISN-0001") == ["lisn_LISN-0001"]
+    with pytest.raises(LibraryError, match="plantillas de ensayo"):
+        library.delete_setup("cable_vna_292")
+    with pytest.raises(LibraryError, match="EUT"):
+        library.delete_equipment("CAB-DUT-0003")
+    assert "cable_vna_292" in library.setups

@@ -4,6 +4,9 @@ A template declares *roles* (typed slots filled with equipment), the
 connections between their ports in each state (measurement, calibration…),
 the reference planes, the VNA calibration and the field-based requirements
 (``requisitos``) that the assigned equipment must meet.
+
+A configured setup assigns the equipment and gives the frequency points of
+the measurements made with it (``frecuencias``, inside ``rango_requerido``).
 """
 
 from __future__ import annotations
@@ -11,9 +14,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_serializer, field_validator, model_validator
 
 from calelektra.core.fields import FrequencyRangeField, StrList
+from calelektra.core.units import format_frequency, parse_frequency
+
+SWEEP_MODES = {"lineal": "Lineal", "logaritmico": "Logarítmico", "lista": "Lista de frecuencias (CSV)"}
+LINEAR_DEFINITIONS = {"puntos": "Nº de puntos", "paso": "Paso de frecuencia"}
 
 Cardinality = Literal["1", "0..1", "0..n", "1..n"]
 
@@ -215,8 +222,57 @@ class Segment(BaseModel):
     assignments: dict[str, Assignment] = Field(default_factory=dict, alias="asignaciones")
 
 
+class FrequencySettings(BaseModel):
+    """Frequency points of the setup inside its required range.
+
+    * lineal: by number of points or by frequency step;
+    * logaritmico: by number of points;
+    * lista: CSV file with the frequencies (relative to the setup YAML); the
+      points outside the required range are not measured.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    mode: Literal["lineal", "logaritmico", "lista"] = Field(default="lineal", alias="modo")
+    linear_definition: Literal["puntos", "paso"] = Field(default="puntos", alias="definicion")
+    points: int = Field(default=801, alias="puntos", ge=2)
+    step: float | None = Field(default=None, alias="paso")
+    list_file: str | None = Field(default=None, alias="fichero_lista")
+
+    @field_validator("step", mode="before")
+    @classmethod
+    def _step(cls, value: Any) -> float | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return parse_frequency(value)
+
+    @field_serializer("step")
+    def _step_out(self, value: float | None) -> str | None:
+        return None if value is None else format_frequency(value, decimal=".")
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "FrequencySettings":
+        if self.mode == "lineal" and self.linear_definition == "paso" and not (self.step and self.step > 0):
+            raise ValueError("el barrido lineal por paso necesita el paso de frecuencia")
+        if self.mode == "lista" and not self.list_file:
+            raise ValueError("el barrido por lista necesita el fichero CSV con las frecuencias")
+        return self
+
+    @property
+    def by_step(self) -> bool:
+        return self.mode == "lineal" and self.linear_definition == "paso"
+
+    def summary(self) -> str:
+        """Short text, e.g. «Lineal, paso 50 MHz» or «Lista puntos_cable_N.csv»."""
+        if self.mode == "lista":
+            return f"Lista {Path(self.list_file or '').name}"
+        if self.by_step:
+            return f"Lineal, paso {format_frequency(self.step or 0)}"
+        return f"{SWEEP_MODES[self.mode]}, {self.points} puntos"
+
+
 class ConfiguredSetup(BaseModel):
-    """A template with equipment assigned to its roles and a required frequency range."""
+    """A template with equipment assigned to its roles, a required frequency range and its frequency points."""
 
     model_config = ConfigDict(populate_by_name=True, extra="allow", arbitrary_types_allowed=True)
 
@@ -225,6 +281,7 @@ class ConfiguredSetup(BaseModel):
     name: str = Field(alias="nombre")
     template: str = Field(alias="plantilla")
     required_range: FrequencyRangeField = Field(alias="rango_requerido")
+    frequencies: FrequencySettings = Field(default_factory=FrequencySettings, alias="frecuencias")
     assignments: dict[str, Assignment] = Field(default_factory=dict, alias="asignaciones")
     segments: list[Segment] = Field(default_factory=list, alias="segmentos")
     layout: dict[str, list[float]] = Field(default_factory=dict, alias="disposicion")

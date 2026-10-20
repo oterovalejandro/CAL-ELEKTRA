@@ -2,8 +2,9 @@
 
     QT_QPA_PLATFORM=offscreen python tools/capturas.py [carpeta_salida]
 
-Works on a temporary copy of the example library and first creates and runs
-some simulated tests in folders, so the dashboard and the test explorer have data.
+Works on a temporary copy of the example library and first launches the
+example test templates in folders, so the dashboard and the test explorer
+have data.
 """
 
 from __future__ import annotations
@@ -18,13 +19,12 @@ from PySide6.QtWidgets import QApplication
 
 from calelektra.catalog.library import Library
 from calelektra.gui.app import EXAMPLE_LIBRARY
-from calelektra.gui.equipment_dialogs import EquipmentDialog
+from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
 from calelektra.gui.main_window import MainWindow
 from calelektra.gui.plots import SParameterDialog
 from calelektra.gui.style import apply_theme
-from calelektra.gui.test_window import NewTestDialog, PromptDialog
+from calelektra.gui.test_window import LaunchTestDialog, PromptDialog, TestWindow
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, PromptRequest
-from calelektra.procedures.record import TestDefinition
 
 
 def grab(widget, path: Path) -> None:
@@ -32,6 +32,13 @@ def grab(widget, path: Path) -> None:
     QTest.qWait(30)
     widget.grab().save(str(path))
     print("captura", path)
+
+
+def wait(test: TestWindow) -> None:
+    for _ in range(600):
+        QTest.qWait(20)
+        if not test.running:
+            break
 
 
 def main() -> None:
@@ -43,16 +50,13 @@ def main() -> None:
     apply_theme(app)
     library = Library.load(work)
     client = library.tests_folder / "2026" / "Cliente ACME"
-    for folder, name, procedure, setup, dut, run in (
-        (client, "Cable 2,92 mm 0,5 m nº 2001", "cable_292_pasa_falla", "cable_vna_292", "CAB-DUT-0002", True),
-        (client, "Cable 2,92 mm 1,2 m nº 3001", "cable_292_pasa_falla", "componente_292_tosm", "CAB-DUT-0003", True),
-        (client, "Cable N nº 1234 (pendiente)", "cable_N_lista", "cable_N_18G", "CAB-DUT-0001", False),
-        (library.tests_folder / "2026" / "LISN", "LISN-0001 verificación anual", "impedancia_lisn", "lisn_impedancia_VNA-BF", "LISN-0001", True),
+    for folder, name, template in (
+        (client, "Cable 2,92 mm nº 2001", "cable_CAB-DUT-0002"),
+        (client, "Cable 2,92 mm nº 3001", "cable_CAB-DUT-0003"),
+        (client, "Cable N nº 1234", "cable_CAB-DUT-0001"),
+        (library.tests_folder / "2026" / "LISN", "LISN-0001 verificación anual", "lisn_LISN-0001"),
     ):
-        definition = TestDefinition.from_template(library.procedures[procedure], setup, dut)
-        record = library.create_test(folder, name, definition, "Demo")
-        if run:
-            ProcedureRunner.for_test(library, record, AutoOperator(), seed=1).run()
+        ProcedureRunner(library, library.procedures[template], AutoOperator(), operator_name="Demo", seed=1, folder=folder, name=name).run()
 
     window = MainWindow(library)
     window.resize(1600, 980)
@@ -69,53 +73,52 @@ def main() -> None:
     window.show_section("catalogo")
     window.catalog._select(("categoria", "vna"))
     grab(window, out / "04_catalogo_categoria_vna.png")
-    window.catalog._select(("modelo", "rs_znb43"))
-    grab(window, out / "05_catalogo_modelo_znb43.png")
+    window.catalog._select(("modelo", "cable_coaxial_292_hh"))
+    grab(window, out / "05_catalogo_modelo_cable.png")
+    model_dialog = ModelDialog(library, library.models["cable_coaxial_292_hh"], parent=window)
+    model_dialog.show()
+    scroll = model_dialog.fields_holder.parentWidget().parentWidget()
+    scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
+    grab(model_dialog, out / "05b_modelo_especificaciones.png")
+    model_dialog.close()
 
     window.show_section("setups")
     grab(window, out / "06_setups.png")
-    window.show_section("procedimientos")
-    window.procedures_view.reload(select="cable_292_pasa_falla")
-    grab(window, out / "07_plantilla_ensayo.png")
-    scroll = window.procedures_view.editor.parentWidget().parentWidget()
-    scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
-    grab(window, out / "08_plantilla_especificaciones.png")
-    window.procedures_view.reload(select="cable_N_lista")
-    scroll.verticalScrollBar().setValue(0)
-    grab(window, out / "09_plantilla_lista_csv.png")
-
     editor = window.open_setup("cable_vna_292")
     editor.diagram.fit()
-    editor.bottom_tabs.setCurrentIndex(1)
-    grab(window, out / "10_setup_cable_vna_compatibilidad.png")
-    editor.bottom_tabs.setCurrentIndex(2)
+    editor.bottom_tabs.setCurrentIndex(0)
+    grab(window, out / "10_setup_frecuencias.png")
+    editor.bottom_tabs.setCurrentWidget(editor.checks)
+    grab(window, out / "10b_setup_cable_vna_compatibilidad.png")
+    editor.bottom_tabs.setCurrentWidget(editor.calibration_panel)
     grab(window, out / "11_setup_cable_vna_calibracion.png")
+    listed = window.open_setup("cable_N_18G")
+    listed.diagram.fit()
+    listed.bottom_tabs.setCurrentIndex(0)
+    grab(window, out / "11b_setup_lista_frecuencias.png")
     alarm = window.open_setup("cable_vna_N_alarma")
     alarm.diagram.fit()
-    alarm.bottom_tabs.setCurrentIndex(1)
+    alarm.bottom_tabs.setCurrentWidget(alarm.checks)
     grab(window, out / "12_setup_conectores_alarma.png")
     for name in ("componente_292_tosm", "sac_nsa_3m", "lisn_impedancia_VNA-01"):
         other = window.open_setup(name)
         other.diagram.fit()
         grab(window, out / f"13_setup_{name}.png")
 
-    dialog = NewTestDialog(library, "cable_292_pasa_falla", "cable_vna_292", client, parent=window)
+    window.show_section("procedimientos")
+    window.procedures_view.reload(select="cable_CAB-DUT-0002")
+    grab(window, out / "07_plantilla_ensayo.png")
+    scroll = window.procedures_view.editor.parentWidget().parentWidget()
+    scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
+    grab(window, out / "08_plantilla_trazas.png")
+    scroll.verticalScrollBar().setValue(0)
+
+    dialog = LaunchTestDialog(library, "cable_CAB-DUT-0002", client, parent=window)
     dialog.show()
-    dialog.dut.setCurrentIndex(dialog.dut.findData("CAB-DUT-0002"))
-    dialog.name.setText("Cable 2,92 mm 0,5 m nº 2002")
+    dialog.name.setText("Cable 2,92 mm nº 2001 (recalibración)")
     dialog._name_typed("")
-    grab(dialog, out / "20_nuevo_ensayo.png")
-    dialog.tabs.setCurrentIndex(1)
-    grab(dialog, out / "20b_nuevo_ensayo_especificaciones.png")
-    dialog.setup.setCurrentIndex(dialog.setup.findData("cable_vna_N_alarma"))
-    dialog.dut.setCurrentIndex(dialog.dut.findData("CAB-DUT-0001"))
-    dialog.tabs.setCurrentIndex(0)
-    grab(dialog, out / "20c_nuevo_ensayo_alarma.png")
-    dialog.setup.setCurrentIndex(dialog.setup.findData("cable_vna_292"))
-    dialog.dut.setCurrentIndex(dialog.dut.findData("CAB-DUT-0002"))
-    dialog.automatic.setChecked(True)
-    dialog._accept()
-    created = dialog.created
+    grab(dialog, out / "20_lanzar_ensayo.png")
+    dialog.close()
 
     prompt = PromptDialog(
         PromptRequest(
@@ -130,13 +133,12 @@ def main() -> None:
     grab(prompt, out / "21_peticion_operador.png")
     prompt.close()
 
-    test = window.open_test_record(created, automatic=True)
-    grab(window, out / "22_ensayo_preparado.png")
+    test = window._add_test_window(
+        TestWindow(library, library.procedures["cable_CAB-DUT-0002"], client, "Cable 2,92 mm nº 2001 (recalibración)", "Demo", automatic=True)
+    )
+    grab(window, out / "22_ensayo_listo.png")
     test.start()
-    for _ in range(600):
-        QTest.qWait(20)
-        if not test.running:
-            break
+    wait(test)
     test.tabs.setCurrentIndex(0)
     grab(window, out / "23_ensayo_grafica.png")
     test.tabs.setCurrentIndex(1)

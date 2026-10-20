@@ -5,15 +5,16 @@ Folder layout under the library root::
     catalogo/categorias/*.yaml          categories (typed fields, ports)
     catalogo/modelos/*.yaml             equipment models
     catalogo/equipos/*.yaml             physical equipment (inventory)
-    catalogo/especificaciones/*.yaml    specification / uncertainty files (stored, not processed yet)
+    catalogo/especificaciones/          specification files of the models: S2P/S1P for pass / fail
+                                        (``especificaciones_s``) and datasheet/uncertainty YAML (stored)
     catalogo/datos_s/*.sNp              S-parameter files referenced by equipment
     hardware_setups/plantillas/*.yaml   generic hardware setup templates
-    hardware_setups/configurados/*.yaml configured setups
-    procedimientos/*.yaml               measurement procedure templates (test templates)
-    procedimientos/listas/*.csv         frequency lists of the procedures
-    procedimientos/especificaciones/    S2P specification files (pass / fail)
-    ensayos/[carpetas/]<id>/ensayo.yaml tests, in folders chosen by the user, with their result files
-                                        (ensayos/carpetas.yaml lists test folders outside the library)
+    hardware_setups/configurados/*.yaml configured setups (equipment and frequency points)
+    hardware_setups/listas/*.csv        frequency lists of the setups
+    procedimientos/*.yaml               test templates (hardware setup + EUT + how to measure)
+    ensayos/[carpetas/]<id>/ensayo.yaml tests: records of the templates launched in folders chosen by
+                                        the user, with their files (ensayos/carpetas.yaml lists test
+                                        folders outside the library)
 """
 
 from __future__ import annotations
@@ -30,14 +31,14 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from calelektra.catalog.fields import ResolvedField, missing_required, validate_values
-from calelektra.catalog.model import Category, Equipment, EquipmentModel, PortDef, parse_format, resolved_fields
+from calelektra.catalog.model import Category, Equipment, EquipmentModel, PortDef, SpecFile, parse_format, resolved_fields
 from calelektra.core.connectors import Connector
 from calelektra.core.frequency import FrequencyRange, intersect_all
 from calelektra.core.issues import Issue, Severity
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError
 from calelektra.procedures.model import ProcedureTemplate
-from calelektra.procedures.record import RECORD_FILE, TestDefinition, TestRecord
+from calelektra.procedures.record import RECORD_FILE, TestRecord
 from calelektra.setups.model import ConfiguredSetup, SetupTemplate
 
 FOLDERS = {
@@ -50,6 +51,7 @@ FOLDERS = {
     "procedimiento": Path("procedimientos"),
 }
 S_PARAMETER_FOLDER = Path("catalogo/datos_s")
+LIST_FOLDER = Path("hardware_setups/listas")
 TESTS_FOLDER = Path("ensayos")
 TEST_ROOTS_FILE = "carpetas.yaml"  # external test folders (inside ensayos/)
 
@@ -174,6 +176,14 @@ class Library:
             )
             resolved = resolved_fields(category, model)
             self.load_issues.extend(missing_required(category.fields, resolved, owner, ("modelo",)))
+            for spec in model.s_specifications:
+                if not self.spec_path(model, spec).is_file():
+                    self._issue(
+                        Severity.WARNING,
+                        "modelo.especificacion",
+                        f"Modelo «{model.id}»: no se encuentra el fichero de especificación «{spec.file}» ({spec.name})",
+                        model.source_path,
+                    )
         for eq in self.equipment.values():
             model = self.models.get(eq.model_id)
             if model is None:
@@ -233,15 +243,28 @@ class Library:
                     f"Setup «{setup.id}»: la plantilla «{setup.template}» no existe",
                     setup.source_path,
                 )
+            if setup.frequencies.mode == "lista" and not self.setup_list_path(setup).is_file():
+                self._issue(
+                    Severity.WARNING,
+                    "setup.lista",
+                    f"Setup «{setup.id}»: no se encuentra la lista de frecuencias «{setup.frequencies.list_file}»",
+                    setup.source_path,
+                )
         for procedure in self.procedures.values():
-            for template_id in procedure.compatible_templates:
-                if template_id not in self.templates:
-                    self._issue(
-                        Severity.WARNING,
-                        "procedimiento.plantilla",
-                        f"Procedimiento «{procedure.id}»: la plantilla compatible «{template_id}» no existe",
-                        procedure.source_path,
-                    )
+            if procedure.setup_id and procedure.setup_id not in self.setups:
+                self._issue(
+                    Severity.WARNING,
+                    "procedimiento.setup",
+                    f"Plantilla de ensayo «{procedure.id}»: el hardware setup «{procedure.setup_id}» no existe",
+                    procedure.source_path,
+                )
+            if procedure.eut_id and procedure.eut_id not in self.equipment:
+                self._issue(
+                    Severity.WARNING,
+                    "procedimiento.eut",
+                    f"Plantilla de ensayo «{procedure.id}»: el EUT «{procedure.eut_id}» no existe en el inventario",
+                    procedure.source_path,
+                )
 
     # ── queries ────────────────────────────────────────────────────────────
     def model_of(self, equipment: Equipment) -> EquipmentModel | None:
@@ -309,6 +332,56 @@ class Library:
             if equipment_id in ids:
                 users.append(setup.id)
         return users
+
+    def templates_using(self, setup_id: str | None = None, equipment_id: str | None = None) -> list[str]:
+        """Test templates that call a hardware setup or calibrate an equipment (EUT)."""
+        return sorted(
+            p.id
+            for p in self.procedures.values()
+            if (setup_id is not None and p.setup_id == setup_id) or (equipment_id is not None and p.eut_id == equipment_id)
+        )
+
+    # ── frequency lists of the setups, specifications of the models ────────
+    def setup_list_path(self, setup: ConfiguredSetup, reference: str | None = None) -> Path:
+        """Path of the frequency list of a setup (relative to the setup YAML)."""
+        path = Path(reference or setup.frequencies.list_file or "")
+        if path.is_absolute():
+            return path
+        base = setup.source_path.parent if setup.source_path else self.root / FOLDERS["setup"]
+        return (base / path).resolve()
+
+    def copy_setup_list(self, source: Path) -> str:
+        """Copy a CSV frequency list into ``hardware_setups/listas/``; returns its path relative to the setups."""
+        target_dir = self.root / LIST_FOLDER
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / Path(source).name
+        if Path(source).resolve() != target.resolve():
+            shutil.copy2(source, target)
+        return str(Path("..") / "listas" / Path(source).name)
+
+    def spec_path(self, model: EquipmentModel, spec: SpecFile | str) -> Path:
+        """Path of a specification file of a model (relative to the model YAML)."""
+        path = Path(spec.file if isinstance(spec, SpecFile) else spec)
+        if path.is_absolute():
+            return path
+        base = model.source_path.parent if model.source_path else self.root / FOLDERS["modelo"]
+        return (base / path).resolve()
+
+    def copy_spec_file(self, source: Path) -> str:
+        """Copy an S2P/S1P specification into ``catalogo/especificaciones/``; returns its path relative to the models."""
+        target_dir = self.root / FOLDERS["especificaciones"]
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / Path(source).name
+        if Path(source).resolve() != target.resolve():
+            shutil.copy2(source, target)
+        return str(Path("..") / "especificaciones" / Path(source).name)
+
+    def specifications_of(self, equipment: Equipment) -> list[tuple[SpecFile, Path]]:
+        """S-parameter specifications of the model of an equipment, with their files."""
+        model = self.model_of(equipment)
+        if model is None:
+            return []
+        return [(spec, self.spec_path(model, spec)) for spec in model.s_specifications]
 
     # ── S-parameters and frequency ranges ──────────────────────────────────
     def s_parameter_path(self, equipment: Equipment) -> Path:
@@ -420,11 +493,17 @@ class Library:
         users = self.references_to(equipment_id)
         if users:
             raise LibraryError(f"«{equipment_id}» se usa en: {', '.join(users)}. Quítelo de esos setups antes de borrarlo.")
+        templates = self.templates_using(equipment_id=equipment_id)
+        if templates:
+            raise LibraryError(f"«{equipment_id}» es el EUT de las plantillas de ensayo: {', '.join(templates)}")
         equipment = self.equipment.pop(equipment_id)
         if equipment.source_path and equipment.source_path.exists():
             equipment.source_path.unlink()
 
     def delete_setup(self, setup_id: str) -> None:
+        templates = self.templates_using(setup_id=setup_id)
+        if templates:
+            raise LibraryError(f"El setup «{setup_id}» lo usan las plantillas de ensayo: {', '.join(templates)}")
         setup = self.setups.pop(setup_id)
         if setup.source_path and setup.source_path.exists():
             setup.source_path.unlink()
@@ -477,28 +556,6 @@ class Library:
     @property
     def procedures_folder(self) -> Path:
         return self.root / FOLDERS["procedimiento"]
-
-    def procedure_file(self, relative: str, test_folder: Path | None = None) -> Path:
-        """Path of a file referenced by a procedure (frequency list, specification S2P).
-
-        Relative paths are looked up first in the folder of the test (which
-        keeps its own copy) and then in ``procedimientos/``.
-        """
-        path = Path(relative)
-        if path.is_absolute():
-            return path
-        if test_folder is not None and (Path(test_folder) / path).is_file():
-            return Path(test_folder) / path
-        return self.procedures_folder / path
-
-    def copy_procedure_file(self, source: Path, subfolder: str) -> str:
-        """Copy a list/specification file into ``procedimientos/<subfolder>/`` and return its relative path."""
-        target_dir = self.procedures_folder / subfolder
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / Path(source).name
-        if Path(source).resolve() != target.resolve():
-            shutil.copy2(source, target)
-        return str(Path(subfolder) / Path(source).name)
 
     # ── tests: folders and records ─────────────────────────────────────────
     def _external_roots_file(self) -> Path:
@@ -583,86 +640,22 @@ class Library:
             test_id, counter = f"{base}_{counter}", counter + 1
         return test_id
 
-    def create_test(
-        self,
-        folder: Path,
-        name: str,
-        definition: TestDefinition,
-        operator: str | None = None,
-        source_folder: Path | None = None,
-    ) -> TestRecord:
-        """Create a prepared test (definition only) in ``folder``.
-
-        The frequency list and the specification files of the definition are
-        copied into the test folder (``listas/``, ``especificaciones/``), so the
-        test keeps the files it was defined with. ``source_folder`` is the
-        folder of the test being repeated, where its own copies are.
-        """
+    def new_test_record(self, folder: Path, name: str, procedure: ProcedureTemplate, operator: str | None = None) -> TestRecord:
+        """Record of a test template launched in ``folder`` (``<folder>/<id>/ensayo.yaml``)."""
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         test_id = self.new_test_id(folder, name)
-        test_folder = folder / test_id
-        test_folder.mkdir(parents=True)
-        definition = definition.model_copy(deep=True)
-        definition.procedure = self._copy_test_files(definition.procedure, test_folder, source_folder)
-        now = datetime.now()
-        record = TestRecord(id=test_id, name=name.strip() or test_id, status="preparado", operator=operator or None, created=now, started=now)
-        record.set_folder(test_folder)
-        self._set_definition(record, definition)
+        record = TestRecord(
+            id=test_id,
+            name=name.strip() or test_id,
+            operator=operator or None,
+            started=datetime.now(),
+            procedure={"id": procedure.id, "nombre": procedure.name, "version": procedure.version, "algoritmo": procedure.algorithm},
+            template=procedure.to_yaml_dict(),
+        )
+        record.set_folder(folder / test_id)
         self.save_test(record)
         return record
-
-    def redefine_test(self, record: TestRecord, definition: TestDefinition) -> TestRecord:
-        """Change the definition of a prepared test (new files are copied into its folder)."""
-        if record.status != "preparado" or record.folder is None:
-            raise LibraryError("Solo se puede cambiar la definición de un ensayo preparado")
-        definition = definition.model_copy(deep=True)
-        definition.procedure = self._copy_test_files(definition.procedure, record.folder, record.folder)
-        self._set_definition(record, definition)
-        self.save_test(record)
-        return record
-
-    def _set_definition(self, record: TestRecord, definition: TestDefinition) -> None:
-        template = definition.template()
-        setup = self.setups.get(definition.setup_id)
-        dut = self.equipment.get(definition.dut_id) if definition.dut_id else None
-        record.definition = definition
-        record.procedure = {"id": template.id, "nombre": template.name, "version": template.version, "algoritmo": template.algorithm}
-        record.setup = {"id": definition.setup_id, "nombre": setup.name if setup else definition.setup_id, "plantilla": setup.template if setup else ""}
-        record.dut = {}
-        if definition.dut_id:
-            record.dut = {"id": definition.dut_id}
-            model = self.model_of(dut) if dut else None
-            if model is not None:
-                record.dut["modelo"] = model.display_name
-
-    def _copy_test_files(self, procedure: dict[str, Any], test_folder: Path, source_folder: Path | None) -> dict[str, Any]:
-        """Copy the files referenced by a template snapshot into the test folder; references become relative to it."""
-        procedure = dict(procedure)
-
-        def copy(reference: str, subfolder: str) -> str:
-            source = self.procedure_file(reference, source_folder)
-            if not source.is_file():
-                return reference  # the check before running reports it
-            target = test_folder / subfolder / source.name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if source.resolve() != target.resolve():
-                shutil.copy2(source, target)
-            return f"{subfolder}/{source.name}"
-
-        sweep = dict(procedure.get("barrido") or {})
-        if sweep.get("fichero_lista"):
-            sweep["fichero_lista"] = copy(sweep["fichero_lista"], "listas")
-            procedure["barrido"] = sweep
-        specs = []
-        for spec in procedure.get("especificaciones") or []:
-            spec = dict(spec)
-            if spec.get("fichero"):
-                spec["fichero"] = copy(spec["fichero"], "especificaciones")
-            specs.append(spec)
-        if specs:
-            procedure["especificaciones"] = specs
-        return procedure
 
     def save_test(self, record: TestRecord) -> Path:
         assert record.folder is not None

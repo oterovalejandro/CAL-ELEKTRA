@@ -1,4 +1,5 @@
-# DUT de ejemplo insertable (2,92 mm h–m)
+# EUT de ejemplo insertable (2,92 mm h–m). Mide 1,2 m: no cumple la máscara de 1 m
+# de su modelo (ejemplo de FALLA).
 formato: calelektra/equipo@0.3
 id: CAB-DUT-0003
 modelo: cable_coaxial_292_hm

@@ -2,9 +2,9 @@
 
 * ``catalogo/datos_s``: S-parameters of the measurement cables and paths
   (coaxial cable model: loss ∝ √f and f, delay, small reflections);
-* ``procedimientos/especificaciones``: specification masks used for pass/fail
-  by the example test templates;
-* ``procedimientos/listas``: frequency list (CSV) of the list-mode template.
+* ``catalogo/especificaciones``: specification masks of the example cable
+  models (``especificaciones_s``), used for pass / fail;
+* ``hardware_setups/listas``: frequency list (CSV) of the list-mode setup.
 
 They are only meant to exercise the software: they are not real measurements
 nor real manufacturer specifications.
@@ -23,8 +23,8 @@ from calelektra.core.units import format_frequency
 
 LIBRARY = Path(__file__).resolve().parents[1] / "biblioteca_ejemplo"
 OUT = LIBRARY / "catalogo" / "datos_s"
-SPECS = LIBRARY / "procedimientos" / "especificaciones"
-LISTS = LIBRARY / "procedimientos" / "listas"
+SPECS = LIBRARY / "catalogo" / "especificaciones"
+LISTS = LIBRARY / "hardware_setups" / "listas"
 
 # name: (start Hz, stop Hz, length m, k_sqrt dB/√GHz, k_lin dB/GHz, return loss dB at low f)
 CABLES = {
@@ -55,12 +55,12 @@ def synthetic_cable(start: float, stop: float, length: float, k_sqrt: float, k_l
     return f, s
 
 
-def mask_292_0m5() -> tuple[np.ndarray, np.ndarray]:
-    """Mask of a 0,5 m 2,92 mm cable: maximum insertion loss (S21, S12) and minimum return loss (S11, S22)."""
+def mask_292(constant: float, k_sqrt: float, k_lin: float) -> tuple[np.ndarray, np.ndarray]:
+    """Mask of a 2,92 mm cable: maximum insertion loss (S21, S12) and minimum return loss (S11, S22)."""
     steps = [18e9, 26.5e9]
     f = np.unique(np.concatenate([np.geomspace(10e6, 40e9, 300), steps, [x + 1.0 for x in steps], [40e9]]))
     f_ghz = f / 1e9
-    insertion_loss = 0.1 + 0.5 * np.sqrt(f_ghz) + 0.06 * f_ghz
+    insertion_loss = constant + k_sqrt * np.sqrt(f_ghz) + k_lin * f_ghz
     return_loss = np.where(f <= 18e9, 20.0, np.where(f <= 26.5e9, 17.0, 15.0))
     s = np.empty((f.size, 2, 2), dtype=complex)
     s[:, 1, 0] = s[:, 0, 1] = 10 ** (-insertion_loss / 20)
@@ -98,9 +98,10 @@ def main() -> None:
         print("escrito", OUT / name)
     SPECS.mkdir(parents=True, exist_ok=True)
     note = "CAL-ELEKTRA — ESPECIFICACIÓN SINTÉTICA DE EJEMPLO: no es la de ningún fabricante."
-    f, s = mask_292_0m5()
-    comments = [note, "Cable 2,92 mm de 0,5 m: S21/S12 = pérdidas de inserción máximas; S11/S22 = pérdidas de retorno mínimas"]
-    write_touchstone(SPECS / "cable_292_0m5_mascara.s2p", Touchstone(2, f, s, comments=comments), "DB", "GHZ")
+    for name, length, coefficients in (("cable_292_0m5_mascara.s2p", "0,5 m", (0.1, 0.5, 0.06)), ("cable_292_1m_mascara.s2p", "1 m", (0.05, 0.68, 0.08))):
+        f, s = mask_292(*coefficients)
+        comments = [note, f"Cable 2,92 mm de {length}: S21/S12 = pérdidas de inserción máximas; S11/S22 = pérdidas de retorno mínimas"]
+        write_touchstone(SPECS / name, Touchstone(2, f, s, comments=comments), "DB", "GHZ")
     f, s = reference_n_2m()
     comments = [note, "Cable N de 2 m: |S21| típico (curva de referencia para la comprobación ± tolerancia)"]
     write_touchstone(SPECS / "cable_N_2m_referencia.s2p", Touchstone(2, f, s, comments=comments), "DB", "GHZ")

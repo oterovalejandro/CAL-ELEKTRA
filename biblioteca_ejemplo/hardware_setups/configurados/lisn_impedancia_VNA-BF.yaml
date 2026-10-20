@@ -1,10 +1,13 @@
 # Impedancia de la LISN con el VNA de baja frecuencia (cubre desde 9 kHz).
-# La LISN a calibrar se elige en cada ensayo.
+# La LISN a calibrar (EUT) la define la plantilla de ensayo.
 formato: calelektra/setup@0.3
 id: lisn_impedancia_VNA-BF
 nombre: Impedancia LISN con VNA de baja frecuencia
 plantilla: lisn_impedancia
 rango_requerido: [9 kHz, 30 MHz]
+frecuencias:
+  modo: logaritmico
+  puntos: 201
 asignaciones:
   vna: VNA-BF-01
   cable_p1: CAB-PT-BF-01

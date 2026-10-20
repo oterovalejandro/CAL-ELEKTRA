@@ -1,9 +1,10 @@
-"""Frequency points of a measurement, from the sweep definition of the test template.
+"""Frequency points of a hardware setup, from its frequency definition and required range.
 
 * lineal: by number of points, or by frequency step;
 * logarítmico: by number of points;
 * lista: CSV file with the frequencies (first column; Hz unless the value or
-  the header gives the unit, e.g. ``Frecuencia (GHz)`` or ``1,5 GHz``).
+  the header gives the unit, e.g. ``Frecuencia (GHz)`` or ``1,5 GHz``). Only the
+  points inside the required range are measured.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import numpy as np
 
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
-from calelektra.procedures.model import SWEEP_MODES, SweepSettings
+from calelektra.setups.model import SWEEP_MODES, FrequencySettings
 
 HEADER_UNITS = {"thz": 1e12, "ghz": 1e9, "mhz": 1e6, "khz": 1e3, "hz": 1.0}
 
@@ -49,10 +50,15 @@ class FrequencyPlan:
     def range(self) -> FrequencyRange:
         return FrequencyRange(self.start, self.stop)
 
+    @property
+    def step(self) -> float | None:
+        """Step of a linear sweep."""
+        return float(self.frequencies[1] - self.frequencies[0]) if self.mode == "lineal" and self.points > 1 else None
+
     def describe(self) -> str:
         text = f"{SWEEP_MODES[self.mode]}: {format_frequency(self.start)} – {format_frequency(self.stop)}, {self.points} puntos"
-        if self.mode == "lineal" and self.points > 1:
-            text += f" (paso {format_frequency(self.frequencies[1] - self.frequencies[0])})"
+        if self.step is not None:
+            text += f" (paso {format_frequency(self.step)})"
         if self.list_path is not None:
             text += f" — {self.list_path.name}"
         return text + (f". {self.note}" if self.note else "")
@@ -100,43 +106,36 @@ def read_frequency_list(path: Path) -> np.ndarray:
     return frequencies
 
 
-def plan_frequencies(sweep: SweepSettings, default_range: FrequencyRange | None = None, list_path: Path | None = None) -> FrequencyPlan:
-    """Frequency points of the sweep.
+def plan_frequencies(settings: FrequencySettings, required: FrequencyRange, list_path: Path | None = None) -> FrequencyPlan:
+    """Frequency points of a setup: its frequency definition inside its required range.
 
-    ``default_range`` is used when the template gives no start/stop (the
-    required range of the setup); ``list_path`` is the resolved path of the
-    CSV list (``Library.procedure_file``).
+    ``list_path`` is the resolved path of the CSV list (``Library.setup_list_path``).
     """
-    if sweep.mode == "lista":
-        path = Path(list_path) if list_path is not None else Path(sweep.list_file or "")
-        frequencies = read_frequency_list(path)
-        if sweep.start is not None or sweep.stop is not None:
-            low = sweep.start if sweep.start is not None else -math.inf
-            high = sweep.stop if sweep.stop is not None else math.inf
-            frequencies = frequencies[(frequencies >= low) & (frequencies <= high)]
-            if not len(frequencies):
-                raise FrequencyError("Ninguna frecuencia de la lista está dentro del rango indicado")
-        return FrequencyPlan(frequencies, "lista", list_path=path)
-    start = sweep.start if sweep.start is not None else (default_range.start if default_range else None)
-    stop = sweep.stop if sweep.stop is not None else (default_range.stop if default_range else None)
-    if start is None or stop is None:
-        raise FrequencyError("Indique el rango de frecuencia (inicio y fin)")
+    if settings.mode == "lista":
+        path = Path(list_path) if list_path is not None else Path(settings.list_file or "")
+        listed = read_frequency_list(path)
+        low, high = required.start * (1 - 1e-12), required.stop * (1 + 1e-12)
+        frequencies = listed[(listed >= low) & (listed <= high)]
+        if not len(frequencies):
+            raise FrequencyError(f"Ninguna frecuencia de la lista {path.name} está dentro del rango requerido ({required})")
+        outside = len(listed) - len(frequencies)
+        note = f"{outside} frecuencias de la lista quedan fuera del rango requerido ({required}) y no se miden" if outside else ""
+        return FrequencyPlan(frequencies, "lista", note=note, list_path=path)
+    start, stop = required.start, required.stop
     if stop <= start:
-        raise FrequencyError("La frecuencia final debe ser mayor que la inicial")
-    if sweep.mode == "logaritmico":
+        raise FrequencyError(f"El rango requerido ({required}) no tiene anchura")
+    if settings.mode == "logaritmico":
         if start <= 0:
             raise FrequencyError("El barrido logarítmico no puede empezar en DC")
-        return FrequencyPlan(np.geomspace(start, stop, sweep.points), "logaritmico")
-    if sweep.linear_definition == "paso":
-        step = float(sweep.step or 0)
-        if step <= 0:
-            raise FrequencyError("El paso de frecuencia debe ser positivo")
+        return FrequencyPlan(np.geomspace(start, stop, settings.points), "logaritmico")
+    if settings.by_step:
+        step = float(settings.step or 0)
         count = int(math.floor((stop - start) / step + 1e-9)) + 1
         if count < 2:
-            raise FrequencyError(f"El paso de {format_frequency(step)} es mayor que el rango")
+            raise FrequencyError(f"El paso de {format_frequency(step)} es mayor que el rango requerido ({required})")
         frequencies = start + step * np.arange(count)
         note = ""
         if abs(frequencies[-1] - stop) > 1e-6 * step:
             note = f"El último punto es {format_frequency(frequencies[-1])}: el rango no es múltiplo del paso"
         return FrequencyPlan(frequencies, "lineal", note=note)
-    return FrequencyPlan(np.linspace(start, stop, sweep.points), "lineal")
+    return FrequencyPlan(np.linspace(start, stop, settings.points), "lineal")

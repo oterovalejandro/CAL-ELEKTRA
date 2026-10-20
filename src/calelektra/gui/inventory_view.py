@@ -121,7 +121,7 @@ class EquipmentDetail(QWidget):
         self.connection_card.body.addWidget(self.connection_label)
         self.connection_card.body.addWidget(self.check_button, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.usage_card = style.Card("Uso en hardware setups", icon_name="setups")
+        self.usage_card = style.Card("Uso en hardware setups y plantillas de ensayo", icon_name="setups")
         self.usage_label = QLabel()
         self.usage_label.setWordWrap(True)
         self.usage_card.body.addWidget(self.usage_label)
@@ -249,7 +249,17 @@ class EquipmentDetail(QWidget):
             self.connection_card.setVisible(False)
 
         users = library.references_to(equipment.id)
-        self.usage_label.setText(", ".join(library.setups[u].name for u in users) if users else "No se usa en ningún setup.")
+        lines = [f"<b>Setups:</b> {html.escape(', '.join(library.setups[u].name for u in users)) if users else 'ninguno'}"]
+        templates = library.templates_using(equipment_id=equipment.id)
+        if templates:
+            lines.append(f"<b>EUT de las plantillas de ensayo:</b> {html.escape(', '.join(library.procedures[t].name for t in templates))}")
+        specs = library.specifications_of(equipment)
+        if specs:
+            lines.append(
+                "<b>Especificaciones S de su modelo (pasa / falla):</b> "
+                + html.escape("; ".join(f"{spec.name} ({spec.describe()})" for spec, _ in specs))
+            )
+        self.usage_label.setText("<br>".join(lines))
 
     def _plot(self) -> None:
         if self.equipment is not None and self.equipment.s_parameters is not None:

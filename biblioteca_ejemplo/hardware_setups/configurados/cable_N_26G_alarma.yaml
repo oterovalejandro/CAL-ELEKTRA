@@ -5,6 +5,9 @@ id: cable_N_26G_alarma
 nombre: Cable N hasta 26,5 GHz (ejemplo con alarma)
 plantilla: componente_2p
 rango_requerido: [100 kHz, 26.5 GHz]
+frecuencias:
+  modo: lineal
+  puntos: 801
 asignaciones:
   vna: VNA-01
   cable_p1: CAB-PT-N-01

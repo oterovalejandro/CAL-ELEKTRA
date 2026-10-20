@@ -1,0 +1,31 @@
+# Plantilla de ensayo: calibración del cable N CAB-DUT-0001 en los puntos de
+# calibración del laboratorio (lista CSV del setup «cable_N_18G»; en el ZNB se
+# envía como barrido segmentado). Pasa / falla: |S21| y |S12| dentro de
+# ± 0,5 dB de la referencia de su modelo.
+formato: calelektra/procedimiento@0.3
+id: cable_CAB-DUT-0001
+nombre: Calibración cable N CAB-DUT-0001 (CLIENTE-1234)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Medida de los parámetros S del cable N en las frecuencias de la lista del
+  setup y comparación de |S21| con la referencia del modelo ± 0,5 dB.
+algoritmo: vna_2_puertos
+hardware_setup: cable_N_18G
+eut: CAB-DUT-0001
+barrido:
+  potencia_dbm: -10
+  ifbw: 300 Hz
+  promedios: 2
+  suavizado_pct: 0
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1
+  s11_max_db: -30
+exportacion:
+  formato: RI
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

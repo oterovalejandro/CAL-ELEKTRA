@@ -1,12 +1,16 @@
 # Cables de medida 2,92 mm: PR1 macho y PR2 hembra. Los planos se pueden unir
 # directamente, así que la calibración automática es TOSM (through plano) y el
-# DUT insertable (h–m, p. ej. CAB-DUT-0003), que se elige en cada ensayo, se
-# conecta entre ellos.
+# EUT insertable (h–m, p. ej. CAB-DUT-0003), que define la plantilla de
+# ensayo, se conecta entre ellos.
 formato: calelektra/setup@0.3
 id: componente_292_tosm
-nombre: Cable 2,92 mm insertable con cables de medida (TOSM)
+nombre: Cables 2,92 mm insertables con cables de medida (TOSM)
 plantilla: componente_2p
-rango_requerido: [10 MHz, 40 GHz]   # los datos S de los cables de medida empiezan en 10 MHz
+rango_requerido: [50 MHz, 40 GHz]
+frecuencias:
+  modo: lineal
+  definicion: paso
+  paso: 50 MHz
 asignaciones:
   vna: VNA-01
   cable_p1: CAB-PT-292-01

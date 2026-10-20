@@ -31,7 +31,7 @@ class HomeView(QWidget):
     open_setup = Signal(str)
     open_test = Signal(str)  # folder of the test
     open_equipment = Signal(str)
-    new_test = Signal()
+    launch_test = Signal()
     new_equipment = Signal()
     new_setup = Signal()
     title = "Inicio"
@@ -52,7 +52,7 @@ class HomeView(QWidget):
 
         self.header = style.PageHeader("CAL-ELEKTRA", "Laboratorio de calibración de equipos de MC")
         for text, slot, primary, icon_name in (
-            ("Nuevo ensayo", self.new_test.emit, True, "ejecutar"),
+            ("Lanzar ensayo", self.launch_test.emit, True, "ejecutar"),
             ("Nuevo equipo", self.new_equipment.emit, False, "equipos"),
             ("Nuevo setup", self.new_setup.emit, False, "setups"),
         ):
@@ -103,10 +103,10 @@ class HomeView(QWidget):
         grid.setColumnStretch(1, 1)
         layout.addLayout(grid, 1)
 
-        self.action_test = QAction(icon("ejecutar", style.OK.name()), "Nuevo\nensayo", self)
+        self.action_test = QAction(icon("ejecutar", style.OK.name()), "Lanzar\nensayo", self)
         self.action_equipment = QAction(icon("equipos", style.PRIMARY.name()), "Nuevo\nequipo", self)
         self.action_setup = QAction(icon("setups", style.PRIMARY.name()), "Nuevo\nsetup", self)
-        self.action_test.triggered.connect(self.new_test.emit)
+        self.action_test.triggered.connect(self.launch_test.emit)
         self.action_equipment.triggered.connect(self.new_equipment.emit)
         self.action_setup.triggered.connect(self.new_setup.emit)
         self.reload()
@@ -148,10 +148,7 @@ class HomeView(QWidget):
         tests = library.tests()
         recent = sum(1 for t in tests if t.started >= datetime.now() - timedelta(days=30))
         failed = sum(1 for t in tests if t.status in ("error", "abortado") or t.verdict == "FALLA")
-        prepared = sum(1 for t in tests if t.status == "preparado")
-        self.tile_tests.set_values(
-            str(len(tests)), f"{recent} en 30 días · {prepared} preparados · {failed} FALLA/error", style.ERROR if failed else None
-        )
+        self.tile_tests.set_values(str(len(tests)), f"{recent} en 30 días · {failed} con FALLA o error", style.ERROR if failed else None)
         self.tile_procedures.set_values(str(len(library.procedures)), f"{len(library.templates)} plantillas de setup")
 
         self.tests.setRowCount(0)

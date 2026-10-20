@@ -6,6 +6,8 @@ of the template (``requisitos``), the connectors of every connection and the
 VNA calibration (reference planes, method, cal kit). Per frequency segment:
 the effective range (intersection of every measuring equipment) must contain
 the required range; otherwise an alarm names the equipment limiting each edge.
+Finally the frequency points of the setup (``frecuencias``) are computed and
+checked against the VNA.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from calelektra.core.issues import Issue, Severity, has_errors
 from calelektra.core.touchstone import TouchstoneError
 from calelektra.core.units import format_frequency
 from calelektra.setups.connections import CalibrationDesign, ConnectionCheck, check_connections, design_calibration
+from calelektra.setups.frequencies import FrequencyError, FrequencyPlan, plan_frequencies
 from calelektra.setups.model import ConfiguredSetup, Role, Segment, SetupTemplate
 from calelektra.setups.requirements import RequirementResult, evaluate
 
@@ -61,6 +64,7 @@ class SetupAnalysis:
     requirements: list[RequirementResult] = field(default_factory=list)
     connections: list[ConnectionCheck] = field(default_factory=list)
     calibration: CalibrationDesign | None = None
+    frequency_plan: FrequencyPlan | None = None
 
     @property
     def ok(self) -> bool:
@@ -113,7 +117,39 @@ class _Analyzer:
         self._check_vna_calibration()
         for segment in self.setup.effective_segments():
             self._check_coverage(segment, segment.name if named else None)
+        self._check_frequencies()
         return self.result
+
+    # ── frequency points ───────────────────────────────────────────────────
+    def _check_frequencies(self) -> None:
+        assert self.template is not None
+        settings = self.setup.frequencies
+        list_path = self.library.setup_list_path(self.setup) if settings.mode == "lista" else None
+        try:
+            plan = plan_frequencies(settings, self.setup.required_range, list_path)
+        except FrequencyError as exc:
+            self.result.add(Issue(Severity.ERROR, "frecuencias.definicion", f"Frecuencias: {exc}"))
+            return
+        self.result.frequency_plan = plan
+        if plan.note:
+            self.result.add(Issue(Severity.WARNING, "frecuencias.aviso", f"Frecuencias: {plan.note}"))
+        self.result.add(Issue(Severity.INFO, "frecuencias.plan", f"Frecuencias de medida: {plan.describe()}"))
+        for key, role in self.template.roles.items():
+            if "vna" not in role.categories:
+                continue
+            for equipment_id in self.setup.ids_for(key):
+                vna = self.library.equipment.get(equipment_id)
+                max_points = self.library.field(vna, "puntos_max") if vna is not None else None
+                if max_points and plan.points > int(max_points):
+                    self.result.add(
+                        Issue(
+                            Severity.ERROR,
+                            "frecuencias.puntos",
+                            f"Las frecuencias tienen {plan.points} puntos y «{equipment_id}» admite {max_points} (campo «Nº máximo de puntos»)",
+                            role=key,
+                            equipment_id=equipment_id,
+                        )
+                    )
 
     # ── requirements on the fields of the assigned equipment ───────────────
     def _check_requirements(self, named: bool) -> None:
@@ -248,7 +284,7 @@ class _Analyzer:
                 Issue(
                     Severity.INFO,
                     "rol.dut_en_ensayo",
-                    f"«{role.display(key)}» se elige al crear cada ensayo{where}",
+                    f"«{role.display(key)}» lo define cada plantilla de ensayo{where}",
                     role=key,
                     segment=segment_label,
                 )

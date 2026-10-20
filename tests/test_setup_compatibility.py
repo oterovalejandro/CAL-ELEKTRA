@@ -13,7 +13,7 @@ def test_setup_without_dut_is_valid(library):
     analysis = analyze_setup(library.setups["cable_vna_292"], library, TODAY)
     assert analysis.ok and analysis.covered
     info = [i for i in analysis.issues if i.code == "rol.dut_en_ensayo"]
-    assert info and info[0].severity is Severity.INFO and "se elige al crear cada ensayo" in info[0].message
+    assert info and info[0].severity is Severity.INFO and "lo define cada plantilla de ensayo" in info[0].message
 
 
 def test_vna_only_cable_setup_is_valid_and_uses_uosm(library):

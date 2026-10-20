@@ -5,6 +5,9 @@ id: lisn_impedancia_VNA-01
 nombre: Impedancia LISN con ZNB43 (ejemplo con alarma)
 plantilla: lisn_impedancia
 rango_requerido: [9 kHz, 30 MHz]
+frecuencias:
+  modo: logaritmico
+  puntos: 201
 asignaciones:
   vna: VNA-01
   cable_p1: CAB-PT-N-01

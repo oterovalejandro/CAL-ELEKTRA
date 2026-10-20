@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calelektra.catalog.library import Library
+from calelektra.catalog.library import Library, LibraryError
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.issues import Severity
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
@@ -183,7 +183,7 @@ class NewSetupDialog(QDialog):
 class SetupsView(QWidget):
     open_setup = Signal(str)
     new_setup = Signal(object)  # ConfiguredSetup not yet saved
-    new_test = Signal(str)  # setup id
+    new_template = Signal(str)  # setup id: new test template that calls it
     setups_changed = Signal()
     title = "Hardware setups"
 
@@ -201,7 +201,7 @@ class SetupsView(QWidget):
         )
         splitter = QSplitter(Qt.Orientation.Horizontal)
         left = style.Card("Setups configurados", icon_name="setups")
-        self.table = style.make_table(["Setup", "Plantilla", "Rango requerido", "Calibración", "Estado"])
+        self.table = style.make_table(["Setup", "Plantilla", "Rango requerido", "Frecuencias", "Calibración", "Estado"])
         self.table.itemDoubleClicked.connect(lambda _item: self._open_current())
         self.table.itemSelectionChanged.connect(self._update_actions)
         left.body.addWidget(self.table)
@@ -228,12 +228,12 @@ class SetupsView(QWidget):
         self.action_open = QAction(icon("abrir", style.PRIMARY.name()), "Abrir", self)
         self.action_copy = QAction(icon("duplicar", style.PRIMARY.name()), "Duplicar", self)
         self.action_delete = QAction(icon("eliminar", style.ERROR.name()), "Eliminar", self)
-        self.action_test = QAction(icon("ejecutar", style.OK.name()), "Nuevo\nensayo", self)
+        self.action_test = QAction(icon("procedimientos", style.OK.name()), "Nueva plantilla\nde ensayo", self)
         self.action_new.triggered.connect(lambda: self.create(None))
         self.action_open.triggered.connect(self._open_current)
         self.action_copy.triggered.connect(self._duplicate)
         self.action_delete.triggered.connect(self._delete)
-        self.action_test.triggered.connect(lambda: self._current_setup() and self.new_test.emit(self._current_setup()))
+        self.action_test.triggered.connect(lambda: self._current_setup() and self.new_template.emit(self._current_setup()))
         self.reload()
 
     def ribbon_actions(self) -> list[QAction | None]:
@@ -253,19 +253,19 @@ class SetupsView(QWidget):
             method = analysis.calibration.method if analysis.calibration and analysis.calibration.method else "—"
             row = self.table.rowCount()
             self.table.insertRow(row)
-            values = [setup.name, template.name if template else setup.template, str(setup.required_range), method, text]
+            values = [setup.name, template.name if template else setup.template, str(setup.required_range), setup.frequencies.summary(), method, text]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, setup.id)
                 if column == 0:
                     item.setIcon(icon("setups", style.PRIMARY.name(), 16))
                     item.setToolTip(f"{setup.id}\n{setup.source_path}")
-                if column == 4:
+                if column == 5:
                     item.setIcon(style.severity_icon(self, severity))
                     item.setForeground(style.SEVERITY_COLORS.get(severity, style.OK) if severity else style.OK)
                 self.table.setItem(row, column, item)
         self.table.resizeColumnsToContents()
-        for column, limit in ((0, 330), (1, 270), (2, 170), (3, 90)):
+        for column, limit in ((0, 330), (1, 270), (2, 170), (3, 230), (4, 90)):
             self.table.setColumnWidth(column, min(self.table.columnWidth(column) + 12, limit))
         self.table.horizontalHeader().setStretchLastSection(True)
         for row in range(self.table.rowCount()):
@@ -332,12 +332,18 @@ class SetupsView(QWidget):
         if setup_id is None:
             return
         name = self.library.setups[setup_id].name
+        templates = self.library.templates_using(setup_id=setup_id)
+        if templates:
+            QMessageBox.warning(
+                self, "Eliminar setup", f"«{name}» lo usan las plantillas de ensayo: {', '.join(templates)}.\nCámbielas antes de eliminarlo."
+            )
+            return
         answer = QMessageBox.question(self, "Eliminar setup", f"¿Eliminar el setup «{name}»? Los ensayos ya realizados se conservan.")
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
             self.library.delete_setup(setup_id)
-        except OSError as exc:
+        except (LibraryError, OSError) as exc:
             QMessageBox.warning(self, "Eliminar setup", str(exc))
             return
         self.reload()

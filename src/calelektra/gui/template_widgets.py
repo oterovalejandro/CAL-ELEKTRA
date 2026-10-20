@@ -1,13 +1,14 @@
-"""Editors of the parts of a test template, shared by the template editor and the new-test dialog.
+"""Editors shared by the hardware setups, the test templates and the catalogue models.
 
-* :class:`FrequencyEditor`  frequency definition: linear (points or step),
-  logarithmic (points) or a CSV list, and the source power;
-* :class:`TraceEditor`      IFBW, averaging and smoothing for all traces or per trace;
-* :class:`SpecEditor`       S2P/S1P specification files that give pass / fail.
+* :class:`FrequencyEditor`  frequency points of a hardware setup: linear (points
+  or step), logarithmic (points) or a CSV list, inside its required range;
+* :class:`TraceEditor`      IFBW, averaging and display smoothing of a test
+  template, for all traces or per trace;
+* :class:`SpecEditor`       S2P/S1P specification files of a catalogue model
+  (pass / fail of its units); read only in the test template.
 
-File references are stored as given by an *importer* (the template editor
-copies the file into ``procedimientos/``; a new test keeps the chosen path and
-copies the file into its own folder) and resolved with a *resolver*.
+File references are stored as given by an *importer* (the file is copied into
+the library) and resolved with a *resolver*.
 """
 
 from __future__ import annotations
@@ -43,8 +44,10 @@ from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.gui import style
 from calelektra.gui.icons import icon
-from calelektra.procedures.frequencies import FrequencyError, plan_frequencies
-from calelektra.procedures.model import LINEAR_DEFINITIONS, SPEC_CRITERIA, SPEC_QUANTITIES, SWEEP_MODES, SpecFile, SweepSettings
+from calelektra.catalog.model import SPEC_CRITERIA, SPEC_QUANTITIES, SpecFile
+from calelektra.procedures.model import SweepSettings
+from calelektra.setups.frequencies import FrequencyError, plan_frequencies, read_frequency_list
+from calelektra.setups.model import LINEAR_DEFINITIONS, SWEEP_MODES, FrequencySettings
 
 Resolver = Callable[[str], Path]  # file reference of the template → path on disk
 Importer = Callable[[Path], str]  # file chosen by the user → reference stored in the template
@@ -65,15 +68,16 @@ def _parse_optional_frequency(text: str, label: str) -> float | None:
 
 
 class FrequencyEditor(QWidget):
-    """Frequency points of the test: linear by points or step, logarithmic by points, or a CSV list."""
+    """Frequency points of a hardware setup inside its required range."""
 
     changed = Signal()
+    list_loaded = Signal(object)  # FrequencyRange of a CSV list just chosen
 
     def __init__(self, resolver: Resolver, importer: Importer, parent: QWidget | None = None):
         super().__init__(parent)
         self.resolver = resolver
         self.importer = importer
-        self.default_range: FrequencyRange | None = None
+        self.required_range: FrequencyRange | None = None
         self._loading = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -82,12 +86,6 @@ class FrequencyEditor(QWidget):
         self.mode = QComboBox()
         for key, text in SWEEP_MODES.items():
             self.mode.addItem(text, key)
-        self.setup_range = QCheckBox("Rango requerido del hardware setup")
-        self.setup_range.setToolTip("Sin inicio ni fin propios: el ensayo usa el rango requerido del setup elegido")
-        self.start = QLineEdit()
-        self.start.setPlaceholderText("p. ej. 50 MHz")
-        self.stop = QLineEdit()
-        self.stop.setPlaceholderText("p. ej. 40 GHz")
         self.definition = QComboBox()
         for key, text in LINEAR_DEFINITIONS.items():
             self.definition.addItem(text, key)
@@ -106,70 +104,52 @@ class FrequencyEditor(QWidget):
         self.browse.clicked.connect(self._choose_list)
         file_layout.addWidget(self.list_file, 1)
         file_layout.addWidget(self.browse)
-        self.power = QDoubleSpinBox()
-        self.power.setRange(-100, 30)
-        self.power.setDecimals(1)
-        self.power.setSuffix(" dBm")
         self.preview = QLabel()
         self.preview.setObjectName("pageSubtitle")
         self.preview.setWordWrap(True)
         self.form.addRow("Tipo de barrido", self.mode)
-        self.form.addRow("", self.setup_range)
-        self.form.addRow("Inicio", self.start)
-        self.form.addRow("Fin", self.stop)
         self.form.addRow("Definición", self.definition)
         self.form.addRow("Nº de puntos", self.points)
         self.form.addRow("Paso", self.step)
         self.form.addRow("Lista (CSV)", file_row)
-        self.form.addRow("Potencia", self.power)
         self._file_row = file_row
+        note = QLabel("Las frecuencias se reparten en el rango requerido del setup; de una lista solo se miden las que caen dentro.")
+        note.setObjectName("pageSubtitle")
+        note.setWordWrap(True)
         layout.addWidget(self.preview)
+        layout.addWidget(note)
+        layout.addStretch(1)
         for combo in (self.mode, self.definition):
             combo.currentIndexChanged.connect(self._edited)
-        for edit in (self.start, self.stop, self.step):
-            edit.textEdited.connect(self._edited)
+        self.step.textEdited.connect(self._edited)
         self.points.valueChanged.connect(self._edited)
-        self.power.valueChanged.connect(self._edited)
-        self.setup_range.toggled.connect(self._edited)
         self._update_rows()
 
     # ── state ──────────────────────────────────────────────────────────────
-    def load(self, sweep: SweepSettings) -> None:
+    def load(self, settings: FrequencySettings, required_range: FrequencyRange | None = None) -> None:
         self._loading = True
-        self.mode.setCurrentIndex(max(self.mode.findData(sweep.mode), 0))
-        self.setup_range.setChecked(sweep.start is None and sweep.stop is None)
-        self.start.setText(_frequency_text(sweep.start))
-        self.stop.setText(_frequency_text(sweep.stop))
-        self.definition.setCurrentIndex(max(self.definition.findData(sweep.linear_definition), 0))
-        self.points.setValue(sweep.points)
-        self.step.setText(_frequency_text(sweep.step))
-        self.list_file.setText(sweep.list_file or "")
-        self.power.setValue(sweep.power_dbm)
+        self.required_range = required_range
+        self.mode.setCurrentIndex(max(self.mode.findData(settings.mode), 0))
+        self.definition.setCurrentIndex(max(self.definition.findData(settings.linear_definition), 0))
+        self.points.setValue(settings.points)
+        self.step.setText(_frequency_text(settings.step))
+        self.list_file.setText(settings.list_file or "")
         self._loading = False
         self._update_rows()
 
-    def set_default_range(self, frequency_range: FrequencyRange | None) -> None:
-        """Required range of the setup, used when the template has no range of its own (preview only)."""
-        self.default_range = frequency_range
+    def set_required_range(self, required_range: FrequencyRange | None) -> None:
+        self.required_range = required_range
         self._update_preview()
 
     def values(self) -> dict[str, Any]:
-        """``barrido`` keys of the frequency definition; ``ValueError`` with the reason if something is wrong."""
+        """``frecuencias`` of the setup; ``ValueError`` with the reason if something is wrong."""
         mode = self.mode.currentData()
-        data: dict[str, Any] = {"modo": mode, "potencia_dbm": self.power.value()}
+        data: dict[str, Any] = {"modo": mode}
         if mode == "lista":
             if not self.list_file.text().strip():
                 raise ValueError("Elija el fichero CSV con la lista de frecuencias")
             data["fichero_lista"] = self.list_file.text().strip()
             return data
-        if not self.setup_range.isChecked():
-            start = _parse_optional_frequency(self.start.text(), "Inicio")
-            stop = _parse_optional_frequency(self.stop.text(), "Fin")
-            if start is None or stop is None:
-                raise ValueError("Indique el inicio y el fin del rango de frecuencia (o use el rango del hardware setup)")
-            if stop <= start:
-                raise ValueError("La frecuencia final debe ser mayor que la inicial")
-            data["inicio"], data["fin"] = _frequency_text(start), _frequency_text(stop)
         if mode == "lineal":
             data["definicion"] = self.definition.currentData()
             if data["definicion"] == "paso":
@@ -177,8 +157,15 @@ class FrequencyEditor(QWidget):
                 if not step or step <= 0:
                     raise ValueError("Indique el paso de frecuencia")
                 data["paso"] = _frequency_text(step)
+                return data
         data["puntos"] = self.points.value()
         return data
+
+    def settings(self) -> FrequencySettings:
+        try:
+            return FrequencySettings.model_validate(self.values())
+        except ValidationError as exc:
+            raise ValueError(validation_message(exc)) from exc
 
     # ── behaviour ──────────────────────────────────────────────────────────
     def _edited(self, *_args) -> None:
@@ -190,12 +177,6 @@ class FrequencyEditor(QWidget):
         mode = self.mode.currentData()
         linear, listed = mode == "lineal", mode == "lista"
         by_step = linear and self.definition.currentData() == "paso"
-        own_range = not self.setup_range.isChecked()
-        self.form.setRowVisible(self.setup_range, not listed)
-        self.form.setRowVisible(self.start, not listed)
-        self.form.setRowVisible(self.stop, not listed)
-        self.start.setEnabled(own_range)
-        self.stop.setEnabled(own_range)
         self.form.setRowVisible(self.definition, linear)
         self.form.setRowVisible(self.points, not listed and not by_step)
         self.form.setRowVisible(self.step, by_step)
@@ -203,43 +184,45 @@ class FrequencyEditor(QWidget):
         self._update_preview()
 
     def _update_preview(self) -> None:
-        try:
-            data = self.values()
-        except ValueError as exc:
-            self.preview.setText(f"⚠ {exc}")
+        def problem(text: str) -> None:
+            self.preview.setText(f"⚠ {text}")
             self.preview.setStyleSheet(f"color: {style.WARNING.name()};")
+
+        try:
+            settings = self.settings()
+        except ValueError as exc:
+            problem(str(exc))
+            return
+        if self.required_range is None:
+            problem("Indique el rango requerido del setup")
+            return
+        list_path = self.resolver(settings.list_file) if settings.list_file else None
+        try:
+            plan = plan_frequencies(settings, self.required_range, list_path)
+        except FrequencyError as exc:
+            problem(str(exc))
             return
         self.preview.setStyleSheet("")
-        try:
-            sweep = SweepSettings.model_validate(data)
-        except ValidationError as exc:
-            self.preview.setText(f"⚠ {validation_message(exc)}")
-            return
-        if sweep.mode != "lista" and sweep.start is None and self.default_range is None:
-            points = "puntos según el paso" if sweep.linear_definition == "paso" and sweep.mode == "lineal" else f"{sweep.points} puntos"
-            self.preview.setText(f"→ {SWEEP_MODES[sweep.mode]} en el rango requerido del hardware setup, {points}")
-            return
-        list_path = self.resolver(sweep.list_file) if sweep.list_file else None
-        try:
-            plan = plan_frequencies(sweep, self.default_range, list_path)
-        except FrequencyError as exc:
-            self.preview.setText(f"⚠ {exc}")
-            self.preview.setStyleSheet(f"color: {style.WARNING.name()};")
-            return
         self.preview.setText(f"→ {plan.describe()}")
 
     def _choose_list(self) -> None:
         start = str(self.resolver(self.list_file.text()).parent) if self.list_file.text() else ""
         filename, _ = QFileDialog.getOpenFileName(self, "Lista de frecuencias", start, "CSV (*.csv *.txt);;Todos (*)")
-        if not filename:
-            return
+        if filename:
+            self.use_list(Path(filename))
+
+    def use_list(self, path: Path) -> bool:
+        """Take a CSV list (copied into the library); announces its range so the setup can adopt it."""
         try:
-            reference = self.importer(Path(filename))
-        except OSError as exc:
+            frequencies = read_frequency_list(path)
+            reference = self.importer(path)
+        except (FrequencyError, OSError) as exc:
             QMessageBox.warning(self, "Lista de frecuencias", str(exc))
-            return
+            return False
         self.list_file.setText(reference)
+        self.list_loaded.emit(FrequencyRange(float(frequencies[0]), float(frequencies[-1])))
         self._edited()
+        return True
 
 
 TRACE_ROWS = ("Todas", "S11", "S21", "S12", "S22")
@@ -260,6 +243,7 @@ class TraceEditor(QWidget):
         layout.addWidget(self.per_trace)
         self.table = QTableWidget(len(TRACE_ROWS), 3)
         self.table.setHorizontalHeaderLabels(["IFBW", "Promedios", "Suavizado (%)"])
+        self.table.horizontalHeaderItem(2).setToolTip("Solo visualización: los datos, el pasa / falla y los ficheros no se suavizan")
         self.table.setVerticalHeaderLabels(["Todas las trazas", *TRACE_ROWS[1:]])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setDefaultSectionSize(26)
@@ -268,8 +252,9 @@ class TraceEditor(QWidget):
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         layout.addWidget(self.table)
         hint = QLabel(
-            "Las trazas con IFBW o promedios distintos se miden en barridos separados. "
-            "El suavizado es una media móvil de la magnitud (dB) y de la fase sobre el % de puntos indicado."
+            "Las trazas con IFBW o promedios distintos se miden en barridos separados. El suavizado (media móvil de la "
+            "magnitud en dB y de la fase sobre el % de puntos indicado) solo cambia la visualización: los datos, el "
+            "pasa / falla y los ficheros exportados no se suavizan."
         )
         hint.setObjectName("pageSubtitle")
         hint.setWordWrap(True)
@@ -377,14 +362,15 @@ SPEC_COLUMNS = ["Nombre", "Fichero", "Parámetros", "Criterio", "Magnitud", "Tol
 
 
 class SpecEditor(QWidget):
-    """Specification files (S2P/S1P) and how the measurement is compared with them."""
+    """Specification files (S2P/S1P) and how the measurement is compared with them (``read_only``: only shown)."""
 
     changed = Signal()
 
-    def __init__(self, resolver: Resolver, importer: Importer, parent: QWidget | None = None):
+    def __init__(self, resolver: Resolver, importer: Importer | None = None, read_only: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
         self.resolver = resolver
         self.importer = importer
+        self.read_only = read_only
         self.traces: tuple[str, ...] = ("S11", "S21", "S12", "S22")
         self._loading = False
         layout = QVBoxLayout(self)
@@ -398,11 +384,18 @@ class SpecEditor(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.table.setColumnWidth(1, 230)
-        self.table.setColumnWidth(2, 90)
-        self.table.setColumnWidth(3, 130)
-        self.table.setColumnWidth(4, 150)
-        self.table.setColumnWidth(5, 80)
+        self.table.setColumnWidth(1, 200)
+        self.table.setColumnWidth(2, 85)
+        self.table.setColumnWidth(3, 115)
+        self.table.setColumnWidth(4, 125)
+        self.table.setColumnWidth(5, 75)
+        if read_only:  # compact: the criterion column describes parameters, quantity and tolerance
+            for column in (2, 4, 5):
+                self.table.setColumnHidden(column, True)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            self.table.setColumnWidth(0, 190)
+            self.table.setColumnWidth(1, 170)
         self.table.setMinimumHeight(110)
         layout.addWidget(self.table, 1)
         buttons = QHBoxLayout()
@@ -412,8 +405,12 @@ class SpecEditor(QWidget):
         self.add_button.clicked.connect(self._add)
         self.view_button.clicked.connect(self._view)
         self.remove_button.clicked.connect(self._remove)
-        self.empty = QLabel("Sin especificaciones: el ensayo no da veredicto pasa / falla.")
+        self.empty = QLabel("Sin especificaciones: no hay veredicto pasa / falla.")
         self.empty.setObjectName("pageSubtitle")
+        self.add_button.setVisible(not read_only)
+        self.remove_button.setVisible(not read_only)
+        if read_only:
+            self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         buttons.addWidget(self.add_button)
         buttons.addWidget(self.view_button)
         buttons.addWidget(self.remove_button)
@@ -489,6 +486,17 @@ class SpecEditor(QWidget):
             file_item.setToolTip(f"No se encuentra {path}")
         self.table.setItem(row, 1, file_item)
         self.table.setItem(row, 2, QTableWidgetItem(", ".join(parameters)))
+        if self.read_only:
+            try:
+                text = SpecFile(nombre=name, fichero=reference, parametros=parameters, criterio=criterion, magnitud=quantity, tolerancia=tolerance).describe()
+            except ValueError:
+                text = SPEC_CRITERIA.get(criterion, criterion)
+            self.table.setItem(row, 3, QTableWidgetItem(text))
+            self.table.setItem(row, 4, QTableWidgetItem(SPEC_QUANTITIES.get(quantity, quantity)))
+            self.table.setItem(row, 5, QTableWidgetItem("" if tolerance is None else f"{tolerance:g}"))
+            for column in (0, 2):
+                self.table.item(row, column).setToolTip(self.table.item(row, column).text())
+            return
         criteria = QComboBox()
         for key, text in SPEC_CRITERIA.items():
             criteria.addItem(text.split(":")[0], key)
@@ -504,6 +512,9 @@ class SpecEditor(QWidget):
         criteria.currentIndexChanged.connect(lambda _i, r=row: self._criterion_changed(r))
         quantities.currentIndexChanged.connect(self._edited)
         self._criterion_changed(row, emit=False)
+        if self.read_only:
+            criteria.setEnabled(False)
+            quantities.setEnabled(False)
 
     def _criterion_changed(self, row: int, emit: bool = True) -> None:
         combo = self.table.cellWidget(row, 3)
@@ -530,7 +541,7 @@ class SpecEditor(QWidget):
             QMessageBox.warning(self, "Especificación", f"No se puede leer {path.name}: {exc}")
             return False
         try:
-            reference = self.importer(path)
+            reference = self.importer(path) if self.importer is not None else str(path)
         except OSError as exc:
             QMessageBox.warning(self, "Especificación", str(exc))
             return False
@@ -594,5 +605,5 @@ class SpecEditor(QWidget):
     def _update_buttons(self) -> None:
         selected = self._selected_row() is not None
         self.view_button.setEnabled(selected)
-        self.remove_button.setEnabled(selected)
+        self.remove_button.setEnabled(selected and not self.read_only)
         self.empty.setVisible(self.table.rowCount() == 0)

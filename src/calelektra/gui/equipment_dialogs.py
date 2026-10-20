@@ -38,6 +38,7 @@ from calelektra.catalog.model import (
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.gui import style
 from calelektra.gui.field_form import FieldForm
+from calelektra.gui.template_widgets import SpecEditor
 from calelektra.instruments.factory import DRIVERS
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
@@ -364,9 +365,14 @@ class ModelDialog(QDialog):
         self.original = model
         self.saved_id: str | None = None
         self.setWindowTitle(f"Editar modelo «{model.display_name}»" if model else "Nuevo modelo")
-        self.resize(760, 700)
+        self.resize(860, 820)
         layout = QVBoxLayout(self)
-        layout.addWidget(style.PageHeader(self.windowTitle(), "Valores comunes a todas las unidades del modelo."))
+        layout.addWidget(
+            style.PageHeader(
+                self.windowTitle(),
+                "Valores comunes a todas las unidades del modelo y sus especificaciones S (pasa / falla al calibrarlas).",
+            )
+        )
         identity = style.Card("Identificación", icon_name="catalogo")
         form = QFormLayout()
         identity.body.addLayout(form)
@@ -398,6 +404,18 @@ class ModelDialog(QDialog):
         layout.addWidget(identity)
         self.fields_holder = QWidget()
         self.fields_layout = QVBoxLayout(self.fields_holder)
+        self.specs_card = style.Card("Especificaciones S (pasa / falla)", icon_name="veredicto")
+        specs_note = QLabel(
+            "Ficheros S2P/S1P con los valores de especificación del modelo. Al calibrar una unidad de este modelo "
+            "(EUT de una plantilla de ensayo), la medida se compara con ellos. Se copian en «catalogo/especificaciones»."
+        )
+        specs_note.setObjectName("pageSubtitle")
+        specs_note.setWordWrap(True)
+        self.specs = SpecEditor(resolver=self._spec_path, importer=library.copy_spec_file)
+        self.specs.setMinimumHeight(170)
+        self.specs_card.body.addWidget(specs_note)
+        self.specs_card.body.addWidget(self.specs)
+        self.fields_layout.addWidget(self.specs_card)
         layout.addWidget(_scrolling(self.fields_holder), 1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -431,12 +449,22 @@ class ModelDialog(QDialog):
                 else:
                     self.driver.setEditText(model.driver)
             self._build_fields(dict(model.values))
+            self.specs.load(model.s_specifications)
+
+    def _spec_path(self, reference: str) -> Path:
+        path = Path(reference)
+        if path.is_absolute():
+            return path
+        base = self.original.source_path.parent if self.original and self.original.source_path else self.library.root / "catalogo" / "modelos"
+        return (base / path).resolve()
 
     def _category_changed(self) -> None:
         category = self.library.categories.get(self.category.currentData())
         visible = bool(category and category.has_connection)
         self.driver.setVisible(visible)
         self.driver_row_label.setVisible(visible)
+        ports = len(category.ports) if category is not None and isinstance(category.ports, list) else 2
+        self.specs.set_traces(("S11", "S21", "S12", "S22") if ports >= 2 else ("S11",))
         self._build_fields({})
 
     def _build_fields(self, values: dict) -> None:
@@ -445,7 +473,7 @@ class ModelDialog(QDialog):
             self.form.deleteLater()
         category = self.library.categories.get(self.category.currentData())
         self.form = FieldForm(category.fields if category else {}, "modelo", values)
-        self.fields_layout.addWidget(self.form)
+        self.fields_layout.insertWidget(0, self.form)
 
     def build(self) -> EquipmentModel:
         model_id = self.id_edit.text().strip()
@@ -478,6 +506,10 @@ class ModelDialog(QDialog):
                 communication["driver"] = driver
             else:
                 communication.pop("driver", None)
+        try:
+            s_specifications = self.specs.specs()
+        except ValueError as exc:
+            raise FieldError(f"Especificaciones S: {exc}") from exc
         update = dict(
             id=model_id,
             category=category_id,
@@ -488,6 +520,7 @@ class ModelDialog(QDialog):
             description=self.description.text().strip() or None,
             values=values,
             communication=communication or None,
+            s_specifications=s_specifications,
         )
         if self.original is not None:
             model = self.original.model_copy(update=update)
@@ -514,6 +547,14 @@ def confirm_delete_equipment(library: Library, equipment_id: str, parent: QWidge
             parent,
             "Eliminar equipo",
             f"«{equipment_id}» se usa en los setups: {', '.join(users)}.\nQuítelo de esos setups antes de eliminarlo.",
+        )
+        return False
+    templates = library.templates_using(equipment_id=equipment_id)
+    if templates:
+        QMessageBox.warning(
+            parent,
+            "Eliminar equipo",
+            f"«{equipment_id}» es el EUT de las plantillas de ensayo: {', '.join(templates)}.\nCámbielas antes de eliminarlo.",
         )
         return False
     answer = QMessageBox.question(

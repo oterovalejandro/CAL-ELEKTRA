@@ -1,22 +1,20 @@
-# Procedimiento de medida: impedancia de LISN/AMN en el terminal EUT con VNA
-# de 1 puerto (CISPR 16-1-2). Mide cada línea indicada en el campo «Líneas»
-# de la LISN y compara con su «Red nominal» (campos del equipo).
+# Plantilla de ensayo: impedancia de la LISN LISN-0001 en el terminal EUT con
+# VNA de 1 puerto (CISPR 16-1-2). El setup «lisn_impedancia_VNA-BF» da las
+# frecuencias (9 kHz – 30 MHz, logarítmico, 201 puntos). Mide cada línea del
+# campo «Líneas» de la LISN y compara con su «Red nominal».
 formato: calelektra/procedimiento@0.3
-id: impedancia_lisn
-nombre: Impedancia de LISN (1 puerto) → .s1p por línea
-version: "1.1"
+id: lisn_LISN-0001
+nombre: Impedancia de la LISN LISN-0001 (1 puerto) → .s1p por línea
+version: "1.0"
 estado: borrador
 descripcion: >
   Calibración OSM en el extremo del cable de medida, medida de la reflexión
   en el terminal EUT de cada línea, impedancia y desviación respecto a la red
   nominal. Exporta un .s1p y un CSV por línea.
 algoritmo: vna_1_puerto
-plantillas_compatibles: [lisn_impedancia, reflexion_1p]
+hardware_setup: lisn_impedancia_VNA-BF
+eut: LISN-0001
 barrido:
-  modo: logaritmico         # logarítmico: nº de puntos
-  inicio: 9 kHz
-  fin: 30 MHz
-  puntos: 201
   potencia_dbm: -10
   ifbw: 100 Hz
   promedios: 1

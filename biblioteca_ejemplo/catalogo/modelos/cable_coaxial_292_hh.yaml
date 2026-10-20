@@ -1,11 +1,26 @@
+# Modelo de EUT de ejemplo: cable 2,92 mm hembra–hembra de 0,5 m.
+# Sus especificaciones S (máscara SINTÉTICA, no de un fabricante) dan el
+# pasa / falla de cada cable de este modelo al calibrarlo.
 formato: calelektra/modelo@0.3
 id: cable_coaxial_292_hh
 categoria: cable
 fabricante: Genérico
-modelo: Cable coaxial 2,92 mm (h) – 2,92 mm (h), 40 GHz
+modelo: Cable coaxial 2,92 mm (h) – 2,92 mm (h), 40 GHz, 0,5 m
 campos:
   rango_frecuencia: [DC, 40 GHz]
   conector_a: { familia: 2.92 mm, genero: hembra }
   conector_b: { familia: 2.92 mm, genero: hembra }
+  longitud_m: 0.5
   tipo_cable: semirrígido 0.141" (ejemplo)
   atenuacion_db_m_1ghz: 0.8
+especificaciones_s:
+  - nombre: Pérdidas de inserción máximas
+    fichero: ../especificaciones/cable_292_0m5_mascara.s2p
+    parametros: [S21, S12]
+    criterio: minimo        # |S| medida ≥ |S| de la máscara
+    magnitud: magnitud_db
+  - nombre: Pérdidas de retorno mínimas
+    fichero: ../especificaciones/cable_292_0m5_mascara.s2p
+    parametros: [S11, S22]
+    criterio: maximo        # |S| medida ≤ |S| de la máscara
+    magnitud: magnitud_db

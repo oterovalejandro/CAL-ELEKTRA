@@ -6,6 +6,10 @@ names are English and map to the YAML keys through aliases.
 Each category declares its typed fields (``campos``, see ``catalog/fields.py``).
 Models hold the values common to a model; equipment holds its own values and,
 where the field level allows it, overrides the model.
+
+The S-parameter specifications of a model (``especificaciones_s``: S2P/S1P
+files and how to compare a measurement with them) give the pass / fail of
+every unit of that model when it is calibrated (``procedures/specs.py``).
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from calelektra.catalog.fields import FieldSpec, ResolvedField, resolve
 
@@ -95,6 +99,57 @@ class Category(CatalogItem):
         return list(self.ports)
 
 
+SPEC_CRITERIA = {
+    "minimo": "Mínimo: medida ≥ especificación",
+    "maximo": "Máximo: medida ≤ especificación",
+    "tolerancia": "Tolerancia: |medida − especificación| ≤ tolerancia",
+}
+SPEC_QUANTITIES = {"magnitud_db": "Magnitud (dB)", "fase_grados": "Fase (°)"}
+
+
+class SpecFile(BaseModel):
+    """S2P (or S1P) file with specification values; pass / fail compares the measurement with it."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    name: str = Field(alias="nombre")
+    file: str = Field(alias="fichero")  # relative to the model YAML (``../especificaciones/…``)
+    parameters: list[str] = Field(default_factory=lambda: ["S21"], alias="parametros")
+    criterion: Literal["minimo", "maximo", "tolerancia"] = Field(default="minimo", alias="criterio")
+    quantity: Literal["magnitud_db", "fase_grados"] = Field(default="magnitud_db", alias="magnitud")
+    tolerance: float | None = Field(default=None, alias="tolerancia", gt=0)
+
+    @field_validator("parameters", mode="before")
+    @classmethod
+    def _as_list(cls, value: Any) -> Any:
+        return [value] if isinstance(value, str) else value
+
+    @field_validator("parameters")
+    @classmethod
+    def _names(cls, value: list[str]) -> list[str]:
+        names = [str(item).upper() for item in value]
+        for item in names:
+            if len(item) != 3 or item[0] != "S" or not item[1:].isdigit():
+                raise ValueError(f"parámetro S no válido: {item}")
+        return names
+
+    @model_validator(mode="after")
+    def _tolerance(self) -> "SpecFile":
+        if self.criterion == "tolerancia" and self.tolerance is None:
+            raise ValueError(f"«{self.name}»: el criterio de tolerancia necesita el valor de la tolerancia")
+        return self
+
+    def describe(self) -> str:
+        unit = "dB" if self.quantity == "magnitud_db" else "°"
+        values = ", ".join(f"|{p}|" if self.quantity == "magnitud_db" else f"∠{p}" for p in self.parameters)
+        rule = {
+            "minimo": "≥ especificación",
+            "maximo": "≤ especificación",
+            "tolerancia": f"= especificación ± {self.tolerance:g} {unit}" if self.tolerance else "= especificación ±",
+        }[self.criterion]
+        return f"{values} ({unit}) {rule}"
+
+
 def _values_field() -> Any:
     return Field(
         default_factory=dict,
@@ -114,7 +169,8 @@ class EquipmentModel(CatalogItem):
     description: str | None = Field(default=None, alias="descripcion")
     values: dict[str, Any] = _values_field()
     communication: dict[str, Any] | None = Field(default=None, alias="comunicacion")
-    specifications: list[Any] = Field(default_factory=list, alias="especificaciones")
+    specifications: list[Any] = Field(default_factory=list, alias="especificaciones")  # datasheet / uncertainty files (stored)
+    s_specifications: list[SpecFile] = Field(default_factory=list, alias="especificaciones_s")  # pass / fail of each unit
     documents: list[Any] = Field(default_factory=list, alias="documentos")
 
     @property

@@ -1,0 +1,30 @@
+# Plantilla de ensayo: calibración del cable 2,92 mm insertable CAB-DUT-0003
+# con el setup de cables de medida (TOSM). Su modelo tiene la máscara de 1 m y
+# el cable mide 1,2 m: es el ejemplo de FALLA.
+formato: calelektra/procedimiento@0.3
+id: cable_CAB-DUT-0003
+nombre: Calibración cable 2,92 mm insertable CAB-DUT-0003 (CLIENTE-3001)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración TOSM en el extremo de los cables de medida, medida de los
+  parámetros S del cable insertable y pasa / falla frente a su modelo.
+algoritmo: vna_2_puertos
+hardware_setup: componente_292_tosm
+eut: CAB-DUT-0003
+barrido:
+  potencia_dbm: -10
+  ifbw: 1 kHz
+  promedios: 1
+  suavizado_pct: 0
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1
+  s11_max_db: -30
+exportacion:
+  formato: RI
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

@@ -42,6 +42,7 @@ from calelektra.gui import style
 from calelektra.gui.coverage_widget import CoverageWidget
 from calelektra.gui.icons import icon
 from calelektra.gui.setup_diagram import SetupDiagramView
+from calelektra.gui.template_widgets import FrequencyEditor
 from calelektra.setups.analysis import Check, SetupAnalysis, analyze_setup
 from calelektra.setups.connections import CalibrationDesign
 from calelektra.setups.model import ConfiguredSetup, Role, Segment, SetupTemplate
@@ -448,7 +449,7 @@ class CalibrationPanel(QWidget):
 class SetupEditor(QWidget):
     saved = Signal(str)
     dirty_changed = Signal(bool)
-    new_test = Signal(str)
+    new_template = Signal(str)  # setup id: new test template that calls this setup
 
     def __init__(self, library: Library, setup: ConfiguredSetup, is_new: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
@@ -489,15 +490,16 @@ class SetupEditor(QWidget):
         self.state_combo.currentIndexChanged.connect(lambda _i: self._redraw_diagram())
         self.action_save = QAction(icon("guardar", style.PRIMARY.name()), "Guardar", self)
         self.action_save.triggered.connect(self.save)
-        self.action_test = QAction(icon("ejecutar", style.OK.name()), "Nuevo\nensayo", self)
-        self.action_test.triggered.connect(self._new_test)
+        self.action_test = QAction(icon("procedimientos", style.OK.name()), "Nueva plantilla\nde ensayo", self)
+        self.action_test.triggered.connect(self._new_template)
         self.action_fit = QAction(icon("buscar", style.PRIMARY.name()), "Ajustar\nvista", self)
         self.action_fit.triggered.connect(lambda: self.diagram.fit())
         self.save_button = QPushButton(icon("guardar", "#ffffff"), "Guardar")
         self.save_button.setObjectName("primary")
         self.save_button.clicked.connect(self.save)
-        self.test_button = QPushButton(icon("ejecutar", style.OK.name()), "Nuevo ensayo…")
-        self.test_button.clicked.connect(self._new_test)
+        self.test_button = QPushButton(icon("procedimientos", style.OK.name()), "Nueva plantilla de ensayo…")
+        self.test_button.setToolTip("Crear una plantilla de ensayo que llame a este hardware setup")
+        self.test_button.clicked.connect(self._new_template)
         fit_button = QPushButton("Ajustar vista")
         fit_button.clicked.connect(lambda: self.diagram.fit())
         self.badge = style.StatusBadge()
@@ -507,10 +509,13 @@ class SetupEditor(QWidget):
         header.addWidget(template_label, 3)
         header.addStretch(1)
         header.addWidget(self.badge)
+        self.frequency_summary = QLabel()
+        self.frequency_summary.setObjectName("pageSubtitle")
         controls.addWidget(QLabel("Rango requerido:"))
         controls.addWidget(self.start_edit)
         controls.addWidget(QLabel("–"))
         controls.addWidget(self.stop_edit)
+        controls.addWidget(self.frequency_summary)
         controls.addSpacing(16)
         controls.addWidget(QLabel("Estado de conexión:"))
         controls.addWidget(self.state_combo)
@@ -547,7 +552,20 @@ class SetupEditor(QWidget):
         self.issues.role_requested.connect(self._role_clicked)
         self.checks = ChecksTable()
         self.calibration_panel = CalibrationPanel()
+        self.frequency_editor = FrequencyEditor(
+            resolver=lambda reference: self.library.setup_list_path(self.setup, reference),
+            importer=self.library.copy_setup_list,
+        )
+        self.frequency_editor.load(self.setup.frequencies, self.setup.required_range)
+        self.frequency_editor.changed.connect(self._frequencies_edited)
+        self.frequency_editor.list_loaded.connect(self._list_loaded)
+        frequency_page = QWidget()
+        frequency_layout = QHBoxLayout(frequency_page)
+        frequency_layout.setContentsMargins(12, 8, 12, 8)
+        frequency_layout.addWidget(self.frequency_editor, 1)
+        frequency_layout.addStretch(1)
         self.bottom_tabs = QTabWidget()
+        self.bottom_tabs.addTab(frequency_page, icon("grafica", style.PRIMARY.name()), "Frecuencias")
         self.bottom_tabs.addTab(coverage_scroll, icon("grafica", style.PRIMARY.name()), "Cobertura en frecuencia")
         self.bottom_tabs.addTab(self.checks, icon("ok", style.PRIMARY.name()), "Compatibilidad")
         self.bottom_tabs.addTab(self.calibration_panel, icon("vna", style.PRIMARY.name()), "Calibración del VNA")
@@ -574,10 +592,17 @@ class SetupEditor(QWidget):
         errors = sum(1 for i in self.analysis.issues if i.severity is Severity.ERROR)
         warnings = sum(1 for i in self.analysis.issues if i.severity is Severity.WARNING)
         failed = sum(1 for c in self.analysis.checks if c.status not in ("ok", "info"))
-        self.bottom_tabs.setTabText(1, f"Compatibilidad ({failed} incidencias)" if failed else "Compatibilidad")
+        tabs = self.bottom_tabs
+        tabs.setTabText(tabs.indexOf(self.checks), f"Compatibilidad ({failed} incidencias)" if failed else "Compatibilidad")
         method = self.analysis.calibration.method if self.analysis.calibration else None
-        self.bottom_tabs.setTabText(2, f"Calibración del VNA ({method})" if method else "Calibración del VNA")
-        self.bottom_tabs.setTabText(4, f"Validación ({errors} errores, {warnings} avisos)")
+        tabs.setTabText(tabs.indexOf(self.calibration_panel), f"Calibración del VNA ({method})" if method else "Calibración del VNA")
+        tabs.setTabText(tabs.indexOf(self.issues), f"Validación ({errors} errores, {warnings} avisos)")
+        plan = self.analysis.frequency_plan
+        frequency_problem = any(i.code.startswith("frecuencias.") and i.severity is Severity.ERROR for i in self.analysis.issues)
+        tabs.setTabText(0, f"Frecuencias ({plan.points} puntos)" if plan is not None else "Frecuencias")
+        tabs.setTabIcon(0, style.severity_icon(self, Severity.ERROR) if frequency_problem else icon("grafica", style.PRIMARY.name()))
+        self.frequency_summary.setText(f"· {self.setup.frequencies.summary()}" + (f" → {plan.points} puntos" if plan is not None else ""))
+        self.frequency_editor.set_required_range(self.setup.required_range)
         self.test_button.setEnabled(self.analysis.ok and not self.dirty)
         self.action_test.setEnabled(self.test_button.isEnabled())
         if self.template:
@@ -610,12 +635,27 @@ class SetupEditor(QWidget):
             self.dirty_changed.emit(dirty)
         if hasattr(self, "test_button") and self.analysis is not None:
             self.test_button.setEnabled(self.analysis.ok and not self.dirty)
-            self.test_button.setToolTip("Guarde el setup para lanzar un ensayo" if self.dirty else "")
+            self.test_button.setToolTip("Guarde el setup para crear una plantilla de ensayo que lo llame" if self.dirty else "Crear una plantilla de ensayo que llame a este hardware setup")
             self.action_test.setEnabled(self.test_button.isEnabled())
 
-    def _new_test(self) -> None:
+    def _new_template(self) -> None:
         if not self.dirty and self.analysis is not None and self.analysis.ok:
-            self.new_test.emit(self.setup.id)
+            self.new_template.emit(self.setup.id)
+
+    def _frequencies_edited(self) -> None:
+        try:
+            settings = self.frequency_editor.settings()
+        except ValueError:
+            return  # the editor shows what is missing
+        if settings != self.setup.frequencies:
+            self.setup.frequencies = settings
+            self._changed()
+
+    def _list_loaded(self, frequency_range: FrequencyRange) -> None:
+        """A new CSV list: the required range becomes the range of the list."""
+        self.start_edit.setText(_frequency_text(frequency_range.start))
+        self.stop_edit.setText(_frequency_text(frequency_range.stop))
+        self._range_edited()
 
     def ribbon_actions(self) -> list[QAction | None]:
         return [self.action_save, None, self.action_test, None, self.action_fit]
