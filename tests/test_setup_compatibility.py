@@ -6,11 +6,18 @@ from calelektra.setups.connections import design_calibration, effective_connecti
 from calelektra.setups.model import Requirement
 from calelektra.setups.requirements import evaluate
 
-from conftest import TODAY
+from conftest import TODAY, setup_with_dut
+
+
+def test_setup_without_dut_is_valid(library):
+    analysis = analyze_setup(library.setups["cable_vna_292"], library, TODAY)
+    assert analysis.ok and analysis.covered
+    info = [i for i in analysis.issues if i.code == "rol.dut_en_ensayo"]
+    assert info and info[0].severity is Severity.INFO and "se elige al crear cada ensayo" in info[0].message
 
 
 def test_vna_only_cable_setup_is_valid_and_uses_uosm(library):
-    analysis = analyze_setup(library.setups["cable_vna_292"], library, TODAY)
+    analysis = analyze_setup(setup_with_dut(library, "cable_vna_292", "CAB-DUT-0002"), library, TODAY)
     assert analysis.ok and analysis.covered
     assert analysis.calibration.method == "UOSM"  # both VNA ports are male: the planes cannot be mated
     assert analysis.calibration.ports == (1, 2)
@@ -20,12 +27,14 @@ def test_vna_only_cable_setup_is_valid_and_uses_uosm(library):
 
 
 def test_insertable_planes_give_tosm(library):
-    analysis = analyze_setup(library.setups["componente_292_tosm"], library, TODAY)
+    analysis = analyze_setup(setup_with_dut(library, "componente_292_tosm", "CAB-DUT-0003"), library, TODAY)
     assert analysis.ok and analysis.calibration.method == "TOSM"
 
 
 def test_wrong_connectors_and_kit_are_errors(library):
-    analysis = analyze_setup(library.setups["cable_vna_N_alarma"], library, TODAY)
+    kit_only = analyze_setup(library.setups["cable_vna_N_alarma"], library, TODAY)
+    assert not kit_only.ok and not any(i.code == "conexion.conectores" for i in kit_only.issues)
+    analysis = analyze_setup(setup_with_dut(library, "cable_vna_N_alarma", "CAB-DUT-0001"), library, TODAY)
     assert not analysis.ok
     connector_errors = [i for i in analysis.issues if i.code == "conexion.conectores" and i.severity is Severity.ERROR]
     assert len(connector_errors) == 2 and "familias incompatibles" in connector_errors[0].message
@@ -41,7 +50,7 @@ def test_kit_genders_are_checked(library):
 
 def test_optional_roles_are_bridged(library):
     template = library.resolved_template("componente_2p")
-    connections = effective_connections(template, library.setups["cable_N_18G"], "medida")
+    connections = effective_connections(template, setup_with_dut(library, "cable_N_18G", "CAB-DUT-0001"), "medida")
     pairs = {(str(c.a), str(c.b)) for c in connections}
     assert ("cable_p1.B", "dut.A") in pairs  # adapter not assigned
     assert any(c.bridged == ("adaptador_p1",) for c in connections)

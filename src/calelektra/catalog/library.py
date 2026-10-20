@@ -9,14 +9,20 @@ Folder layout under the library root::
     catalogo/datos_s/*.sNp              S-parameter files referenced by equipment
     hardware_setups/plantillas/*.yaml   generic hardware setup templates
     hardware_setups/configurados/*.yaml configured setups
-    procedimientos/*.yaml               measurement procedure templates
-    ensayos/<id>/ensayo.yaml            executed tests (calibrations) with their result files
+    procedimientos/*.yaml               measurement procedure templates (test templates)
+    procedimientos/listas/*.csv         frequency lists of the procedures
+    procedimientos/especificaciones/    S2P specification files (pass / fail)
+    ensayos/[carpetas/]<id>/ensayo.yaml tests, in folders chosen by the user, with their result files
+                                        (ensayos/carpetas.yaml lists test folders outside the library)
 """
 
 from __future__ import annotations
 
+import re
 import shutil
+import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -31,7 +37,7 @@ from calelektra.core.issues import Issue, Severity
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError
 from calelektra.procedures.model import ProcedureTemplate
-from calelektra.procedures.record import RECORD_FILE, TestRecord
+from calelektra.procedures.record import RECORD_FILE, TestDefinition, TestRecord
 from calelektra.setups.model import ConfiguredSetup, SetupTemplate
 
 FOLDERS = {
@@ -45,6 +51,7 @@ FOLDERS = {
 }
 S_PARAMETER_FOLDER = Path("catalogo/datos_s")
 TESTS_FOLDER = Path("ensayos")
+TEST_ROOTS_FILE = "carpetas.yaml"  # external test folders (inside ensayos/)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -467,20 +474,210 @@ class Library:
     def tests_folder(self) -> Path:
         return self.root / TESTS_FOLDER
 
-    def tests(self) -> list[TestRecord]:
-        """Executed tests (``ensayos/<id>/ensayo.yaml``), most recent first; unreadable ones are skipped."""
-        records = []
-        for path in sorted(self.tests_folder.glob(f"*/{RECORD_FILE}")):
+    @property
+    def procedures_folder(self) -> Path:
+        return self.root / FOLDERS["procedimiento"]
+
+    def procedure_file(self, relative: str, test_folder: Path | None = None) -> Path:
+        """Path of a file referenced by a procedure (frequency list, specification S2P).
+
+        Relative paths are looked up first in the folder of the test (which
+        keeps its own copy) and then in ``procedimientos/``.
+        """
+        path = Path(relative)
+        if path.is_absolute():
+            return path
+        if test_folder is not None and (Path(test_folder) / path).is_file():
+            return Path(test_folder) / path
+        return self.procedures_folder / path
+
+    def copy_procedure_file(self, source: Path, subfolder: str) -> str:
+        """Copy a list/specification file into ``procedimientos/<subfolder>/`` and return its relative path."""
+        target_dir = self.procedures_folder / subfolder
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / Path(source).name
+        if Path(source).resolve() != target.resolve():
+            shutil.copy2(source, target)
+        return str(Path(subfolder) / Path(source).name)
+
+    # ── tests: folders and records ─────────────────────────────────────────
+    def _external_roots_file(self) -> Path:
+        return self.tests_folder / TEST_ROOTS_FILE
+
+    def test_roots(self) -> list[Path]:
+        """Folders that contain tests: ``ensayos/`` of the library and the external folders added by the user."""
+        roots = [self.tests_folder]
+        path = self._external_roots_file()
+        if path.is_file():
             try:
-                record = TestRecord.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
-            except (OSError, yaml.YAMLError, ValidationError, TypeError):
+                data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                data = {}
+            for item in data.get("externas", []) or []:
+                folder = Path(item)
+                if folder not in roots:
+                    roots.append(folder)
+        return roots
+
+    def add_test_root(self, folder: Path) -> None:
+        folder = Path(folder).resolve()
+        external = [p for p in self.test_roots()[1:] if p != folder]
+        if folder == self.tests_folder.resolve() or self._inside(folder, self.tests_folder):
+            return
+        external.append(folder)
+        dump_yaml({"formato": "calelektra/carpetas_ensayos@0.3", "externas": [str(p) for p in external]}, self._external_roots_file(),
+                  header="Carpetas de ensayos externas a la biblioteca")
+
+    def remove_test_root(self, folder: Path) -> None:
+        external = [p for p in self.test_roots()[1:] if Path(p).resolve() != Path(folder).resolve()]
+        dump_yaml({"formato": "calelektra/carpetas_ensayos@0.3", "externas": [str(p) for p in external]}, self._external_roots_file(),
+                  header="Carpetas de ensayos externas a la biblioteca")
+
+    @staticmethod
+    def _inside(path: Path, folder: Path) -> bool:
+        try:
+            Path(path).resolve().relative_to(Path(folder).resolve())
+        except ValueError:
+            return False
+        return True
+
+    def load_test(self, folder: Path) -> TestRecord:
+        path = Path(folder) / RECORD_FILE
+        try:
+            record = TestRecord.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+        except (OSError, yaml.YAMLError, ValidationError, TypeError) as exc:
+            raise LibraryError(f"No se puede leer el ensayo {path}: {exc}") from exc
+        record.set_folder(Path(folder))
+        return record
+
+    def tests(self, root: Path | None = None) -> list[TestRecord]:
+        """Tests under the test folders (or under ``root``), most recent first; unreadable ones are skipped."""
+        records = []
+        seen: set[Path] = set()
+        for base in [Path(root)] if root is not None else self.test_roots():
+            if not base.is_dir():
                 continue
-            record.set_folder(path.parent)
-            records.append(record)
+            for path in sorted(base.rglob(RECORD_FILE)):
+                folder = path.parent.resolve()
+                if folder in seen:
+                    continue
+                seen.add(folder)
+                try:
+                    records.append(self.load_test(path.parent))
+                except LibraryError:
+                    continue
         return sorted(records, key=lambda r: r.started, reverse=True)
 
-    def delete_test(self, test_id: str) -> None:
-        folder = self.tests_folder / test_id
-        if not (folder / RECORD_FILE).is_file():
-            raise LibraryError(f"No existe el ensayo «{test_id}»")
+    def test_folders(self, root: Path) -> list[Path]:
+        """Sub-folders of ``root`` that organise tests (folders that are not tests themselves)."""
+        if not root.is_dir():
+            return []
+        return sorted(p for p in root.iterdir() if p.is_dir() and not (p / RECORD_FILE).exists() and not p.name.startswith("."))
+
+    def new_test_id(self, folder: Path, name: str) -> str:
+        """Folder name of a new test: the name without accents or symbols, unique in ``folder``."""
+        ascii_name = unicodedata.normalize("NFKD", name.strip()).encode("ascii", "ignore").decode("ascii")
+        base = re.sub(r"[^A-Za-z0-9_.-]+", "_", ascii_name).strip("_.") or "ensayo"
+        test_id, counter = base, 2
+        while (Path(folder) / test_id).exists():
+            test_id, counter = f"{base}_{counter}", counter + 1
+        return test_id
+
+    def create_test(
+        self,
+        folder: Path,
+        name: str,
+        definition: TestDefinition,
+        operator: str | None = None,
+        source_folder: Path | None = None,
+    ) -> TestRecord:
+        """Create a prepared test (definition only) in ``folder``.
+
+        The frequency list and the specification files of the definition are
+        copied into the test folder (``listas/``, ``especificaciones/``), so the
+        test keeps the files it was defined with. ``source_folder`` is the
+        folder of the test being repeated, where its own copies are.
+        """
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        test_id = self.new_test_id(folder, name)
+        test_folder = folder / test_id
+        test_folder.mkdir(parents=True)
+        definition = definition.model_copy(deep=True)
+        definition.procedure = self._copy_test_files(definition.procedure, test_folder, source_folder)
+        now = datetime.now()
+        record = TestRecord(id=test_id, name=name.strip() or test_id, status="preparado", operator=operator or None, created=now, started=now)
+        record.set_folder(test_folder)
+        self._set_definition(record, definition)
+        self.save_test(record)
+        return record
+
+    def redefine_test(self, record: TestRecord, definition: TestDefinition) -> TestRecord:
+        """Change the definition of a prepared test (new files are copied into its folder)."""
+        if record.status != "preparado" or record.folder is None:
+            raise LibraryError("Solo se puede cambiar la definición de un ensayo preparado")
+        definition = definition.model_copy(deep=True)
+        definition.procedure = self._copy_test_files(definition.procedure, record.folder, record.folder)
+        self._set_definition(record, definition)
+        self.save_test(record)
+        return record
+
+    def _set_definition(self, record: TestRecord, definition: TestDefinition) -> None:
+        template = definition.template()
+        setup = self.setups.get(definition.setup_id)
+        dut = self.equipment.get(definition.dut_id) if definition.dut_id else None
+        record.definition = definition
+        record.procedure = {"id": template.id, "nombre": template.name, "version": template.version, "algoritmo": template.algorithm}
+        record.setup = {"id": definition.setup_id, "nombre": setup.name if setup else definition.setup_id, "plantilla": setup.template if setup else ""}
+        record.dut = {}
+        if definition.dut_id:
+            record.dut = {"id": definition.dut_id}
+            model = self.model_of(dut) if dut else None
+            if model is not None:
+                record.dut["modelo"] = model.display_name
+
+    def _copy_test_files(self, procedure: dict[str, Any], test_folder: Path, source_folder: Path | None) -> dict[str, Any]:
+        """Copy the files referenced by a template snapshot into the test folder; references become relative to it."""
+        procedure = dict(procedure)
+
+        def copy(reference: str, subfolder: str) -> str:
+            source = self.procedure_file(reference, source_folder)
+            if not source.is_file():
+                return reference  # the check before running reports it
+            target = test_folder / subfolder / source.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.resolve() != target.resolve():
+                shutil.copy2(source, target)
+            return f"{subfolder}/{source.name}"
+
+        sweep = dict(procedure.get("barrido") or {})
+        if sweep.get("fichero_lista"):
+            sweep["fichero_lista"] = copy(sweep["fichero_lista"], "listas")
+            procedure["barrido"] = sweep
+        specs = []
+        for spec in procedure.get("especificaciones") or []:
+            spec = dict(spec)
+            if spec.get("fichero"):
+                spec["fichero"] = copy(spec["fichero"], "especificaciones")
+            specs.append(spec)
+        if specs:
+            procedure["especificaciones"] = specs
+        return procedure
+
+    def save_test(self, record: TestRecord) -> Path:
+        assert record.folder is not None
+        record.folder.mkdir(parents=True, exist_ok=True)
+        path = record.folder / RECORD_FILE
+        dump_yaml(record.to_yaml_dict(), path, header=f"Ensayo {record.id} — registrado por CAL-ELEKTRA")
+        return path
+
+    def delete_test(self, test: "TestRecord | str | Path") -> None:
+        if isinstance(test, TestRecord):
+            folder = test.folder
+        elif isinstance(test, Path):
+            folder = test
+        else:
+            folder = next((r.folder for r in self.tests() if r.id == test), None)
+        if folder is None or not (Path(folder) / RECORD_FILE).is_file():
+            raise LibraryError(f"No existe el ensayo «{test}»")
         shutil.rmtree(folder)

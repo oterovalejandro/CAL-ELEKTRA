@@ -1,7 +1,13 @@
 """Generate the SYNTHETIC S2P files of the example library.
 
-They model a coaxial cable (loss ∝ √f and f, delay, small reflections) and
-are only meant to exercise the software. They are not real measurements.
+* ``catalogo/datos_s``: S-parameters of the measurement cables and paths
+  (coaxial cable model: loss ∝ √f and f, delay, small reflections);
+* ``procedimientos/especificaciones``: specification masks used for pass/fail
+  by the example test templates;
+* ``procedimientos/listas``: frequency list (CSV) of the list-mode template.
+
+They are only meant to exercise the software: they are not real measurements
+nor real manufacturer specifications.
 
     python tools/generar_s2p_sinteticos.py
 """
@@ -15,7 +21,10 @@ import numpy as np
 from calelektra.core.touchstone import Touchstone, write_touchstone
 from calelektra.core.units import format_frequency
 
-OUT = Path(__file__).resolve().parents[1] / "biblioteca_ejemplo" / "catalogo" / "datos_s"
+LIBRARY = Path(__file__).resolve().parents[1] / "biblioteca_ejemplo"
+OUT = LIBRARY / "catalogo" / "datos_s"
+SPECS = LIBRARY / "procedimientos" / "especificaciones"
+LISTS = LIBRARY / "procedimientos" / "listas"
 
 # name: (start Hz, stop Hz, length m, k_sqrt dB/√GHz, k_lin dB/GHz, return loss dB at low f)
 CABLES = {
@@ -46,6 +55,37 @@ def synthetic_cable(start: float, stop: float, length: float, k_sqrt: float, k_l
     return f, s
 
 
+def mask_292_0m5() -> tuple[np.ndarray, np.ndarray]:
+    """Mask of a 0,5 m 2,92 mm cable: maximum insertion loss (S21, S12) and minimum return loss (S11, S22)."""
+    steps = [18e9, 26.5e9]
+    f = np.unique(np.concatenate([np.geomspace(10e6, 40e9, 300), steps, [x + 1.0 for x in steps], [40e9]]))
+    f_ghz = f / 1e9
+    insertion_loss = 0.1 + 0.5 * np.sqrt(f_ghz) + 0.06 * f_ghz
+    return_loss = np.where(f <= 18e9, 20.0, np.where(f <= 26.5e9, 17.0, 15.0))
+    s = np.empty((f.size, 2, 2), dtype=complex)
+    s[:, 1, 0] = s[:, 0, 1] = 10 ** (-insertion_loss / 20)
+    s[:, 0, 0] = s[:, 1, 1] = 10 ** (-return_loss / 20)
+    return f, s
+
+
+def reference_n_2m() -> tuple[np.ndarray, np.ndarray]:
+    """Typical |S21| of a 2 m N cable (0,45 dB/m at 1 GHz): reference curve for a ± tolerance check."""
+    f = np.geomspace(10e6, 18e9, 300)
+    f_ghz = f / 1e9
+    loss = 0.45 * 2.0 * (0.9 * np.sqrt(f_ghz) + 0.1 * f_ghz) + 0.05
+    s = np.zeros((f.size, 2, 2), dtype=complex)
+    s[:, 1, 0] = s[:, 0, 1] = 10 ** (-loss / 20)
+    s[:, 0, 0] = s[:, 1, 1] = 10 ** (-25 / 20)
+    return f, s
+
+
+def frequency_list_n() -> list[float]:
+    """Calibration points of the N cables: 10 MHz steps up to 1 GHz, 100 MHz steps up to 18 GHz."""
+    low = np.arange(30e6, 1e9, 10e6)
+    high = np.arange(1e9, 18e9 + 1, 100e6)
+    return [float(x) for x in np.concatenate([low, high])]
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for seed, (name, (start, stop, length, k_sqrt, k_lin, rl)) in enumerate(CABLES.items()):
@@ -56,6 +96,19 @@ def main() -> None:
         ]
         write_touchstone(OUT / name, Touchstone(n_ports=2, frequencies=f, s=s, comments=comments))
         print("escrito", OUT / name)
+    SPECS.mkdir(parents=True, exist_ok=True)
+    note = "CAL-ELEKTRA — ESPECIFICACIÓN SINTÉTICA DE EJEMPLO: no es la de ningún fabricante."
+    f, s = mask_292_0m5()
+    comments = [note, "Cable 2,92 mm de 0,5 m: S21/S12 = pérdidas de inserción máximas; S11/S22 = pérdidas de retorno mínimas"]
+    write_touchstone(SPECS / "cable_292_0m5_mascara.s2p", Touchstone(2, f, s, comments=comments), "DB", "GHZ")
+    f, s = reference_n_2m()
+    comments = [note, "Cable N de 2 m: |S21| típico (curva de referencia para la comprobación ± tolerancia)"]
+    write_touchstone(SPECS / "cable_N_2m_referencia.s2p", Touchstone(2, f, s, comments=comments), "DB", "GHZ")
+    LISTS.mkdir(parents=True, exist_ok=True)
+    rows = ["# Puntos de calibración de cables N (ejemplo). Primera columna: frecuencia.", "Frecuencia (MHz)"]
+    rows += [f"{x / 1e6:g}" for x in frequency_list_n()]
+    (LISTS / "puntos_cable_N.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    print("escritos", SPECS, LISTS)
 
 
 if __name__ == "__main__":

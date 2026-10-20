@@ -1,14 +1,15 @@
-# Procedimiento de medida (equivalente al «test template» de ELEKTRA):
-# parámetros S de un cable o componente de 2 puertos con VNA.
+# Plantilla de ensayo (equivalente al «test template» de ELEKTRA): parámetros S
+# de un cable o componente de 2 puertos con VNA, en el rango del hardware setup.
 #   1. Calibración de los 2 puertos en los planos de referencia del setup
 #      (TOSM si los planos se unen directamente; si no, UOSM).
 #   2. Verificación de la calibración.
-#   3. Medida de S11, S21, S12 y S22 del DUT en el rango requerido del setup.
+#   3. Medida de S11, S21, S12 y S22 del cable elegido en el ensayo.
 #   4. Exportación a Touchstone (.s2p) y CSV.
+# Sin «inicio»/«fin», el rango es el rango requerido del hardware setup.
 formato: calelektra/procedimiento@0.3
 id: cable_parametros_s
 nombre: Parámetros S de cable (2 puertos) → .s2p
-version: "1.0"
+version: "1.1"
 estado: borrador
 descripcion: >
   Calibración de los dos puertos del VNA, medida de los cuatro parámetros S
@@ -16,11 +17,13 @@ descripcion: >
 algoritmo: vna_2_puertos
 plantillas_compatibles: [cable_vna, componente_2p]
 barrido:
+  modo: lineal              # lineal | logaritmico | lista
+  definicion: puntos        # lineal: puntos | paso
   puntos: 801
-  tipo: lineal
-  ifbw: 1 kHz
   potencia_dbm: -10
+  ifbw: 1 kHz               # ajustes de todas las trazas
   promedios: 1
+  suavizado_pct: 0
 calibracion:
   metodo: automatico        # automatico | TOSM | UOSM | existente
   guardar_en_vna: false

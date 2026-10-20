@@ -4,7 +4,7 @@
 formato: calelektra/procedimiento@0.3
 id: impedancia_lisn
 nombre: Impedancia de LISN (1 puerto) → .s1p por línea
-version: "1.0"
+version: "1.1"
 estado: borrador
 descripcion: >
   Calibración OSM en el extremo del cable de medida, medida de la reflexión
@@ -13,11 +13,14 @@ descripcion: >
 algoritmo: vna_1_puerto
 plantillas_compatibles: [lisn_impedancia, reflexion_1p]
 barrido:
+  modo: logaritmico         # logarítmico: nº de puntos
+  inicio: 9 kHz
+  fin: 30 MHz
   puntos: 201
-  tipo: logaritmico
-  ifbw: 100 Hz
   potencia_dbm: -10
+  ifbw: 100 Hz
   promedios: 1
+  suavizado_pct: 0
 calibracion:
   metodo: automatico
 verificacion:

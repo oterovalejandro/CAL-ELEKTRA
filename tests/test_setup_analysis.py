@@ -5,7 +5,7 @@ from calelektra.core.issues import Severity
 from calelektra.setups.analysis import analyze_setup
 from calelektra.setups.model import ConfiguredSetup, Segment
 
-from conftest import TODAY
+from conftest import TODAY, setup_with_dut
 
 
 def codes(analysis, severity=None):
@@ -13,7 +13,7 @@ def codes(analysis, severity=None):
 
 
 def test_cable_alarm_names_limiting_equipment(library):
-    analysis = analyze_setup(library.setups["cable_N_26G_alarma"], library, TODAY)
+    analysis = analyze_setup(setup_with_dut(library, "cable_N_26G_alarma", "CAB-DUT-0001"), library, TODAY)
     assert not analysis.ok and not analysis.covered
     coverage = analysis.segments[0].coverage
     assert coverage.effective == FrequencyRange(100e3, 18e9)

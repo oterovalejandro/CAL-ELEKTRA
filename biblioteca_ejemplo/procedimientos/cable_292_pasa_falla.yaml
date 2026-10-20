@@ -1,0 +1,57 @@
+# Plantilla de ensayo con PASA / FALLA: cable 2,92 mm de 0,5 m de 50 MHz a
+# 40 GHz con paso de 50 MHz (800 puntos).
+#   - Ajustes por traza: S21 y S12 con IFBW de 100 Hz y 4 promedios (se miden
+#     en un barrido propio); S11 y S22 con suavizado del 1 % de los puntos.
+#   - Especificaciones: máscara S2P con las pérdidas de inserción máximas
+#     (|S21|, |S12| ≥ máscara) y las pérdidas de retorno mínimas
+#     (|S11|, |S22| ≤ máscara). Los ficheros están en «especificaciones/» y
+#     cada ensayo guarda su propia copia.
+formato: calelektra/procedimiento@0.3
+id: cable_292_pasa_falla
+nombre: Cable 2,92 mm 0,5 m — 50 MHz a 40 GHz con pasa / falla
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración de los dos puertos, medida de los parámetros S del cable con
+  ajustes por traza y evaluación pasa / falla frente a la máscara de
+  especificación (S2P). Exporta .s2p y CSV.
+algoritmo: vna_2_puertos
+plantillas_compatibles: [cable_vna, componente_2p]
+barrido:
+  modo: lineal
+  definicion: paso
+  inicio: 50 MHz
+  fin: 40 GHz
+  paso: 50 MHz
+  potencia_dbm: -10
+  ifbw: 1 kHz
+  promedios: 1
+  suavizado_pct: 0
+  por_traza: true
+  trazas:
+    S11: { suavizado_pct: 1 }
+    S21: { ifbw: 100 Hz, promedios: 4 }
+    S12: { ifbw: 100 Hz, promedios: 4 }
+    S22: { suavizado_pct: 1 }
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1
+  s11_max_db: -30
+especificaciones:
+  - nombre: Pérdidas de inserción máximas
+    fichero: especificaciones/cable_292_0m5_mascara.s2p
+    parametros: [S21, S12]
+    criterio: minimo        # |S| medida ≥ |S| de la máscara
+    magnitud: magnitud_db
+  - nombre: Pérdidas de retorno mínimas
+    fichero: especificaciones/cable_292_0m5_mascara.s2p
+    parametros: [S11, S22]
+    criterio: maximo        # |S| medida ≤ |S| de la máscara
+    magnitud: magnitud_db
+exportacion:
+  formato: RI
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

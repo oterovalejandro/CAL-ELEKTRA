@@ -67,7 +67,7 @@ class Instrument(ABC):
     def identify(self) -> str: ...
 
 
-SWEEP_TYPES = ("lineal", "logaritmico")
+SWEEP_TYPES = ("lineal", "logaritmico")  # «lista»: configure_frequency_list()
 REFLECTION_STANDARDS = ("OPEN", "SHORT", "MATCH")
 TRANSMISSION_STANDARDS = ("THROUGH", "UNKNOWN_THROUGH")
 STANDARD_NAMES = {
@@ -135,6 +135,19 @@ class VectorNetworkAnalyzer(Instrument):
             return "el barrido logarítmico no admite 0 Hz"
         return None
 
+    def frequency_list_problem(self, frequencies: Sequence[float]) -> str | None:
+        f = np.asarray(frequencies, dtype=float)
+        if f.ndim != 1 or not len(f):
+            return "la lista de frecuencias está vacía"
+        if np.any(np.diff(f) <= 0):
+            return "las frecuencias de la lista deben ser crecientes y sin repetir"
+        requested = FrequencyRange(float(f[0]), float(f[-1]))
+        if not self.frequency_range.contains(requested):
+            return f"lista {requested} fuera de las especificaciones del VNA ({self.frequency_range})"
+        if self.max_points is not None and len(f) > self.max_points:
+            return f"la lista tiene {len(f)} puntos y el VNA admite {self.max_points}"
+        return None
+
     def if_bandwidth_problem(self, hz: float) -> str | None:
         if self.if_bandwidth_range is None:
             return None if hz > 0 else "la IFBW debe ser positiva"
@@ -171,6 +184,10 @@ class VectorNetworkAnalyzer(Instrument):
 
     @abstractmethod
     def configure_sweep(self, start: float, stop: float, points: int, sweep_type: str = "lineal") -> None: ...
+
+    @abstractmethod
+    def configure_frequency_list(self, frequencies: Sequence[float]) -> None:
+        """Sweep exactly these frequencies (segmented sweep on the R&S ZNx)."""
 
     @abstractmethod
     def set_if_bandwidth(self, hz: float) -> None: ...

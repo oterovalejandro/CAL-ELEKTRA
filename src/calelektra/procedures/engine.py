@@ -1,18 +1,26 @@
-"""Execution of a measurement procedure on a configured hardware setup (the «test» of ELEKTRA).
+"""Execution of a test: a test template (procedure) run on a hardware setup for one DUT.
 
-A run goes through these steps, using the fields of the assigned equipment:
+A test is created in a folder from a test template (``Library.create_test``)
+with its definition: template snapshot, hardware setup and cable (DUT) to
+calibrate. Running it goes through these steps, using the fields of the
+assigned equipment:
 
     validación → conexión → configuración → calibración → verificación →
-    medida → exportación → cierre
+    medida → evaluación pasa/falla → exportación → cierre
 
+* the frequency points come from the template (linear by points or step,
+  logarithmic, or a CSV list); the setup must cover them;
+* IFBW, averaging and smoothing apply to all traces or per trace: traces with
+  different IFBW/averaging are measured in separate sweeps; smoothing is done
+  by CAL-ELEKTRA (``procedures/processing.py``);
 * the limits of the VNA (range, points, IFBW, power, calibration methods) and
   its connectors come from its fields;
 * the calibration (method, ports, connectors, cal kit and its name in the VNA)
   comes from the reference planes of the setup (``setups/connections.py``);
 * the operator is asked to connect each standard and the DUT, naming the
   plane, the equipment and the connector genders;
-* the DUT fields drive the measurement (LISN lines and nominal network) and,
-  with a simulated VNA, the simulated device itself.
+* pass / fail compares the measurement with the S2P specification files of
+  the template (``procedures/specs.py``).
 
 Operator actions are requests to an :class:`Operator` (dialogs in the GUI,
 automatic in simulation and tests). When the VNA is simulated the engine also
@@ -22,6 +30,7 @@ can be exercised without hardware.
 
 from __future__ import annotations
 
+import shutil
 import threading
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -30,15 +39,15 @@ from typing import Callable, Protocol
 
 import numpy as np
 
-from calelektra.catalog.library import Library, dump_yaml
+from calelektra.catalog.fields import NumberRange
+from calelektra.catalog.library import Library, LibraryError
 from calelektra.catalog.model import Equipment
 from calelektra.core.connectors import FAMILIES, GENDERS, Connector
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.issues import Issue, Severity, has_errors
 from calelektra.core.networks import LISN_NETWORKS, gamma_to_impedance, lisn_impedance
-from calelektra.core.touchstone import Touchstone, write_touchstone
+from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone, write_touchstone
 from calelektra.core.units import format_frequency
-from calelektra.catalog.fields import NumberRange
 from calelektra.instruments.base import (
     CALIBRATION_STATUS,
     STANDARD_NAMES,
@@ -49,8 +58,11 @@ from calelektra.instruments.base import (
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import driver_description, open_vna
 from calelektra.instruments.simulation import simulated_dut, unknown_through_model
-from calelektra.procedures.model import ALGORITHMS, ProcedureTemplate
-from calelektra.procedures.record import RECORD_FILE, StepRecord, TestRecord
+from calelektra.procedures.frequencies import FrequencyError, FrequencyPlan, plan_frequencies
+from calelektra.procedures.model import ALGORITHMS, SWEEP_MODES, ProcedureTemplate
+from calelektra.procedures.processing import smooth
+from calelektra.procedures.record import StepRecord, TestDefinition, TestRecord
+from calelektra.procedures.specs import VERDICTS, SpecResult, evaluate_spec, verdict
 from calelektra.setups.analysis import SetupAnalysis, analyze_setup
 from calelektra.setups.connections import CalibrationDesign, PlaneInfo, design_calibration
 from calelektra.setups.model import ConfiguredSetup, SetupTemplate
@@ -62,10 +74,23 @@ STEPS: dict[str, str] = {
     "calibracion": "Calibración de los puertos",
     "verificacion": "Verificación de la calibración",
     "medida": "Medida del DUT",
+    "evaluacion": "Evaluación pasa / falla",
     "exportacion": "Exportación de resultados",
     "cierre": "Cierre del ensayo",
 }
 STANDARD_IMAGES = {"OPEN": "open", "SHORT": "short", "MATCH": "match", "THROUGH": "through", "UNKNOWN_THROUGH": "through"}
+# coverage findings of the setup refer to its own required range; a test checks its own frequencies
+SETUP_RANGE_CODES = {
+    "rango.no_cubierto",
+    "rango.limite_inferior",
+    "rango.limite_superior",
+    "rango.sin_interseccion",
+    "rango.cubierto",
+    "rango.dut",
+    "rango.sin_equipos",
+    "segmento.hueco",
+    "segmento.fuera",
+}
 
 
 class RunAborted(Exception):
@@ -116,23 +141,44 @@ class RunListener:
     def progress(self, fraction: float, text: str = "") -> None: ...
 
 
-# ── preparation: everything resolved from procedure, setup and equipment fields ──
+def dut_role_of(template: SetupTemplate | None) -> str | None:
+    if template is None:
+        return None
+    return next((key for key, role in template.roles.items() if role.is_dut), None)
+
+
+def with_dut(setup: ConfiguredSetup, role: str | None, dut_id: str | None) -> ConfiguredSetup:
+    """Copy of the setup with the DUT of the test assigned to its DUT role."""
+    if not role or not dut_id:
+        return setup
+    copy = setup.model_copy(deep=True)
+    copy.assignments[role] = dut_id
+    copy.set_source_path(setup.source_path)
+    return copy
+
+
+# ── preparation: everything resolved from procedure, setup, DUT and equipment fields ──
 @dataclass
 class RunPlan:
     procedure: ProcedureTemplate
-    setup: ConfiguredSetup
+    setup: ConfiguredSetup  # with the DUT of the test assigned
     template: SetupTemplate | None
     analysis: SetupAnalysis | None
     design: CalibrationDesign | None
     vna: Equipment | None
     dut: Equipment | None
-    frequency_range: FrequencyRange
+    dut_role: str | None
+    frequency_plan: FrequencyPlan | None
     lines: list[str]
     issues: list[Issue] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return not has_errors(self.issues)
+
+    @property
+    def frequency_range(self) -> FrequencyRange:
+        return self.frequency_plan.range if self.frequency_plan is not None else self.setup.required_range
 
     @property
     def ports(self) -> tuple[int, ...]:
@@ -156,8 +202,24 @@ def _template_chain(library: Library, template_id: str) -> list[str]:
         chain.append(template.extends)
 
 
-def prepare_run(library: Library, procedure: ProcedureTemplate, setup: ConfiguredSetup, today: date | None = None) -> RunPlan:
-    """Check that the procedure can run on the setup and resolve what it needs."""
+def compatible(library: Library, procedure: ProcedureTemplate, setup: ConfiguredSetup) -> bool:
+    chain = _template_chain(library, setup.template)
+    return not procedure.compatible_templates or bool(set(chain) & set(procedure.compatible_templates))
+
+
+def prepare_run(
+    library: Library,
+    procedure: ProcedureTemplate,
+    setup: ConfiguredSetup,
+    today: date | None = None,
+    dut_id: str | None = None,
+    test_folder: Path | None = None,
+) -> RunPlan:
+    """Check that the test (template + setup + DUT) can run and resolve what it needs.
+
+    ``test_folder`` is the folder of a prepared test: its own copies of the
+    frequency list and specification files are used.
+    """
     issues: list[Issue] = []
 
     def error(message: str, code: str = "ensayo") -> None:
@@ -167,31 +229,35 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, setup: Configure
         issues.append(Issue(Severity.WARNING, code, message))
 
     template = library.resolved_template(setup.template)
-    analysis = analyze_setup(setup, library, today) if template is not None else None
+    dut_role = dut_role_of(template)
+    if dut_id is not None and dut_id not in library.equipment:
+        error(f"El DUT «{dut_id}» no existe en el inventario")
+        dut_id = None
+    effective = with_dut(setup, dut_role, dut_id)
+    analysis = analyze_setup(effective, library, today) if template is not None else None
     if analysis is not None:
-        issues.extend(i for i in analysis.issues if i.severity is not Severity.INFO)
+        issues.extend(i for i in analysis.issues if i.severity is not Severity.INFO and i.code not in SETUP_RANGE_CODES)
     else:
         error(f"La plantilla «{setup.template}» del setup no existe")
-    chain = _template_chain(library, setup.template)
-    if procedure.compatible_templates and not set(chain) & set(procedure.compatible_templates):
+    if not compatible(library, procedure, setup):
         error(
             f"El procedimiento «{procedure.name}» es para las plantillas {', '.join(procedure.compatible_templates)}; "
             f"el setup usa «{setup.template}»"
         )
-    vna_ids = setup.ids_for("vna")
+    vna_ids = effective.ids_for("vna")
     vna = library.equipment.get(vna_ids[0]) if vna_ids else None
-    dut_ids = setup.ids_for("dut")
+    dut_ids = effective.ids_for(dut_role) if dut_role else []
     dut = library.equipment.get(dut_ids[0]) if dut_ids else None
     if vna is None:
         error("El setup no tiene VNA asignado")
     if dut is None:
-        error("El setup no tiene DUT asignado")
+        error("Elija el equipo a calibrar (DUT) del ensayo")
 
     design = None
     method = procedure.calibration.method
     if template is not None:
         override = None if method in ("automatico", "existente") else method
-        design = design_calibration(template, setup, library, method_override=override)
+        design = design_calibration(template, effective, library, method_override=override)
         if override:
             issues.extend(Issue(s, "calibracion.vna", m) for s, m in design.checks if s in (Severity.ERROR, Severity.WARNING))
         planes_needed = 2 if procedure.algorithm == "vna_2_puertos" else 1
@@ -207,36 +273,86 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, setup: Configure
         if procedure.algorithm == "vna_1_puerto" and method in ("TOSM", "UOSM"):
             error(f"{method} calibra 2 puertos: use OSM para la medida de 1 puerto")
 
+    # frequency points of the test and coverage by the setup
     sweep = procedure.sweep
-    frequency_range = setup.required_range
+    frequency_plan = None
+    try:
+        list_path = library.procedure_file(sweep.list_file, test_folder) if sweep.list_file else None
+        frequency_plan = plan_frequencies(sweep, setup.required_range, list_path)
+    except FrequencyError as exc:
+        error(str(exc), "ensayo.frecuencias")
+    if frequency_plan is not None:
+        if frequency_plan.note:
+            warning(frequency_plan.note, "ensayo.frecuencias")
+        if analysis is not None and analysis.segments:
+            coverage = analysis.segments[0].coverage
+            effective_range = coverage.effective
+            wanted = frequency_plan.range
+            if effective_range is None:
+                error("Los equipos del setup no tienen un rango de frecuencia común", "ensayo.rango")
+            elif not effective_range.contains(wanted):
+                limiting = [
+                    f"«{c.equipment_id}» ({c.role_label}: {c.range})"
+                    for c in coverage.contributions
+                    if not c.is_dut and not c.range.contains(wanted)
+                ]
+                error(
+                    f"El rango del ensayo ({wanted}) sale del rango efectivo del setup ({effective_range})"
+                    + (f"; limitan {', '.join(limiting)}" if limiting else ""),
+                    "ensayo.rango",
+                )
+        if dut is not None:
+            dut_range = library.frequency_range_of(dut).range
+            if dut_range is not None and not dut_range.contains(frequency_plan.range):
+                warning(f"El rango del ensayo ({frequency_plan.range}) sale del rango nominal de «{dut.id}» ({dut_range})", "ensayo.rango_dut")
     if vna is not None:
         max_points = library.field(vna, "puntos_max")
-        if max_points and sweep.points > int(max_points):
-            error(f"El procedimiento pide {sweep.points} puntos y «{vna.id}» admite {max_points} (campo «Nº máximo de puntos»)")
+        if frequency_plan is not None and max_points and frequency_plan.points > int(max_points):
+            error(f"El ensayo tiene {frequency_plan.points} puntos y «{vna.id}» admite {max_points} (campo «Nº máximo de puntos»)")
         ifbw = library.field(vna, "ifbw")
-        if isinstance(ifbw, FrequencyRange) and not ifbw.start <= sweep.if_bandwidth <= ifbw.stop:
-            error(f"IFBW de {format_frequency(sweep.if_bandwidth)} fuera del rango de «{vna.id}» ({ifbw})")
+        if isinstance(ifbw, FrequencyRange):
+            for trace in procedure.traces:
+                bandwidth = sweep.trace(trace)[0]
+                if not ifbw.start <= bandwidth <= ifbw.stop:
+                    error(f"IFBW de {format_frequency(bandwidth)} ({trace}) fuera del rango de «{vna.id}» ({ifbw})")
+                    break
         power = library.field(vna, "potencia_salida_dbm")
         if isinstance(power, NumberRange) and not power.low <= sweep.power_dbm <= power.high:
             error(f"Potencia de {sweep.power_dbm:g} dBm fuera del rango de «{vna.id}» ({power} dBm)")
-    if sweep.sweep_type == "logaritmico" and frequency_range.start <= 0:
-        error("El barrido logarítmico no puede empezar en DC: ajuste el rango requerido del setup")
+
+    # specification files (pass / fail)
+    for spec in procedure.specifications:
+        path = library.procedure_file(spec.file, test_folder)
+        try:
+            data = read_touchstone(path)
+        except TouchstoneError as exc:
+            error(f"Especificación «{spec.name}»: {exc}", "ensayo.especificacion")
+            continue
+        missing = [p for p in spec.parameters if p not in procedure.traces or int(p[1]) > data.n_ports or int(p[2]) > data.n_ports]
+        if missing:
+            error(f"Especificación «{spec.name}»: {', '.join(missing)} no está en el fichero o no lo mide el procedimiento", "ensayo.especificacion")
+        if frequency_plan is not None:
+            overlap = data.frequency_range.intersect(frequency_plan.range)
+            if overlap is None:
+                warning(f"Especificación «{spec.name}» ({data.frequency_range}) fuera del rango del ensayo: no se evaluará", "ensayo.especificacion")
+            elif not data.frequency_range.contains(frequency_plan.range):
+                warning(f"Especificación «{spec.name}»: solo se evalúa en {overlap}", "ensayo.especificacion")
 
     lines = ["—"]
     if dut is not None and library.category_id_of(dut) == "lisn":
         lines = list(library.field(dut, "lineas", []) or [])
-        wanted = procedure.options.get("lineas", "todas")
-        if isinstance(wanted, (list, tuple)):
-            unknown = [line for line in wanted if line not in lines]
+        wanted_lines = procedure.options.get("lineas", "todas")
+        if isinstance(wanted_lines, (list, tuple)):
+            unknown = [line for line in wanted_lines if line not in lines]
             if unknown:
                 error(f"La LISN «{dut.id}» no tiene las líneas {', '.join(unknown)} (campo «Líneas»: {', '.join(lines)})")
-            lines = [line for line in lines if line in wanted]
+            lines = [line for line in lines if line in wanted_lines]
         if not lines:
             error(f"La LISN «{dut.id}» no indica sus líneas (campo «Líneas»)")
         network = library.field(dut, "red_nominal")
         if network not in LISN_NETWORKS:
             warning(f"La red nominal de «{dut.id}» ({network}) no es conocida: no se calcularán desviaciones")
-    return RunPlan(procedure, setup, template, analysis, design, vna, dut, frequency_range, lines, issues)
+    return RunPlan(procedure, effective, template, analysis, design, vna, dut, dut_role, frequency_plan, lines, issues)
 
 
 @dataclass
@@ -245,6 +361,7 @@ class RunResult:
     frequencies: np.ndarray | None = None
     data: dict[str, np.ndarray] = field(default_factory=dict)  # name → complex (points, n, n)
     files: list[Path] = field(default_factory=list)
+    spec_results: list[tuple[str, SpecResult]] = field(default_factory=list)  # (data set, result)
 
     @property
     def status(self) -> str:
@@ -261,7 +378,12 @@ def _csv_number(value: float) -> str:
 
 
 class ProcedureRunner:
-    """Runs a procedure on a configured setup. ``run()`` blocks; ``stop()`` may be called from another thread."""
+    """Runs a test. ``run()`` blocks; ``stop()`` may be called from another thread.
+
+    Either give a prepared ``record`` (created with ``Library.create_test``) or
+    the template, setup and DUT; then the test is created in ``folder``
+    (default: ``ensayos/`` of the library).
+    """
 
     def __init__(
         self,
@@ -273,6 +395,10 @@ class ProcedureRunner:
         operator_name: str | None = None,
         today: date | None = None,
         seed: int | None = None,
+        dut_id: str | None = None,
+        folder: Path | None = None,
+        record: TestRecord | None = None,
+        name: str | None = None,
     ):
         self.library = library
         self.procedure = procedure
@@ -282,12 +408,47 @@ class ProcedureRunner:
         self.operator_name = operator_name
         self.today = today
         self.seed = seed
+        self.dut_id = dut_id
+        self.folder = folder
+        self.prepared = record
+        self.name = name
         self.plan: RunPlan | None = None
         self.vna: VectorNetworkAnalyzer | None = None
         self.result: RunResult | None = None
         self._stop = threading.Event()
         self._log_lines: list[str] = []
         self._verification_failed = False
+
+    @classmethod
+    def for_test(
+        cls,
+        library: Library,
+        record: TestRecord,
+        operator: Operator | None = None,
+        listener: RunListener | None = None,
+        operator_name: str | None = None,
+        today: date | None = None,
+        seed: int | None = None,
+    ) -> "ProcedureRunner":
+        """Runner of a prepared test (its definition gives template, setup and DUT)."""
+        definition = record.definition
+        if definition is None:
+            raise LibraryError(f"El ensayo «{record.id}» no tiene definición")
+        setup = library.setups.get(definition.setup_id)
+        if setup is None:
+            raise LibraryError(f"El setup «{definition.setup_id}» del ensayo ya no existe en la biblioteca")
+        return cls(
+            library,
+            definition.template(),
+            setup,
+            operator,
+            listener,
+            operator_name or record.operator,
+            today,
+            seed,
+            dut_id=definition.dut_id,
+            record=record,
+        )
 
     # ── control ────────────────────────────────────────────────────────────
     def stop(self) -> None:
@@ -327,22 +488,18 @@ class ProcedureRunner:
         return list(STEPS)
 
     def _new_record(self) -> TestRecord:
-        started = datetime.now()
-        base = f"{started:%Y%m%d-%H%M%S}_{self.setup.id}"
-        test_id, counter = base, 2
-        while (self.library.tests_folder / test_id).exists():
-            test_id, counter = f"{base}_{counter}", counter + 1
-        record = TestRecord(
-            id=test_id,
-            started=started,
-            operator=self.operator_name,
-            procedure={"id": self.procedure.id, "nombre": self.procedure.name, "version": self.procedure.version, "algoritmo": self.procedure.algorithm},
-            setup={"id": self.setup.id, "nombre": self.setup.name, "plantilla": self.setup.template},
-            frequency_range=[format_frequency(self.setup.required_range.start, decimal="."), format_frequency(self.setup.required_range.stop, decimal=".")],
-        )
-        folder = self.library.tests_folder / test_id
-        folder.mkdir(parents=True, exist_ok=True)
-        record.set_folder(folder)
+        record = self.prepared
+        if record is None or record.status != "preparado":
+            definition = TestDefinition.from_template(self.procedure, self.setup.id, self.dut_id)
+            folder = record.folder.parent if record is not None and record.folder else (self.folder or self.library.tests_folder)
+            name = self.name or f"{self.dut_id or self.setup.id} {datetime.now():%Y-%m-%d %H%M%S}"
+            record = self.library.create_test(folder, name, definition, self.operator_name, record.folder if record is not None else None)
+        if record.definition is not None:
+            self.procedure = record.definition.template()  # references to the test's own copies of the files
+        record.started = datetime.now()
+        record.status = "en_curso"
+        if self.operator_name:
+            record.operator = self.operator_name
         return record
 
     def run(self) -> RunResult:
@@ -361,12 +518,14 @@ class ProcedureRunner:
                 current = None
             record.status = "verificacion_fallida" if self._verification_failed else "completado"
             record.message = "Ensayo completado" + (" con la verificación de la calibración fuera de tolerancia" if self._verification_failed else "")
+            if record.verdict and record.verdict != "SIN_ESPECIFICACIONES":
+                record.message += f" — {VERDICTS[record.verdict].upper()}"
         except RunAborted as exc:
             record.status, record.message = "abortado", str(exc)
             if current:
                 self._finish_step(current, "abortado", str(exc))
             self._log(str(exc), "aviso")
-        except (StepError, InstrumentError, OSError, ValueError) as exc:
+        except (StepError, InstrumentError, OSError, ValueError, LibraryError) as exc:
             record.status, record.message = "error", str(exc)
             if current:
                 self._finish_step(current, "error", str(exc))
@@ -387,9 +546,9 @@ class ProcedureRunner:
 
     # ── steps ──────────────────────────────────────────────────────────────
     def _step_validacion(self) -> tuple[str, str]:
-        plan = prepare_run(self.library, self.procedure, self.setup, self.today)
-        self.plan = plan
         record = self.result.record  # type: ignore[union-attr]
+        plan = prepare_run(self.library, self.procedure, self.setup, self.today, self.dut_id, record.folder)
+        self.plan = plan
         warnings = [i for i in plan.issues if i.severity is Severity.WARNING]
         for issue in plan.issues:
             self._log(issue.message, "error" if issue.severity is Severity.ERROR else "aviso")
@@ -398,8 +557,10 @@ class ProcedureRunner:
             raise StepError(f"No se puede ejecutar: {errors[0]}" + (f" (y {len(errors) - 1} errores más)" if len(errors) > 1 else ""))
         record.equipment = [self._equipment_entry(role, eq_id) for role, eq_id in self._assigned()]
         if plan.dut is not None:
-            record.dut = self._equipment_entry("dut", plan.dut.id)
-        detail = "Setup y procedimiento compatibles"
+            record.dut = self._equipment_entry(plan.dut_role or "dut", plan.dut.id)
+        if plan.frequency_plan is not None:
+            record.frequency_range = [format_frequency(plan.frequency_plan.start, decimal="."), format_frequency(plan.frequency_plan.stop, decimal=".")]
+        detail = "Setup, procedimiento y DUT compatibles"
         if warnings:
             detail += f" ({len(warnings)} avisos)"
         return ("aviso" if warnings else "ok"), detail
@@ -408,7 +569,7 @@ class ProcedureRunner:
         assert self.plan is not None and self.plan.template is not None
         pairs = []
         for role in self.plan.template.roles:
-            for equipment_id in self.setup.ids_for(role):
+            for equipment_id in self.plan.setup.ids_for(role):
                 pairs.append((role, equipment_id))
         return pairs
 
@@ -448,25 +609,49 @@ class ProcedureRunner:
             self._log("VNA SIMULADO: los resultados no son una medida real", "aviso")
         return "ok", f"{identity}" + (" (simulado)" if self.vna.simulated else "")
 
+    def _trace_settings(self) -> dict[str, dict]:
+        settings = {}
+        for trace in self.procedure.traces:
+            ifbw, averages, smoothing = self.procedure.sweep.trace(trace)
+            settings[trace] = {"ifbw": format_frequency(ifbw, decimal="."), "promedios": averages, "suavizado_pct": smoothing}
+        return settings
+
     def _step_configuracion(self) -> tuple[str, str]:
-        assert self.plan is not None and self.vna is not None
+        assert self.plan is not None and self.vna is not None and self.plan.frequency_plan is not None
         sweep = self.procedure.sweep
-        r = self.plan.frequency_range
+        plan = self.plan.frequency_plan
         self.vna.preset()
-        self.vna.configure_sweep(r.start, r.stop, sweep.points, sweep.sweep_type)
         self.vna.set_if_bandwidth(sweep.if_bandwidth)
         self.vna.set_power(sweep.power_dbm)
         self.vna.set_averaging(sweep.averages)
-        self.result.record.sweep = {  # type: ignore[union-attr]
-            "inicio": format_frequency(r.start, decimal="."),
-            "fin": format_frequency(r.stop, decimal="."),
-            "puntos": sweep.points,
-            "tipo": sweep.sweep_type,
+        if plan.mode == "lista":
+            self.vna.configure_frequency_list(plan.frequencies)  # segmented sweep on the ZNB, with the IFBW and power above
+        else:
+            self.vna.configure_sweep(plan.start, plan.stop, plan.points, sweep.vna_sweep_type)
+        record = self.result.record  # type: ignore[union-attr]
+        record.sweep = {
+            "modo": plan.mode,
+            "inicio": format_frequency(plan.start, decimal="."),
+            "fin": format_frequency(plan.stop, decimal="."),
+            "puntos": plan.points,
             "ifbw": format_frequency(sweep.if_bandwidth, decimal="."),
             "potencia_dbm": sweep.power_dbm,
             "promedios": sweep.averages,
+            "suavizado_pct": sweep.smoothing_pct,
+            "por_traza": sweep.per_trace,
         }
-        return "ok", f"{r}, {sweep.points} puntos {sweep.sweep_type}, IFBW {format_frequency(sweep.if_bandwidth)}, {sweep.power_dbm:g} dBm"
+        if plan.mode == "lineal" and plan.points > 1:
+            record.sweep["paso"] = format_frequency(plan.frequencies[1] - plan.frequencies[0], decimal=".")
+        if plan.list_path is not None and record.folder is not None:
+            record.sweep["lista"] = self._keep_file(plan.list_path, "listas")
+        if sweep.per_trace:
+            record.sweep["trazas"] = self._trace_settings()
+        text = plan.describe() + f", IFBW {format_frequency(sweep.if_bandwidth)}, {sweep.power_dbm:g} dBm"
+        if sweep.averages > 1:
+            text += f", {sweep.averages} promedios"
+        if sweep.per_trace:
+            text += " (ajustes por traza)"
+        return "ok", text
 
     def _plane_text(self, plane: PlaneInfo) -> str:
         if plane.endpoint is None or plane.endpoint.equipment is None:
@@ -557,10 +742,54 @@ class ProcedureRunner:
         return f"un adaptador {FAMILIES[a.family]} {GENDERS[a.mating_gender()]} – {FAMILIES[b.family]} {GENDERS[b.mating_gender()]}"
 
     def _measure(self, ports: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
+        """One sweep with the settings of «all traces» (calibration checks)."""
         assert self.vna is not None
         self.vna.single_sweep()
         frequencies = self.vna.frequencies()
         return frequencies, self.vna.read_s_matrix(ports)
+
+    def _measure_dut(self, ports: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
+        """Measure the traces of the DUT with their own IFBW / averaging, then smooth them.
+
+        Traces that share IFBW and averaging are read from the same sweep; each
+        other combination needs its own sweep (on the VNA they are channel
+        settings). The «all traces» settings are restored afterwards.
+        """
+        assert self.vna is not None
+        sweep = self.procedure.sweep
+        n = len(ports)
+        names = [f"S{i + 1}{j + 1}" for i in range(n) for j in range(n)]
+        groups: dict[tuple[float, int], list[str]] = {}
+        for name in names:
+            ifbw, averages, _ = sweep.trace(name)
+            groups.setdefault((ifbw, averages), []).append(name)
+        frequencies: np.ndarray | None = None
+        s = np.empty((0, n, n), dtype=complex)
+        current = (sweep.if_bandwidth, sweep.averages)
+        for (ifbw, averages), members in groups.items():
+            if (ifbw, averages) != current:
+                self.vna.set_if_bandwidth(ifbw)
+                self.vna.set_averaging(averages)
+                current = (ifbw, averages)
+            self.vna.single_sweep()
+            if frequencies is None:
+                frequencies = self.vna.frequencies()
+                s = np.empty((len(frequencies), n, n), dtype=complex)
+            for name in members:
+                i, j = int(name[1]) - 1, int(name[2]) - 1
+                s[:, i, j] = self.vna.read_s_parameter(f"S{ports[i]}{ports[j]}")
+            if len(groups) > 1:
+                self._log(f"Barrido con IFBW {format_frequency(ifbw)} y {averages} promedios: {', '.join(members)}")
+        if current != (sweep.if_bandwidth, sweep.averages):
+            self.vna.set_if_bandwidth(sweep.if_bandwidth)
+            self.vna.set_averaging(sweep.averages)
+        for name in names:
+            smoothing = sweep.trace(name)[2]
+            if smoothing > 0:
+                i, j = int(name[1]) - 1, int(name[2]) - 1
+                s[:, i, j] = smooth(s[:, i, j], smoothing)
+        assert frequencies is not None
+        return frequencies, s
 
     def _step_verificacion(self) -> tuple[str, str]:
         assert self.plan is not None and self.vna is not None
@@ -656,7 +885,7 @@ class ProcedureRunner:
                 simulate=lambda vna: vna.connect_network(model, ports, dut.id),
                 step="medida",
             )
-            f, s = self._measure(ports)
+            f, s = self._measure_dut(ports)
             result.frequencies, result.data["DUT"] = f, s
             self.listener.data("DUT", f, s)
             return "ok", f"{len(f)} puntos, S11 S21 S12 S22 ({CALIBRATION_STATUS[status]})"
@@ -679,12 +908,55 @@ class ProcedureRunner:
                 message = f"Conecte el DUT «{dut.id}» en el plano {self._plane_text(plane) if plane else f'P{port}'}."
             n_ports, model = simulated_dut(self.library, dut, index)
             self._ask(title, message, image="lisn" if is_lisn else "dut", simulate=lambda vna, m=model: vna.connect_one_port(m, port, f"{dut.id} {line}"), step="medida")
-            f, s = self._measure((port,))
+            f, s = self._measure_dut((port,))
             name = line if line != "—" else "DUT"
             result.frequencies, result.data[name] = f, s
             self.listener.data(name, f, s)
             self._log(f"Medida {name}: {len(f)} puntos")
         return "ok", f"{len(self.plan.lines)} medida(s) de 1 puerto ({CALIBRATION_STATUS[status]})"
+
+    def _step_evaluacion(self) -> tuple[str, str]:
+        assert self.result is not None
+        result, record = self.result, self.result.record
+        specs = self.procedure.specifications
+        if not specs:
+            record.verdict = "SIN_ESPECIFICACIONES"
+            return "omitido", "El procedimiento no define especificaciones"
+        assert result.frequencies is not None and record.folder is not None
+        several = len(result.data) > 1
+        for spec in specs:
+            source = self.library.procedure_file(spec.file, record.folder)
+            if source.is_file():
+                self._keep_file(source, "especificaciones")
+            for dataset, s in result.data.items():
+                evaluation = evaluate_spec(spec, source, result.frequencies, s)
+                result.spec_results.append((dataset, evaluation))
+                entry = evaluation.to_record()
+                if several:
+                    entry["medida"] = dataset
+                record.spec_results.append(entry)
+                self._log(f"Especificación «{spec.name}»{f' ({dataset})' if several else ''}: {entry['resultado']}", "info" if evaluation.passed else "aviso")
+        record.verdict = verdict([r for _, r in result.spec_results])
+        detail = "; ".join(
+            f"{r.spec.name}{f' ({d})' if several else ''}: {'PASA' if r.passed else ('FALLA' if r.passed is False else 'no evaluado')}"
+            for d, r in result.spec_results
+        )
+        return ("ok" if record.verdict == "PASA" else "aviso"), f"{VERDICTS[record.verdict].upper()} — {detail}"
+
+    def _keep_file(self, source: Path, subfolder: str) -> str:
+        """Keep ``source`` in the test folder (copied if it is elsewhere); returns its path relative to the folder."""
+        record = self.result.record  # type: ignore[union-attr]
+        assert record.folder is not None
+        try:
+            relative = source.resolve().relative_to(record.folder.resolve()).as_posix()
+        except ValueError:
+            target = record.folder / subfolder / source.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            relative = f"{subfolder}/{source.name}"
+        if relative not in record.files:
+            record.files.append(relative)
+        return relative
 
     # ── export ─────────────────────────────────────────────────────────────
     def _file_stem(self, suffix: str = "") -> str:
@@ -709,17 +981,23 @@ class ProcedureRunner:
         assert self.plan is not None and self.result is not None
         record = self.result.record
         calibration = record.calibration
+        sweep = record.sweep
         lines = [
             "CAL-ELEKTRA — fichero de resultados",
-            f"Ensayo: {record.id}",
+            f"Ensayo: {record.title} [{record.id}]",
             f"Procedimiento: {self.procedure.name} (v{self.procedure.version})",
             f"Setup: {self.setup.name} [{self.setup.template}]",
             f"DUT: {self.plan.dut.id if self.plan.dut else '—'}",
             f"VNA: {record.instrument.get('identificacion', '—')}",
             f"Calibración: {calibration.get('metodo', '—')}" + (f", kit {calibration['kit']}" if calibration.get("kit") else ""),
-            f"Barrido: {record.sweep.get('inicio')} – {record.sweep.get('fin')}, {record.sweep.get('puntos')} puntos, IFBW {record.sweep.get('ifbw')}, {record.sweep.get('potencia_dbm')} dBm",
+            f"Barrido: {SWEEP_MODES.get(sweep.get('modo', ''), sweep.get('modo', ''))} {sweep.get('inicio')} – {sweep.get('fin')}, "
+            f"{sweep.get('puntos')} puntos, IFBW {sweep.get('ifbw')}, {sweep.get('potencia_dbm')} dBm, {sweep.get('promedios')} promedios"
+            + (f", suavizado {sweep.get('suavizado_pct')} %" if sweep.get("suavizado_pct") else "")
+            + (" (ajustes por traza: ver ensayo.yaml)" if sweep.get("por_traza") else ""),
             f"Fecha: {record.started:%Y-%m-%d %H:%M:%S}",
         ]
+        if record.verdict and record.verdict != "SIN_ESPECIFICACIONES":
+            lines.append(f"Veredicto frente a especificaciones: {VERDICTS[record.verdict].upper()}")
         if record.simulated:
             lines.insert(1, "DATOS SIMULADOS (VNA simulado): NO es una medida real")
         return lines + extra
@@ -767,7 +1045,7 @@ class ProcedureRunner:
         log_path = folder / "registro.txt"
         files.append(log_path)
         record.results = summary
-        record.files = [p.name for p in files]
+        record.files = [p.name for p in files] + [name for name in record.files if name not in {p.name for p in files}]
         result.files = files
         self._write_log(log_path)
         return "ok", ", ".join(p.name for p in files if p.suffix != ".txt")
@@ -856,9 +1134,8 @@ class ProcedureRunner:
         folder = record.folder
         if folder is None:
             return
+        folder.mkdir(parents=True, exist_ok=True)
+        self._write_log(folder / "registro.txt")
         if "registro.txt" not in record.files:
-            self._write_log(folder / "registro.txt")
             record.files.append("registro.txt")
-        else:
-            self._write_log(folder / "registro.txt")
-        dump_yaml(record.to_yaml_dict(), folder / RECORD_FILE, header=f"Ensayo {record.id} — registrado por CAL-ELEKTRA")
+        self.library.save_test(record)

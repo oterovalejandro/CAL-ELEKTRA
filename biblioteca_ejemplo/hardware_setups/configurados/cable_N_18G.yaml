@@ -1,3 +1,4 @@
+# Cables N con cables de medida N y kit N. El cable a calibrar se elige en cada ensayo.
 formato: calelektra/setup@0.3
 id: cable_N_18G
 nombre: Cable N hasta 18 GHz
@@ -8,4 +9,3 @@ asignaciones:
   cable_p1: CAB-PT-N-01
   cable_p2: CAB-PT-N-02
   kit_cal: KIT-N-01
-  dut: CAB-DUT-0001

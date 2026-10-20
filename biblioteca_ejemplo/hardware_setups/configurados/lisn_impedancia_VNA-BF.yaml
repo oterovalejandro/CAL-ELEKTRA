@@ -1,4 +1,5 @@
 # Impedancia de la LISN con el VNA de baja frecuencia (cubre desde 9 kHz).
+# La LISN a calibrar se elige en cada ensayo.
 formato: calelektra/setup@0.3
 id: lisn_impedancia_VNA-BF
 nombre: Impedancia LISN con VNA de baja frecuencia
@@ -10,4 +11,3 @@ asignaciones:
   adaptador_p1: ADP-LISN-01
   kit_cal: KIT-N-01
   carga_receptor: LOAD-N-01
-  dut: LISN-0001

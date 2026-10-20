@@ -158,6 +158,7 @@ class DummyVna(VectorNetworkAnalyzer):
         self.if_bandwidth = 1e3
         self.power = -10.0
         self.averages = 1
+        self._list: np.ndarray | None = None
         self._frequencies: np.ndarray | None = None
         self._data: np.ndarray | None = None
 
@@ -269,8 +270,21 @@ class DummyVna(VectorNetworkAnalyzer):
         if problem:
             self._fail("configurar_barrido", problem, **args)
         self.start, self.stop, self.points, self.sweep_type = start, stop, points, sweep_type
+        self._list = None
         self._data = None
         self._record("configurar_barrido", result="ok", **args)
+
+    def configure_frequency_list(self, frequencies: Sequence[float]) -> None:
+        self._require_connection()
+        f = np.asarray(frequencies, dtype=float)
+        args = dict(puntos=len(f), inicio=format_frequency(f[0]) if len(f) else "—", fin=format_frequency(f[-1]) if len(f) else "—")
+        problem = self.frequency_list_problem(f)
+        if problem:
+            self._fail("configurar_lista", problem, **args)
+        self._list = f.copy()
+        self.start, self.stop, self.points, self.sweep_type = float(f[0]), float(f[-1]), len(f), "lista"
+        self._data = None
+        self._record("configurar_lista", result="ok", **args)
 
     def set_if_bandwidth(self, hz: float) -> None:
         self._require_connection()
@@ -296,6 +310,8 @@ class DummyVna(VectorNetworkAnalyzer):
         self._record("configurar_promedios", result="ok", valor=self.averages)
 
     def _sweep_frequencies(self) -> np.ndarray:
+        if self.sweep_type == "lista" and self._list is not None:
+            return self._list.copy()
         if self.sweep_type == "logaritmico":
             return np.geomspace(self.start, self.stop, self.points)
         return np.linspace(self.start, self.stop, self.points)

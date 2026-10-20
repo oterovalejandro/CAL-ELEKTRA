@@ -6,7 +6,7 @@ import pytest
 from calelektra.core.connectors import Connector
 from calelektra.core.frequency import FrequencyRange
 from calelektra.instruments.base import InstrumentError
-from calelektra.instruments.rs_znx import RecordingTransport, RsZnxVna
+from calelektra.instruments.rs_znx import RecordingTransport, RsZnxVna, frequency_segments
 
 POINTS = 5
 
@@ -113,3 +113,22 @@ def test_limits_are_checked_before_sending():
     with pytest.raises(InstrumentError, match="un solo puerto"):
         vna.begin_calibration("OSM", (1, 2))
     assert len(transport.commands) == before
+
+
+def test_frequency_list_becomes_a_segmented_sweep():
+    frequencies = [1e6, 2e6, 3e6, 4e6, 10e6, 20e6, 30e6, 35e6]
+    assert frequency_segments(frequencies) == [(1e6, 4e6, 4), (10e6, 30e6, 3), (35e6, 35e6, 1)]
+    vna, transport = make()
+    vna.set_if_bandwidth(100)
+    vna.set_power(-5)
+    vna.configure_frequency_list(frequencies)
+    commands = sent(transport)
+    start = commands.index("SENS1:SEGM:DEL:ALL")
+    assert commands[start + 1 : start + 4] == [
+        "SENS1:SEGM1:INS 1000000,4000000,4,-5,0,0,100,AUTO,NORM,AUTO,STEP;*OPC?",
+        "SENS1:SEGM2:INS 10000000,30000000,3,-5,0,0,100,AUTO,NORM,AUTO,STEP;*OPC?",
+        "SENS1:SEGM3:INS 35000000,35000000,1,-5,0,0,100,AUTO,NORM,AUTO,STEP;*OPC?",
+    ]
+    assert commands[start + 4 :][:3] == ["SENS1:SEGM:BWID:CONT OFF", "SENS1:SEGM:POW:CONT OFF", "SENS1:SWE:TYPE SEGM"]
+    with pytest.raises(InstrumentError):
+        vna.configure_frequency_list([10e3, 1e6])  # below the range of the instrument

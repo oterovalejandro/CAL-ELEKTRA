@@ -243,7 +243,17 @@ class _Analyzer:
     def _check_role(self, key: str, role: Role, segment: Segment | None, segment_label: str | None) -> None:
         ids = self.setup.ids_for(key, segment)
         where = f" en el segmento «{segment_label}»" if segment_label else ""
-        if not ids and role.required:
+        if not ids and role.required and role.is_dut:
+            self.result.add(
+                Issue(
+                    Severity.INFO,
+                    "rol.dut_en_ensayo",
+                    f"«{role.display(key)}» se elige al crear cada ensayo{where}",
+                    role=key,
+                    segment=segment_label,
+                )
+            )
+        elif not ids and role.required:
             self.result.add(
                 Issue(
                     Severity.ERROR,

@@ -144,6 +144,24 @@ def _number(value: float) -> str:
     return f"{value:.12g}"
 
 
+def frequency_segments(frequencies: Sequence[float]) -> list[tuple[float, float, int]]:
+    """Group a frequency list into segments of equal step: ``(start, stop, points)``."""
+    f = [float(x) for x in frequencies]
+    segments: list[tuple[float, float, int]] = []
+    i = 0
+    while i < len(f):
+        if i == len(f) - 1:
+            segments.append((f[i], f[i], 1))
+            break
+        step = f[i + 1] - f[i]
+        j = i + 1
+        while j + 1 < len(f) and abs((f[j + 1] - f[j]) - step) <= 1e-6 * step:
+            j += 1
+        segments.append((f[i], f[j], j - i + 1))
+        i = j + 1
+    return segments
+
+
 class RsZnxVna(VectorNetworkAnalyzer):
     """R&S ZNB43 (and other ZNx) on channel 1, with one trace per S-parameter (``CE_S11``…)."""
 
@@ -173,6 +191,8 @@ class RsZnxVna(VectorNetworkAnalyzer):
         self.timeout_ms = timeout_ms
         self.channel = channel
         self._averages = 1
+        self._power = -10.0
+        self._if_bandwidth = 1e3
         self._traces: set[str] = set()
 
     # ── SCPI helpers ───────────────────────────────────────────────────────
@@ -308,6 +328,7 @@ class RsZnxVna(VectorNetworkAnalyzer):
         if problem:
             self._fail("configurar_ifbw", problem, valor=format_frequency(hz))
         self._write(f"SENS{self._ch}:BAND {_number(hz)}")
+        self._if_bandwidth = hz
         self._check("configurar_ifbw", valor=format_frequency(hz))
 
     def set_power(self, dbm: float) -> None:
@@ -316,7 +337,33 @@ class RsZnxVna(VectorNetworkAnalyzer):
         if problem:
             self._fail("configurar_potencia", problem, valor=f"{dbm:g} dBm")
         self._write(f"SOUR{self._ch}:POW {_number(dbm)}")
+        self._power = dbm
         self._check("configurar_potencia", valor=f"{dbm:g} dBm")
+
+    def configure_frequency_list(self, frequencies: Sequence[float]) -> None:
+        """Segmented sweep: equal-step runs of the list become segments (``SENS:SEGM<n>:INS``).
+
+        The channel IFBW and power apply to every segment (``SEGM:BWID:CONT OFF``,
+        ``SEGM:POW:CONT OFF``). PENDING: check on the ZNB43 the maximum number of segments.
+        """
+        self._require_connection()
+        f = np.asarray(frequencies, dtype=float)
+        args = dict(puntos=len(f))
+        problem = self.frequency_list_problem(f)
+        if problem:
+            self._fail("configurar_lista", problem, **args)
+        ch = self._ch
+        segments = frequency_segments(f)
+        self._write(f"SENS{ch}:SEGM:DEL:ALL")
+        for number, (start, stop, points) in enumerate(segments, start=1):
+            self._write_opc(
+                f"SENS{ch}:SEGM{number}:INS {_number(start)},{_number(stop)},{points},{_number(self._power)},0,0,"
+                f"{_number(self._if_bandwidth)},AUTO,NORM,AUTO,STEP"
+            )
+        self._write(f"SENS{ch}:SEGM:BWID:CONT OFF")
+        self._write(f"SENS{ch}:SEGM:POW:CONT OFF")
+        self._write(f"SENS{ch}:SWE:TYPE SEGM")
+        self._check("configurar_lista", segmentos=len(segments), **args)
 
     def set_averaging(self, count: int) -> None:
         self._require_connection()
