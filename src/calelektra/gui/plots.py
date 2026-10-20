@@ -34,6 +34,7 @@ from calelektra.instruments.base import InstrumentError
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import open_vna
 from calelektra.instruments.simulation import touchstone_model
+from calelektra.procedures.specs import SpecCurve
 
 TRACE_COLORS = {"S11": "#2b7bb9", "S21": "#c0392b", "S12": "#d98a00", "S22": "#2e8b57"}
 DATASET_COLORS = ["#2b7bb9", "#c0392b", "#2e8b57", "#d98a00", "#7b5ea7", "#4f8a8b", "#8d6e63"]
@@ -52,12 +53,13 @@ def _db(values: np.ndarray) -> np.ndarray:
 
 
 class SParameterPlot(QWidget):
-    """Magnitude, phase or impedance of one or several S-parameter data sets."""
+    """Magnitude, phase or impedance of one or several S-parameter data sets, with specification lines."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.datasets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         self.visible: dict[str, bool] = {}
+        self.limits: list[SpecCurve] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         controls = QHBoxLayout()
@@ -67,13 +69,21 @@ class SParameterPlot(QWidget):
         self.mode.currentIndexChanged.connect(lambda _i: self.redraw())
         self.log_x = QCheckBox("Frecuencia logarítmica")
         self.log_x.toggled.connect(lambda _on: self.redraw())
+        self.show_limits = QCheckBox("Especificaciones")
+        self.show_limits.setChecked(True)
+        self.show_limits.setToolTip("Curvas de los ficheros de especificación (pasa / falla); discontinuas")
+        self.show_limits.toggled.connect(lambda _on: self.redraw())
+        self.show_limits.setVisible(False)
         controls.addWidget(self.mode)
         controls.addWidget(self.log_x)
-        controls.addSpacing(12)
-        self.trace_boxes = QHBoxLayout()
-        controls.addLayout(self.trace_boxes)
+        controls.addWidget(self.show_limits)
         controls.addStretch(1)
         layout.addLayout(controls)
+        traces = QHBoxLayout()
+        self.trace_boxes = QHBoxLayout()
+        traces.addLayout(self.trace_boxes)
+        traces.addStretch(1)
+        layout.addLayout(traces)
         self.plot = pg.PlotWidget()
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setLabel("bottom", "Frecuencia", units="Hz")
@@ -85,6 +95,11 @@ class SParameterPlot(QWidget):
     def clear(self) -> None:
         self.datasets.clear()
         self.visible.clear()
+        self.limits = []
+        self.redraw()
+
+    def set_limits(self, curves: list[SpecCurve]) -> None:
+        self.limits = list(curves)
         self.redraw()
 
     def set_data(self, name: str, frequencies: np.ndarray, s: np.ndarray, log_x: bool | None = None) -> None:
@@ -150,6 +165,37 @@ class SParameterPlot(QWidget):
                 with np.errstate(divide="ignore", invalid="ignore"):
                     y = np.abs(gamma_to_impedance(values))
             self.plot.plot(np.maximum(f, 1e-3), y, pen=pg.mkPen(color, width=2), name=label)
+        self._draw_limits(mode, log_x)
+
+    def _draw_limits(self, mode: str, log_x: bool) -> None:
+        self.show_limits.setVisible(bool(self.limits))
+        quantity = {"db": "magnitud_db", "fase": "fase_grados"}.get(mode)
+        if not self.limits or quantity is None or not self.show_limits.isChecked():
+            return
+        low = min((f[0] for f, _ in self.datasets.values()), default=None)
+        high = max((f[-1] for f, _ in self.datasets.values()), default=None)
+        names = {curve.name for curve in self.limits}
+        for curve in self.limits:
+            if curve.quantity != quantity:
+                continue
+            f, values = curve.frequencies, curve.values
+            if low is not None and high is not None:
+                inside = (f >= low * (1 - 1e-9)) & (f <= high * (1 + 1e-9))
+                f, values = f[inside], values[inside]
+            if log_x:
+                keep = f > 0
+                f, values = f[keep], values[keep]
+            if not len(f):
+                continue
+            if quantity == "fase_grados":
+                values = (values + 180.0) % 360.0 - 180.0
+            pen = pg.mkPen(TRACE_COLORS.get(curve.parameter, "#555"), width=1.6, style=Qt.PenStyle.DashLine)
+            label = f"Espec. {curve.parameter}" + (f" ({curve.name})" if len(names) > 1 else "")
+            if curve.criterion == "tolerancia" and curve.tolerance:
+                self.plot.plot(f, values + curve.tolerance, pen=pen, name=f"{label} ± {curve.tolerance:g}")
+                self.plot.plot(f, values - curve.tolerance, pen=pen)
+            else:
+                self.plot.plot(f, values, pen=pen, name=label)
 
     def _toggle(self, key: str, on: bool) -> None:
         self.visible[key] = on

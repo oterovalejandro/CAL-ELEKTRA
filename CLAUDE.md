@@ -8,6 +8,7 @@
 - La biblioteca es una carpeta de YAML. Cada fichero lleva `formato: calelektra/<tipo>@0.3`. El ejemplo está en `biblioteca_ejemplo/` y lo usan los tests (siempre sobre una copia: los ensayos escriben en `ensayos/`).
 - Regla central: el rango efectivo de un setup es la intersección de los rangos útiles de los equipos (`setups/analysis.py`, `core/frequency.py`). El DUT no limita.
 - Los equipos se describen con los **campos tipados de su categoría** (`catalog/fields.py`); el código lee valores con `library.field(equipo, "clave")` y nunca con claves sueltas del YAML. Setups (`setups/requirements.py`, `setups/connections.py`) y ensayos (`procedures/engine.py`) usan esos campos.
+- Plantillas de ensayo (`procedures/model.py`): frecuencias (`procedures/frequencies.py`: lineal por puntos o paso, logarítmico, lista CSV), ajustes por traza, especificaciones S2P (`procedures/specs.py`). Un ensayo se crea en una carpeta con `library.create_test` (definición = copia de la plantilla + setup + DUT; copia sus ficheros en la carpeta del ensayo) y se ejecuta con `ProcedureRunner.for_test`. El DUT se elige en el ensayo, no en el setup.
 - Los instrumentos solo se usan a través de `instruments/base.py`. Hay un VNA simulado (`dummy_vna.py`) y el adaptador R&S ZNx (`rs_znx.py`, comandos SCPI del driver RsZnx 4.25.0, sin probar aún con el equipo). `instruments/factory.py` elige uno u otro según los campos y la conexión del equipo.
 
 ## Comandos

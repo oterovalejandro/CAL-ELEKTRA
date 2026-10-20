@@ -52,9 +52,13 @@ STATUS = {
     "info": ("info", ACCENT, "Información"),
     "sin_datos": ("aviso", WARNING, "Sin datos"),
     "en_curso": ("en_curso", ACCENT, "En curso"),
+    "preparado": ("pendiente", INDIGO, "Preparado"),
     "pendiente": ("pendiente", NEUTRAL, "Pendiente"),
     "omitido": ("omitido", NEUTRAL, "Omitido"),
 }
+
+# verdict of a test against its specification files
+VERDICT_COLORS = {"PASA": OK, "FALLA": ERROR, "NO_EVALUADO": WARNING, "SIN_ESPECIFICACIONES": NEUTRAL}
 
 STYLE_SHEET = """
 QMainWindow, QDialog { background: #eef1f5; }

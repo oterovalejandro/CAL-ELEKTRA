@@ -24,11 +24,12 @@ from calelektra.gui import style
 from calelektra.gui.icons import icon
 from calelektra.gui.setups_view import setup_status
 from calelektra.instruments.factory import driver_description
+from calelektra.procedures.specs import VERDICTS
 
 
 class HomeView(QWidget):
     open_setup = Signal(str)
-    open_test = Signal(str)
+    open_test = Signal(str)  # folder of the test
     open_equipment = Signal(str)
     new_test = Signal()
     new_equipment = Signal()
@@ -68,7 +69,7 @@ class HomeView(QWidget):
         self.tile_calibration = style.KpiTile("Calibraciones", "ok", style.OK)
         self.tile_setups = style.KpiTile("Hardware setups", "setups", style.PRIMARY)
         self.tile_tests = style.KpiTile("Ensayos", "ensayos", style.INDIGO)
-        self.tile_procedures = style.KpiTile("Procedimientos", "procedimientos", style.DUT)
+        self.tile_procedures = style.KpiTile("Plantillas de ensayo", "procedimientos", style.DUT)
         for tile in (self.tile_equipment, self.tile_calibration, self.tile_setups, self.tile_tests, self.tile_procedures):
             tiles.addWidget(tile, 1)
         layout.addLayout(tiles)
@@ -76,9 +77,9 @@ class HomeView(QWidget):
         grid = QGridLayout()
         grid.setSpacing(12)
         tests_card = style.Card("Últimos ensayos", icon_name="ensayos")
-        self.tests = style.make_table(["Fecha", "DUT", "Procedimiento", "Estado"], stretch_column=2)
+        self.tests = style.make_table(["Fecha", "Ensayo", "Equipo", "Estado"], stretch_column=1)
         self.tests.setMinimumHeight(220)
-        self.tests.itemDoubleClicked.connect(lambda item: self.open_test.emit(item.data(Qt.ItemDataRole.UserRole)))
+        self.tests.itemDoubleClicked.connect(lambda item: item.data(Qt.ItemDataRole.UserRole) and self.open_test.emit(item.data(Qt.ItemDataRole.UserRole)))
         tests_card.body.addWidget(self.tests)
         setups_card = style.Card("Estado de los hardware setups", icon_name="setups")
         self.setups = QListWidget()
@@ -146,23 +147,28 @@ class HomeView(QWidget):
 
         tests = library.tests()
         recent = sum(1 for t in tests if t.started >= datetime.now() - timedelta(days=30))
-        failed = sum(1 for t in tests if t.status in ("error", "abortado"))
-        self.tile_tests.set_values(str(len(tests)), f"{recent} en 30 días · {failed} con error/abortados", style.ERROR if failed else None)
+        failed = sum(1 for t in tests if t.status in ("error", "abortado") or t.verdict == "FALLA")
+        prepared = sum(1 for t in tests if t.status == "preparado")
+        self.tile_tests.set_values(
+            str(len(tests)), f"{recent} en 30 días · {prepared} preparados · {failed} FALLA/error", style.ERROR if failed else None
+        )
         self.tile_procedures.set_values(str(len(library.procedures)), f"{len(library.templates)} plantillas de setup")
 
         self.tests.setRowCount(0)
         for record in tests[:12]:
             row = self.tests.rowCount()
             self.tests.insertRow(row)
+            verdict = f" · {VERDICTS[record.verdict].upper()}" if record.verdict in ("PASA", "FALLA") else ""
             values = [
                 f"{record.started:%d/%m %H:%M}",
-                record.dut.get("id", "—") if record.dut else "—",
-                record.procedure.get("nombre", "—"),
-                record.status_name + (" · sim." if record.simulated else ""),
+                record.title,
+                record.dut_id or "—",
+                record.status_name + verdict + (" · sim." if record.simulated else ""),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                item.setData(Qt.ItemDataRole.UserRole, record.id)
+                item.setData(Qt.ItemDataRole.UserRole, str(record.folder))
+                item.setToolTip(f"{record.procedure.get('nombre', '—')}\n{record.folder}")
                 if column == 3:
                     item.setIcon(style.status_icon(record.status))
                 self.tests.setItem(row, column, item)

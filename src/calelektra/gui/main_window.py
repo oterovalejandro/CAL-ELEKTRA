@@ -36,12 +36,13 @@ from calelektra.gui.setups_view import SetupsView
 from calelektra.gui.test_window import NewTestDialog, TestWindow
 from calelektra.gui.tests_view import TestsView
 from calelektra.instruments.factory import is_simulated
+from calelektra.procedures.record import TestRecord
 from calelektra.setups.model import ConfiguredSetup
 
 SECTIONS = [
     ("inicio", "Inicio", "inicio"),
     ("ensayos", "Ensayos", "ensayos"),
-    ("procedimientos", "Procedimientos", "procedimientos"),
+    ("procedimientos", "Plantillas\nde ensayo", "procedimientos"),
     ("setups", "Hardware\nsetups", "setups"),
     ("equipos", "Equipos", "equipos"),
     ("catalogo", "Catálogo", "catalogo"),
@@ -201,7 +202,7 @@ class MainWindow(QMainWindow):
 
     def _connect_views(self) -> None:
         self.home.open_setup.connect(self.open_setup)
-        self.home.open_test.connect(self.show_test)
+        self.home.open_test.connect(self.open_test_folder)
         self.home.open_equipment.connect(self.show_equipment)
         self.home.new_test.connect(lambda: self.new_test())
         self.home.new_equipment.connect(lambda: (self.show_section("equipos"), self.inventory.new_equipment()))
@@ -215,8 +216,9 @@ class MainWindow(QMainWindow):
         self.setups_view.setups_changed.connect(lambda: self._library_changed(skip=self.setups_view))
         self.procedures_view.new_test.connect(lambda procedure_id: self.new_test(procedure_id=procedure_id))
         self.procedures_view.procedures_changed.connect(lambda: self._library_changed(skip=self.procedures_view))
-        self.tests_view.new_test.connect(lambda: self.new_test())
-        self.tests_view.repeat_test.connect(lambda procedure_id, setup_id: self.new_test(procedure_id, setup_id))
+        self.tests_view.new_test.connect(lambda folder: self.new_test(folder=folder))
+        self.tests_view.open_test.connect(self.open_test_folder)
+        self.tests_view.repeat_test.connect(self.repeat_test)
         self.tests_view.tests_changed.connect(self.home.reload)
 
     # ── sections and ribbon ────────────────────────────────────────────────
@@ -296,30 +298,65 @@ class MainWindow(QMainWindow):
         if index >= 0:
             self.workspace.setTabText(index, self._editor_title(editor))
 
-    def new_test(self, procedure_id: str | None = None, setup_id: str | None = None) -> TestWindow | None:
+    def new_test(self, procedure_id: str | None = None, setup_id: str | None = None, folder: Path | None = None) -> TestWindow | None:
+        """Launch a test template in a folder (new-test dialog) and open the prepared test."""
         if not self.library.procedures:
-            QMessageBox.information(self, "Nuevo ensayo", "La biblioteca no tiene procedimientos de medida.")
+            QMessageBox.information(self, "Nuevo ensayo", "La biblioteca no tiene plantillas de ensayo.")
             return None
-        dialog = NewTestDialog(self.library, procedure_id, setup_id, self)
-        if not dialog.exec() or dialog.plan is None:
+        if folder is None and self.current_section() == "ensayos":
+            folder = self.tests_view.folders.current_folder()
+        dialog = NewTestDialog(self.library, procedure_id, setup_id, folder, parent=self)
+        if not dialog.exec() or dialog.created is None:
             return None
-        plan = dialog.plan
-        return self.open_test_window(plan.procedure.id, plan.setup.id, dialog.operator.text().strip(), dialog.automatic.isChecked())
+        self._tests_changed(str(dialog.created.folder))
+        return self.open_test_record(dialog.created, dialog.automatic.isChecked())
 
-    def open_test_window(self, procedure_id: str, setup_id: str, operator: str = "", automatic: bool = False) -> TestWindow:
-        window = TestWindow(self.library, self.library.procedures[procedure_id], self.library.setups[setup_id], operator, automatic)
-        window.finished.connect(self._test_finished)
+    def open_test_record(self, record: TestRecord, automatic: bool = False) -> TestWindow:
+        for window in self._documents(TestWindow):
+            if window.record.folder == record.folder:
+                self.workspace.setCurrentWidget(window)
+                return window
+        window = TestWindow(self.library, record, automatic)
+        window.finished.connect(self._tests_changed)
+        window.redefined.connect(lambda folder, w=window: (self._retitle_test(w), self._tests_changed(folder)))
         index = self.workspace.addTab(window, icon("ensayos", style.OK.name(), 16), window.title)
         self.workspace.setCurrentIndex(index)
         return window
 
-    def _test_finished(self, test_id: str) -> None:
-        self.tests_view.reload(select=test_id)
+    def open_test_folder(self, folder: str | Path) -> TestWindow | None:
+        try:
+            record = self.library.load_test(Path(folder))
+        except LibraryError as exc:
+            QMessageBox.warning(self, "Abrir ensayo", str(exc))
+            return None
+        return self.open_test_record(record)
+
+    def repeat_test(self, folder: str | Path) -> TestWindow | None:
+        """New prepared test with the definition of another one, next to it."""
+        try:
+            record = self.library.load_test(Path(folder))
+            if record.definition is None or record.folder is None:
+                raise LibraryError(f"El ensayo «{record.title}» no tiene definición")
+            copy = self.library.create_test(record.folder.parent, f"{record.title} (repetición)", record.definition, record.operator, record.folder)
+        except (LibraryError, OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Repetir ensayo", str(exc))
+            return None
+        self._tests_changed(str(copy.folder))
+        return self.open_test_record(copy)
+
+    def _retitle_test(self, window: TestWindow) -> None:
+        index = self.workspace.indexOf(window)
+        if index >= 0:
+            self.workspace.setTabText(index, window.title)
+
+    def _tests_changed(self, folder: str) -> None:
+        self.tests_view.folders.reload()
+        self.tests_view.reload(select=folder)
         self.home.reload()
 
-    def show_test(self, test_id: str) -> None:
+    def show_test(self, folder: str) -> None:
         self.show_section("ensayos")
-        self.tests_view.reload(select=test_id)
+        self.tests_view.show_test(folder)
 
     def show_equipment(self, equipment_id: str) -> None:
         self.show_section("equipos")
@@ -350,6 +387,7 @@ class MainWindow(QMainWindow):
         for page in self.pages.values():
             if page is not skip and hasattr(page, "reload"):
                 page.reload()
+        self.tests_view.folders.reload()  # folders may have changed on disk (and with them the tests listed)
         for editor in self._documents(SetupEditor):
             editor.refresh()
             self._retitle(editor)

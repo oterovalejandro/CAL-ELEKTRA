@@ -285,6 +285,31 @@ def _library(p: QPainter, c: QColor) -> None:
     p.drawArc(QRectF(4, 16, 16, 5), 180 * 16, 180 * 16)
 
 
+@_register("carpeta_nueva")
+def _new_folder(p: QPainter, c: QColor) -> None:
+    _pen(p, c)
+    _poly(p, (3, 6), (3, 19), (13, 19))
+    _poly(p, (21, 12), (21, 8), (11.5, 8), (9.5, 5), (3, 5), (3, 6))
+    _poly(p, (18, 14), (18, 21))
+    _poly(p, (14.5, 17.5), (21.5, 17.5))
+
+
+@_register("carpeta_externa")
+def _external_folder(p: QPainter, c: QColor) -> None:
+    _pen(p, c)
+    _poly(p, (3, 6), (3, 19), (12, 19))
+    _poly(p, (21, 11), (21, 8), (11.5, 8), (9.5, 5), (3, 5), (3, 6))
+    _poly(p, (15, 20), (21, 14))
+    _poly(p, (16.5, 14), (21, 14), (21, 18.5))
+
+
+@_register("veredicto")
+def _verdict(p: QPainter, c: QColor) -> None:
+    _pen(p, c)
+    _poly(p, (12, 3), (19, 6), (19, 12), (12, 21), (5, 12), (5, 6), (12, 3), close=True)
+    _poly(p, (8.5, 11.5), (11, 14), (15.5, 9))
+
+
 def available() -> list[str]:
     return sorted(_ICONS)
 

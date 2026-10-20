@@ -85,7 +85,7 @@ def build_diagram_model(
         category = library.categories.get(role.categories[0]) if role.categories else None
         kind = category.kind if category else "pasivo"
         severity = analysis.role_severity.get(key) if analysis else None
-        lines, assigned = _assignment_lines(key, role.per_segment, setup, library)
+        lines, assigned = _assignment_lines(key, role.per_segment, setup, library, role.is_dut)
         ports = sorted(ports_used.get(key, ())) if key in split_roles else [None]
         for port in ports:
             title = role.display(key) + (f" · {port}" if port else "")
@@ -111,7 +111,7 @@ def build_diagram_model(
     return model
 
 
-def _assignment_lines(key: str, per_segment: bool, setup: ConfiguredSetup, library: Library) -> tuple[list[str], bool]:
+def _assignment_lines(key: str, per_segment: bool, setup: ConfiguredSetup, library: Library, is_dut: bool = False) -> tuple[list[str], bool]:
     def describe(equipment_id: str) -> str:
         equipment = library.equipment.get(equipment_id)
         model = library.model_of(equipment) if equipment else None
@@ -126,7 +126,7 @@ def _assignment_lines(key: str, per_segment: bool, setup: ConfiguredSetup, libra
             lines.append(f"{segment.name}: {', '.join(ids) if ids else '—'}")
         return lines, assigned
     ids = setup.ids_for(key)
-    return ([describe(i) for i in ids] or ["sin asignar"]), bool(ids)
+    return ([describe(i) for i in ids] or ["se elige en cada ensayo" if is_dut else "sin asignar"]), bool(ids)
 
 
 def compute_layout(model: DiagramModel) -> dict[str, tuple[float, float]]:
@@ -212,7 +212,7 @@ class NodeItem(QGraphicsItem):
 
     def border_color(self) -> QColor:
         if not self.spec.assigned:
-            return style.NEUTRAL if self.spec.optional else style.ERROR
+            return style.NEUTRAL if self.spec.optional else (style.DUT if self.spec.is_dut else style.ERROR)
         if self.spec.severity is not None and self.spec.severity >= Severity.WARNING:
             return style.SEVERITY_COLORS[self.spec.severity]
         return style.OK

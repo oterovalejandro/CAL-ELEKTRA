@@ -1,4 +1,10 @@
-"""Measurement procedures (ELEKTRA «test templates»): list and editor."""
+"""Test templates (measurement procedures, the «test templates» of ELEKTRA): list and editor.
+
+A template defines how to measure: algorithm, frequency points (linear by
+points or step, logarithmic, CSV list), trace settings (IFBW, averaging,
+smoothing for all traces or per trace), calibration, verification, the S2P
+specification files that give pass / fail, and export.
+"""
 
 from __future__ import annotations
 
@@ -21,17 +27,16 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QScrollArea,
-    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from calelektra.catalog.library import Library, validation_message
-from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.gui import style
 from calelektra.gui.icons import icon
-from calelektra.procedures.model import ALGORITHMS, CALIBRATION_METHODS, ProcedureTemplate
+from calelektra.gui.template_widgets import FrequencyEditor, SpecEditor, TraceEditor
+from calelektra.procedures.model import ALGORITHMS, CALIBRATION_METHODS, TRACES, ProcedureTemplate
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 
@@ -72,29 +77,28 @@ class ProcedureEditor(QWidget):
         form.addRow("Algoritmo", self.algorithm)
         form.addRow("Plantillas compatibles", self.templates)
 
-        sweep = style.Card("Barrido", icon_name="grafica")
-        sweep_form = QFormLayout()
-        sweep.body.addLayout(sweep_form)
-        self.points = QSpinBox()
-        self.points.setRange(2, 100001)
-        self.sweep_type = QComboBox()
-        self.sweep_type.addItem("Lineal", "lineal")
-        self.sweep_type.addItem("Logarítmico", "logaritmico")
-        self.ifbw = QLineEdit()
-        self.power = QDoubleSpinBox()
-        self.power.setRange(-100, 30)
-        self.power.setSuffix(" dBm")
-        self.averages = QSpinBox()
-        self.averages.setRange(1, 1000)
-        sweep_form.addRow("Puntos", self.points)
-        sweep_form.addRow("Tipo", self.sweep_type)
-        sweep_form.addRow("IFBW", self.ifbw)
-        sweep_form.addRow("Potencia", self.power)
-        sweep_form.addRow("Promedios", self.averages)
-        note = QLabel("El rango de frecuencia es el rango requerido del hardware setup.")
-        note.setObjectName("pageSubtitle")
-        note.setWordWrap(True)
-        sweep.body.addWidget(note)
+        frequency = style.Card("Rango de frecuencias", icon_name="grafica")
+        self.frequency = FrequencyEditor(
+            resolver=lambda reference: self.library.procedure_file(reference),
+            importer=lambda path: self.library.copy_procedure_file(path, "listas"),
+        )
+        frequency.body.addWidget(self.frequency)
+        traces = style.Card("Trazas: IFBW, promedios y suavizado", icon_name="ajustes")
+        self.traces = TraceEditor()
+        traces.body.addWidget(self.traces)
+        specs = style.Card("Especificaciones (pasa / falla)", icon_name="ok")
+        specs_note = QLabel(
+            "Ficheros S2P/S1P con los valores de especificación. Se copian en «procedimientos/especificaciones» "
+            "y cada ensayo guarda su propia copia. Al crear un ensayo se pueden cambiar."
+        )
+        specs_note.setObjectName("pageSubtitle")
+        specs_note.setWordWrap(True)
+        self.specs = SpecEditor(
+            resolver=lambda reference: self.library.procedure_file(reference),
+            importer=lambda path: self.library.copy_procedure_file(path, "especificaciones"),
+        )
+        specs.body.addWidget(specs_note)
+        specs.body.addWidget(self.specs)
 
         calibration = style.Card("Calibración", icon_name="vna")
         cal_form = QFormLayout()
@@ -147,7 +151,7 @@ class ProcedureEditor(QWidget):
         options.body.addWidget(self.options)
 
         left_column, right_column = QVBoxLayout(), QVBoxLayout()
-        for column, cards in ((left_column, (general, verification)), (right_column, (sweep, calibration, export))):
+        for column, cards in ((left_column, (general, frequency, traces)), (right_column, (calibration, verification, export))):
             column.setSpacing(12)
             for card in cards:
                 column.addWidget(card)
@@ -156,26 +160,33 @@ class ProcedureEditor(QWidget):
         grid.addLayout(right_column, 0, 1)
         grid.setColumnStretch(0, 3)
         grid.setColumnStretch(1, 2)
-        grid.addWidget(options, 1, 0, 1, 2)
+        grid.addWidget(specs, 1, 0, 1, 2)
+        grid.addWidget(options, 2, 0, 1, 2)
         layout.addLayout(grid)
         layout.addStretch(1)
-        for combo in (self.algorithm, self.sweep_type, self.method, self.data_format, self.unit):
+        for combo in (self.algorithm, self.method, self.data_format, self.unit):
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(14)
 
-        for widget in (self.id_edit, self.name, self.version, self.status, self.ifbw, self.vna_name, self.filename):
+        for widget in (self.id_edit, self.name, self.version, self.status, self.vna_name, self.filename):
             widget.textEdited.connect(self._edited)
         for widget in (self.description, self.options):
             widget.textChanged.connect(self._edited)
-        for widget in (self.algorithm, self.sweep_type, self.method, self.data_format, self.unit):
+        for widget in (self.algorithm, self.method, self.data_format, self.unit):
             widget.currentIndexChanged.connect(self._edited)
-        for widget in (self.points, self.averages):
-            widget.valueChanged.connect(self._edited)
-        for widget in (self.power, self.tolerance, self.s11_max):
+        for widget in (self.tolerance, self.s11_max):
             widget.valueChanged.connect(self._edited)
         for widget in (self.save_on_vna, self.verify, self.csv):
             widget.toggled.connect(self._edited)
+        for editor in (self.frequency, self.traces, self.specs):
+            editor.changed.connect(self._edited)
         self.templates.itemChanged.connect(self._edited)
+        self.algorithm.currentIndexChanged.connect(self._algorithm_changed)
+
+    def _algorithm_changed(self, *_args) -> None:
+        traces = TRACES[self.algorithm.currentData()]
+        self.traces.set_traces(traces)
+        self.specs.set_traces(traces)
 
     def _edited(self, *_args) -> None:
         if not self._loading:
@@ -198,12 +209,10 @@ class ProcedureEditor(QWidget):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if template.id in procedure.compatible_templates else Qt.CheckState.Unchecked)
             self.templates.addItem(item)
-        sweep = procedure.sweep
-        self.points.setValue(sweep.points)
-        self.sweep_type.setCurrentIndex(max(self.sweep_type.findData(sweep.sweep_type), 0))
-        self.ifbw.setText(format_frequency(sweep.if_bandwidth, decimal="."))
-        self.power.setValue(sweep.power_dbm)
-        self.averages.setValue(sweep.averages)
+        self._algorithm_changed()
+        self.frequency.load(procedure.sweep)
+        self.traces.load(procedure.sweep)
+        self.specs.load(procedure.specifications)
         calibration = procedure.calibration
         self.method.setCurrentIndex(max(self.method.findData(calibration.method), 0))
         self.save_on_vna.setChecked(calibration.save_on_vna)
@@ -224,10 +233,8 @@ class ProcedureEditor(QWidget):
         procedure_id = self.id_edit.text().strip()
         if not ID_PATTERN.match(procedure_id):
             raise ValueError("Identificador no válido (letras, números, «-», «_» o «.»)")
-        try:
-            ifbw = parse_frequency(self.ifbw.text())
-        except UnitError as exc:
-            raise ValueError(f"IFBW: {exc}") from exc
+        sweep = {**self.frequency.values(), **self.traces.values()}
+        specifications = self.specs.values()
         try:
             options = yaml.safe_load(self.options.toPlainText()) or {}
         except yaml.YAMLError as exc:
@@ -248,13 +255,7 @@ class ProcedureEditor(QWidget):
             "descripcion": self.description.toPlainText().strip() or None,
             "algoritmo": self.algorithm.currentData(),
             "plantillas_compatibles": templates,
-            "barrido": {
-                "puntos": self.points.value(),
-                "tipo": self.sweep_type.currentData(),
-                "ifbw": ifbw,
-                "potencia_dbm": self.power.value(),
-                "promedios": self.averages.value(),
-            },
+            "barrido": sweep,
             "calibracion": {
                 "metodo": self.method.currentData(),
                 "guardar_en_vna": self.save_on_vna.isChecked(),
@@ -265,6 +266,7 @@ class ProcedureEditor(QWidget):
                 "tolerancia_s21_db": self.tolerance.value(),
                 "s11_max_db": self.s11_max.value(),
             },
+            "especificaciones": specifications,
             "exportacion": {
                 "formato": self.data_format.currentData(),
                 "unidad_frecuencia": self.unit.currentText(),
@@ -274,7 +276,7 @@ class ProcedureEditor(QWidget):
             "opciones": options,
         }
         if not data["nombre"]:
-            raise ValueError("Indique el nombre del procedimiento")
+            raise ValueError("Indique el nombre de la plantilla de ensayo")
         try:
             procedure = ProcedureTemplate.model_validate({k: v for k, v in data.items() if v is not None})
         except ValidationError as exc:
@@ -287,7 +289,7 @@ class ProcedureEditor(QWidget):
 class ProceduresView(QWidget):
     new_test = Signal(str)
     procedures_changed = Signal()
-    title = "Procedimientos"
+    title = "Plantillas de ensayo"
 
     def __init__(self, library: Library, parent: QWidget | None = None):
         super().__init__(parent)
@@ -297,9 +299,10 @@ class ProceduresView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 10)
         self.header = style.PageHeader(
-            "Procedimientos de medida",
-            "Equivalen a las «test templates» de ELEKTRA: algoritmo, barrido, calibración, verificación y exportación. "
-            "Se ejecutan sobre un hardware setup compatible.",
+            "Plantillas de ensayo",
+            "Las «test templates» de ELEKTRA: algoritmo, rango de frecuencias, trazas, calibración, verificación, "
+            "especificaciones (pasa / falla) y exportación. Un ensayo se lanza en una carpeta con una plantilla, "
+            "un hardware setup compatible y el equipo a calibrar.",
         )
         layout.addWidget(self.header)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -316,7 +319,7 @@ class ProceduresView(QWidget):
         splitter.setStretchFactor(1, 3)
         layout.addWidget(splitter, 1)
 
-        self.action_new = QAction(icon("nuevo", style.PRIMARY.name()), "Nuevo\nprocedimiento", self)
+        self.action_new = QAction(icon("nuevo", style.PRIMARY.name()), "Nueva\nplantilla", self)
         self.action_copy = QAction(icon("duplicar", style.PRIMARY.name()), "Duplicar", self)
         self.action_save = QAction(icon("guardar", style.PRIMARY.name()), "Guardar", self)
         self.action_delete = QAction(icon("eliminar", style.ERROR.name()), "Eliminar", self)
@@ -372,7 +375,7 @@ class ProceduresView(QWidget):
             self._set_dirty(False)
 
     def _confirm_discard(self) -> bool:
-        answer = QMessageBox.question(self, "Procedimiento", "Hay cambios sin guardar. ¿Descartarlos?")
+        answer = QMessageBox.question(self, "Plantilla de ensayo", "Hay cambios sin guardar. ¿Descartarlos?")
         return answer == QMessageBox.StandardButton.Yes
 
     def _changed(self) -> None:
@@ -380,7 +383,7 @@ class ProceduresView(QWidget):
 
     def _set_dirty(self, dirty: bool) -> None:
         self.dirty = dirty
-        self.header.title.setText("Procedimientos de medida" + (" — cambios sin guardar" if dirty else ""))
+        self.header.title.setText("Plantillas de ensayo" + (" — cambios sin guardar" if dirty else ""))
         self._update_actions()
 
     def _update_actions(self) -> None:
@@ -393,7 +396,7 @@ class ProceduresView(QWidget):
     def new_procedure(self) -> None:
         if self.dirty and not self._confirm_discard():
             return
-        base = ProcedureTemplate(id="nuevo_procedimiento", nombre="Nuevo procedimiento", algoritmo="vna_2_puertos")
+        base = ProcedureTemplate(id="nueva_plantilla", nombre="Nueva plantilla de ensayo", algoritmo="vna_2_puertos")
         self.editor.load(base, is_new=True)
         self.is_new = True
         self._set_dirty(True)
@@ -415,15 +418,15 @@ class ProceduresView(QWidget):
         try:
             procedure = self.editor.build()
         except ValueError as exc:
-            QMessageBox.warning(self, "Guardar procedimiento", str(exc))
+            QMessageBox.warning(self, "Guardar plantilla", str(exc))
             return False
         if self.is_new and procedure.id in self.library.procedures:
-            QMessageBox.warning(self, "Guardar procedimiento", f"Ya existe un procedimiento «{procedure.id}».")
+            QMessageBox.warning(self, "Guardar plantilla", f"Ya existe una plantilla «{procedure.id}».")
             return False
         try:
             self.library.save_procedure(procedure)
         except OSError as exc:
-            QMessageBox.critical(self, "Guardar procedimiento", str(exc))
+            QMessageBox.critical(self, "Guardar plantilla", str(exc))
             return False
         self.is_new = False
         self._set_dirty(False)
@@ -435,7 +438,7 @@ class ProceduresView(QWidget):
         procedure_id = self._current_id()
         if procedure_id is None:
             return
-        answer = QMessageBox.question(self, "Eliminar procedimiento", f"¿Eliminar el procedimiento «{self.library.procedures[procedure_id].name}»?")
+        answer = QMessageBox.question(self, "Eliminar plantilla", f"¿Eliminar la plantilla de ensayo «{self.library.procedures[procedure_id].name}»?")
         if answer != QMessageBox.StandardButton.Yes:
             return
         self.library.delete_procedure(procedure_id)

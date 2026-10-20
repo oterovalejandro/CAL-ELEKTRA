@@ -6,6 +6,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 import pytest
 import yaml
 from PySide6.QtTest import QTest
@@ -19,6 +20,8 @@ from calelektra.gui.main_window import SECTIONS, MainWindow
 from calelektra.gui.plots import SParameterDialog, VnaCheckDialog
 from calelektra.gui.setup_editor import SetupEditor
 from calelektra.gui.test_window import NewTestDialog, TestWindow
+from calelektra.procedures.engine import ProcedureRunner
+from calelektra.procedures.record import TestDefinition
 from calelektra.setups.model import ConfiguredSetup
 
 
@@ -81,6 +84,7 @@ def test_open_every_setup(window, qapp):
     cable = window.open_setup("cable_vna_292")
     assert cable.state_combo.currentText() == "medida"
     assert {"vna.P1", "vna.P2", "dut"} <= set(cable.diagram.nodes)
+    assert cable.diagram.nodes["dut"].spec.lines == ["se elige en cada ensayo"]
     assert cable.calibration_panel.planes.rowCount() == 2
     assert "UOSM" in cable.bottom_tabs.tabText(2)
     alarm = window.open_setup("cable_vna_N_alarma")
@@ -189,28 +193,99 @@ def test_procedure_editor_saves(window, qapp, library_copy):
     view = window.procedures_view
     window.show_section("procedimientos")
     view.reload(select="cable_parametros_s")
-    view.editor.points.setValue(1601)
+    editor = view.editor
+    assert editor.frequency.setup_range.isChecked()  # this template takes the range of the setup
+    editor.frequency.points.setValue(1601)
     assert view.dirty and view.action_save.isEnabled()
+    editor.traces.per_trace.setChecked(True)
+    editor.traces.table.item(2, 0).setText("100 Hz")  # S21
+    editor.traces.table.item(2, 1).setText("4")
     assert view.save()
     data = yaml.safe_load((library_copy / "procedimientos/cable_parametros_s.yaml").read_text(encoding="utf-8"))
     assert data["barrido"]["puntos"] == 1601 and data["plantillas_compatibles"] == ["cable_vna", "componente_2p"]
+    assert data["barrido"]["modo"] == "lineal" and "inicio" not in data["barrido"]
+    assert data["barrido"]["por_traza"] is True and data["barrido"]["trazas"] == {"S21": {"ifbw": "100 Hz", "promedios": 4}}
+
+
+def test_template_editor_frequency_modes_and_specs(window, qapp, library_copy):
+    view = window.procedures_view
+    view.reload(select="cable_292_pasa_falla")
+    editor = view.editor
+    frequency = editor.frequency
+    assert frequency.definition.currentData() == "paso" and frequency.step.text() == "50 MHz"
+    assert "800 puntos" in frequency.preview.text()
+    assert editor.specs.table.rowCount() == 2 and editor.specs.table.item(0, 2).text() == "S21, S12"
+    frequency.mode.setCurrentIndex(frequency.mode.findData("logaritmico"))
+    assert not frequency.form.isRowVisible(frequency.step) and frequency.form.isRowVisible(frequency.points)
+    frequency.mode.setCurrentIndex(frequency.mode.findData("lista"))
+    assert frequency.form.isRowVisible(frequency._file_row)
+    with pytest.raises(ValueError, match="CSV"):
+        editor.build()
+    reference = window.library.copy_procedure_file(library_copy / "procedimientos/listas/puntos_cable_N.csv", "listas")
+    frequency.list_file.setText(reference)
+    frequency._edited()
+    assert "268 puntos" in frequency.preview.text()
+    editor.specs.table.item(1, 2).setText("S11, S33")
+    with pytest.raises(ValueError, match="S33"):
+        editor.build()
+    editor.specs.table.selectRow(1)
+    editor.specs._remove()
+    assert editor.specs.table.rowCount() == 1
+    assert editor.specs.add_file(library_copy / "procedimientos/especificaciones/cable_N_2m_referencia.s2p")
+    procedure = editor.build()
+    assert procedure.sweep.mode == "lista" and procedure.sweep.list_file == "listas/puntos_cable_N.csv"
+    assert [s.file for s in procedure.specifications][-1] == "especificaciones/cable_N_2m_referencia.s2p"
+
+
+def _choose(combo: QComboBox, data) -> None:
+    index = combo.findData(data)
+    assert index >= 0, data
+    combo.setCurrentIndex(index)
 
 
 def test_new_test_dialog_precheck(window, qapp):
-    dialog = NewTestDialog(window.library, "cable_parametros_s", "cable_vna_N_alarma", window)
-    assert dialog.plan is not None and not dialog.plan.ok and not dialog.start.isEnabled()
-    dialog = NewTestDialog(window.library, "cable_parametros_s", "cable_vna_292", window)
-    assert dialog.plan.ok and dialog.start.isEnabled() and dialog.automatic.isEnabled()
-    setups = {dialog.setups.item(i).data(256) for i in range(dialog.setups.count())}
-    assert "lisn_impedancia_VNA-BF" not in setups  # not compatible with the procedure
+    dialog = NewTestDialog(window.library, "cable_parametros_s", "cable_vna_N_alarma", parent=window)
+    assert dialog.current_setup().id == "cable_vna_N_alarma"
+    _choose(dialog.dut, "CAB-DUT-0001")
+    assert dialog.plan is not None and not dialog.plan.ok and not dialog.accept_button.isEnabled()
+    assert "familias incompatibles" in " ".join(i.message for i in dialog.plan.issues)
+    dialog = NewTestDialog(window.library, "cable_292_pasa_falla", "cable_vna_292", parent=window)
+    assert dialog.current_dut() is None and not dialog.plan.ok  # the cable to calibrate is chosen in the test
+    assert "Cable a calibrar" in dialog.dut_label.text()
+    _choose(dialog.dut, "CAB-DUT-0002")
+    assert dialog.plan.ok and dialog.accept_button.isEnabled() and dialog.automatic.isEnabled()
+    assert dialog.name.text().startswith("CAB-DUT-0002 ")
+    setups = {dialog.setup.itemData(i) for i in range(dialog.setup.count())}
+    assert "lisn_impedancia_VNA-BF" not in setups and "componente_292_tosm" in setups  # only compatible setups
+    assert "dut" in dialog.diagram.nodes and "CAB-DUT-0002" in " ".join(dialog.diagram.nodes["dut"].spec.lines)
+    assert dialog.specs.table.rowCount() == 2  # specifications of the template, editable for this test
+    _choose(dialog.setup, "componente_292_tosm")
+    assert dialog.current_dut() == "CAB-DUT-0002"  # the chosen cable is kept; the check says it does not fit
+    assert not dialog.plan.ok and "género" in " ".join(i.message for i in dialog.plan.issues)
+    _choose(dialog.dut, "CAB-DUT-0003")
+    assert dialog.plan.ok and dialog.plan.design.method == "TOSM"
 
 
-def test_automatic_simulated_test(window, qapp):
-    test = window.open_test_window("cable_parametros_s", "cable_vna_292", "prueba", automatic=True)
+def test_create_and_run_automatic_test(window, qapp, library_copy):
+    folder = window.library.tests_folder / "Clientes"
+    folder.mkdir(parents=True)
+    window.tests_view.folders.reload(select=folder)
+    dialog = NewTestDialog(window.library, "cable_292_pasa_falla", "cable_vna_292", folder=folder, parent=window)
+    assert dialog.current_folder() == folder
+    _choose(dialog.dut, "CAB-DUT-0002")
+    dialog.name.setText("Cable cliente 2001")
+    dialog.automatic.setChecked(True)
+    dialog._accept()
+    record = dialog.created
+    assert record is not None and record.status == "preparado" and record.folder == folder / "Cable_cliente_2001"
+    test = window.open_test_record(record, automatic=True)
+    assert test.start_button.isEnabled() and test.badge.text() == "Preparado"
     test.start()
     wait_for(lambda: not test.running)
-    assert test.result.status == "completado"
-    assert test.plot.datasets and test.results.rowCount() > 5
+    assert test.record.status == "completado" and test.record.verdict == "PASA"
+    assert test.plot.datasets and test.plot.limits and test.spec_table.rowCount() == 4  # 2 specs × 2 parameters
+    assert "PASA" in test.tabs.tabText(1)
+    window.show_section("ensayos")
     assert window.tests_view.table.rowCount() == 1
     assert window.home.tile_tests.value.text() == "1"
 
@@ -222,18 +297,51 @@ def test_test_with_operator_dialogs(window, qapp, monkeypatch):
         shown.append(dialog.windowTitle())
         return QDialog.DialogCode.Accepted
 
+    library = window.library
     monkeypatch.setattr(test_window_module.PromptDialog, "exec", answer)
-    test = window.open_test_window("impedancia_lisn", "lisn_impedancia_VNA-BF", "prueba")
+    definition = TestDefinition.from_template(library.procedures["impedancia_lisn"], "lisn_impedancia_VNA-BF", "LISN-0001")
+    record = library.create_test(library.tests_folder, "LISN 1", definition, "prueba")
+    test = window.open_test_record(record)
     test.start()
     wait_for(lambda: not test.running)
-    assert test.result.status == "completado"
+    assert test.record.status == "completado"
     assert len(shown) == 3 + 1 + 2  # OSM standards, match check, two LISN lines
     assert "Abierto" in shown[0]
 
     monkeypatch.setattr(test_window_module.PromptDialog, "exec", lambda dialog: QDialog.DialogCode.Rejected)
-    test.start()
+    test.start()  # repetition: a new test with the same definition, in the same folder
     wait_for(lambda: not test.running)
-    assert test.result.status == "abortado"
+    assert test.record.status == "abortado" and test.record.folder != record.folder
+    assert test.record.title == "LISN 1 (repetición)"
+    assert len(library.tests()) == 2
+
+
+def test_tests_explorer_and_finished_test(window, qapp):
+    library = window.library
+    definition = TestDefinition.from_template(library.procedures["cable_292_pasa_falla"], "componente_292_tosm", "CAB-DUT-0003")
+    record = library.create_test(library.tests_folder / "2026", "Cable largo", definition, "prueba")
+    result = ProcedureRunner.for_test(library, record, seed=3).run()
+    assert result.record.verdict == "FALLA"
+    prepared = library.create_test(library.tests_folder / "2026", "Pendiente", definition, "prueba")
+    view = window.tests_view
+    window.show_section("ensayos")
+    view.show_test(record.folder)
+    assert view.folders.current_folder() == library.tests_folder / "2026"
+    assert view.table.rowCount() == 2
+    assert view.detail.record.folder == record.folder
+    assert "FALLA" in view.detail.specs.text() and view.detail.plot.limits
+    assert list(view.detail.plot.datasets) == ["DUT"]  # the measurement, not the archived specification file
+    frequencies, s = view.detail.plot.datasets["DUT"]
+    assert len(frequencies) == 800 and 20 * np.log10(abs(s[-1, 1, 0])) < -7.5  # 1,2 m cable: about 8 dB at 40 GHz
+    assert view.action_repeat.isEnabled()
+    view.show_test(prepared.folder)
+    assert view.action_open.text().startswith("Ejecutar") and not view.action_repeat.isEnabled()
+    test = window.open_test_folder(record.folder)
+    assert test.record.verdict == "FALLA" and test.start_button.text() == "Repetir ensayo"
+    assert test.plot.datasets and test.spec_table.rowCount() == 4 and not test.edit_button.isEnabled()
+    copy = window.repeat_test(record.folder)
+    assert copy.record.status == "preparado" and copy.record.definition.dut_id == "CAB-DUT-0003"
+    assert copy.edit_button.isEnabled()
 
 
 def test_dialogs(window, qapp):
