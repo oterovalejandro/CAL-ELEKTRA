@@ -33,7 +33,16 @@ from calelektra.catalog.library import Library, LibraryError
 from calelektra.gui import style
 from calelektra.gui.icons import icon
 from calelektra.gui.plots import SParameterPlot
-from calelektra.gui.test_common import is_logarithmic, record_datasets, record_smoothing, record_spec_curves, verdict_chip
+from calelektra.gui.test_common import (
+    is_logarithmic,
+    record_coverage_factor,
+    record_datasets,
+    record_smoothing,
+    record_spec_curves,
+    record_uncertainty,
+    uncertainty_rows,
+    verdict_chip,
+)
 from calelektra.gui.test_folders import TestFolderTree
 from calelektra.procedures.record import STATUS_NAMES, TestRecord
 from calelektra.procedures.specs import VERDICTS
@@ -139,6 +148,8 @@ class TestDetail(QWidget):
         for label, frequencies, s in record_datasets(record):
             self.plot.set_data(label, frequencies, s, log_x=is_logarithmic(record))
         if self.plot.datasets:
+            for label, bands in record_uncertainty(record).items():
+                self.plot.set_uncertainty(label, bands, record_coverage_factor(record))
             self.plot.set_limits(record_spec_curves(record))
             self.plot.set_smoothing(record_smoothing(record))
         self.plot_card.setVisible(bool(self.plot.datasets))
@@ -199,6 +210,10 @@ class TestDetail(QWidget):
 
             flatten("", record.results)
             parts.append(f"<b>Resultados</b><ul style='margin-top:2px'>{''.join(rows)}</ul>")
+        uncertainty = uncertainty_rows(record)
+        if uncertainty:
+            items = "".join(f"<li>{html.escape(name)}: <b>{html.escape(value)}</b></li>" for name, value in uncertainty)
+            parts.append(f"<b>Incertidumbre y condiciones</b><ul style='margin-top:2px'>{items}</ul>")
         sweep = record.sweep
         if sweep:
             text = (

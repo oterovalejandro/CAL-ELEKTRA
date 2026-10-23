@@ -7,7 +7,7 @@ from calelektra.core.touchstone import read_touchstone
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, RunListener, prepare_run, suitable_setups
 
-from conftest import TODAY
+from conftest import E5061B_VALID_DAY, TODAY
 
 
 class Recorder(RunListener):
@@ -21,11 +21,11 @@ class Recorder(RunListener):
         self.names.append(name)
 
 
-def run(library, procedure, answers=None, **kw):
+def run(library, procedure, answers=None, today=TODAY, **kw):
     operator = AutoOperator(answers)
     listener = Recorder()
     template = library.procedures[procedure] if isinstance(procedure, str) else procedure
-    runner = ProcedureRunner(library, template, operator, listener, "prueba", TODAY, seed=3, **kw)
+    runner = ProcedureRunner(library, template, operator, listener, "prueba", today, seed=3, **kw)
     return runner.run(), operator, listener
 
 
@@ -40,7 +40,7 @@ def test_vna_only_cable_calibration_exports_s2p(library):
     assert record.calibration["metodo"] == "UOSM" and record.calibration["kit"] == "KIT-292-01"
     assert record.verification["correcta"]
     assert [key for key, status in listener.steps if status not in ("en_curso",)] == [
-        "validacion", "conexion", "configuracion", "calibracion", "verificacion", "medida", "evaluacion", "exportacion", "cierre",
+        "validacion", "conexion", "configuracion", "calibracion", "verificacion", "medida", "incertidumbre", "evaluacion", "exportacion", "cierre",
     ]
     s2p = record.folder / record.files[0]
     data = read_touchstone(s2p)
@@ -116,7 +116,7 @@ def test_frequency_list_of_the_setup_and_tolerance_spec(library):
 
 
 def test_lisn_impedance_per_line(library):
-    result, _, listener = run(library, "lisn_LISN-0001")
+    result, _, listener = run(library, "lisn_LISN-0001", today=E5061B_VALID_DAY)
     record = result.record
     assert record.status == "completado" and record.verdict == "SIN_ESPECIFICACIONES"
     assert record.calibration["metodo"] == "OSM"

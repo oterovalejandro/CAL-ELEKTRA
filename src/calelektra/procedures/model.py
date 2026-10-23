@@ -5,7 +5,7 @@ frequency points) and defines the **EUT** to calibrate (whose model gives the
 S-parameter specifications for pass / fail). It says how to measure:
 algorithm, trace settings (IFBW and averaging, and the smoothing used to
 display the traces, for all traces or per trace), source power, calibration,
-verification and export.
+verification, uncertainty and export.
 
 Launching a template in a folder makes a test: the record of that
 measurement (``procedures/record.py``).
@@ -130,6 +130,15 @@ class VerificationSettings(_Section):
     s11_max_db: float = Field(default=-30.0, alias="s11_max_db")
 
 
+class UncertaintySettings(_Section):
+    """Uncertainty of the traces, from the uncertainty data file of the VNA (``calelektra.uncertainty``)."""
+
+    active: bool = Field(default=True, alias="activa")
+    coverage_factor: float = Field(default=2.0, alias="k", gt=0)
+    trace_noise: bool = Field(default=True, alias="ruido_traza")
+    temperature_stability: bool = Field(default=True, alias="estabilidad_temperatura")
+
+
 class ExportSettings(_Section):
     data_format: Literal["RI", "MA", "DB"] = Field(default="RI", alias="formato")
     frequency_unit: Literal["HZ", "KHZ", "MHZ", "GHZ"] = Field(default="HZ", alias="unidad_frecuencia")
@@ -152,6 +161,7 @@ class ProcedureTemplate(BaseModel):
     sweep: SweepSettings = Field(default_factory=SweepSettings, alias="barrido")
     calibration: CalibrationSettings = Field(default_factory=CalibrationSettings, alias="calibracion")
     verification: VerificationSettings = Field(default_factory=VerificationSettings, alias="verificacion")
+    uncertainty: UncertaintySettings = Field(default_factory=UncertaintySettings, alias="incertidumbre")
     export: ExportSettings = Field(default_factory=ExportSettings, alias="exportacion")
     options: dict[str, Any] = Field(default_factory=dict, alias="opciones")
 

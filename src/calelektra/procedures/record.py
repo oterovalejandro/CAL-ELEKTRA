@@ -5,8 +5,9 @@ saved as ``<carpeta>/<ensayo>/ensayo.yaml`` next to its files: results
 (.s2p/.s1p, CSV), copies of the frequency list and of the specification files
 used, and the instrument log. The record keeps the template as launched, the
 hardware setup with its frequency definition, every equipment with its
-certificate, the VNA calibration, the verification, the pass / fail
-evaluation and the verdict, so a calibration can be traced back.
+certificate, the VNA calibration, the verification, the uncertainty of the
+traces, the pass / fail evaluation and the verdict, so a calibration can be
+traced back.
 """
 
 from __future__ import annotations
@@ -65,6 +66,8 @@ class TestRecord(BaseModel):
     verification: dict[str, Any] = Field(default_factory=dict, alias="verificacion")
     specifications: list[dict[str, Any]] = Field(default_factory=list, alias="especificaciones")  # of the EUT model, as used
     spec_results: list[dict[str, Any]] = Field(default_factory=list, alias="evaluacion")  # pass / fail per specification
+    conditions: dict[str, Any] = Field(default_factory=dict, alias="condiciones")  # ambient temperature…
+    uncertainty: dict[str, Any] = Field(default_factory=dict, alias="incertidumbre")  # file, k and summary per trace
     results: dict[str, Any] = Field(default_factory=dict, alias="resultados")
     files: list[str] = Field(default_factory=list, alias="ficheros")
     steps: list[StepRecord] = Field(default_factory=list, alias="pasos")

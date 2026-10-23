@@ -40,6 +40,7 @@ from calelektra.gui import style
 from calelektra.gui.field_form import FieldForm
 from calelektra.gui.template_widgets import SpecEditor
 from calelektra.instruments.factory import DRIVERS
+from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 
@@ -129,6 +130,21 @@ class EquipmentDialog(QDialog):
         cal_form.addRow("Laboratorio", self.laboratory)
         cal_form.addRow("Fecha de calibración", self.issued)
         cal_form.addRow("Próxima calibración", self.due)
+        self.uncertainty_file = QLineEdit()
+        self.uncertainty_file.setPlaceholderText("Fichero YAML de incertidumbres de la unidad (datasheet y certificado)")
+        browse_uncertainty = QPushButton("Examinar…")
+        browse_uncertainty.clicked.connect(self._browse_uncertainty_file)
+        self.uncertainty_row = QWidget()
+        uncertainty_row = QHBoxLayout(self.uncertainty_row)
+        uncertainty_row.setContentsMargins(0, 0, 0, 0)
+        uncertainty_row.addWidget(self.uncertainty_file, 1)
+        uncertainty_row.addWidget(browse_uncertainty)
+        self.uncertainty_info = QLabel()
+        self.uncertainty_info.setWordWrap(True)
+        self.uncertainty_info.setStyleSheet("color: #5b6b80;")
+        cal_form.addRow("Incertidumbres", self.uncertainty_row)
+        cal_form.addRow(self.uncertainty_info)
+        self.calibration_form = cal_form
         self.tabs.addTab(calibration, "Calibración")
 
         s_data = QWidget()
@@ -216,6 +232,9 @@ class EquipmentDialog(QDialog):
         self.model.blockSignals(False)
         category = self.library.categories.get(category_id)
         self.tabs.setTabVisible(self.connection_tab_index, bool(category and category.has_connection))
+        is_vna = category_id == "vna"  # the uncertainty engine is for VNA S-parameters
+        self.calibration_form.setRowVisible(self.uncertainty_row, is_vna)
+        self.calibration_form.setRowVisible(self.uncertainty_info, is_vna)
         self._model_changed()
 
     def _model_changed(self) -> None:
@@ -256,6 +275,9 @@ class EquipmentDialog(QDialog):
             self.laboratory.setText(c.laboratory or "")
             self.issued.setText(c.issued.isoformat() if c.issued else "")
             self.due.setText(c.due.isoformat() if c.due else "")
+        if equipment.uncertainty_file and not copy:
+            self.uncertainty_file.setText(equipment.uncertainty_file)
+            self._describe_uncertainty(equipment)
         if equipment.s_parameters and not copy:
             s = equipment.s_parameters
             self.s_file.setText(s.file)
@@ -265,6 +287,34 @@ class EquipmentDialog(QDialog):
             self.simulated.setChecked(equipment.connection.simulated)
             self.resource.setText(equipment.connection.resource or "")
             self.timeout.setValue(equipment.connection.timeout_ms or 0)
+
+    def _describe_uncertainty(self, equipment: Equipment) -> None:
+        try:
+            engine = self.library.uncertainty_engine(equipment)
+        except UncertaintyCalculationError as exc:
+            self.uncertainty_info.setText(f"✖ {exc}")
+            return
+        due, valid, _warnings = engine.calibration_status()
+        state = "" if valid is None else (" · calibración vigente" if valid else " · CALIBRACIÓN VENCIDA")
+        serial = f" · nº {engine.serial_number}" if engine.serial_number else ""
+        self.uncertainty_info.setText(
+            f"{engine.document} · {engine.equipment_manufacturer} {engine.equipment_model}{serial} · "
+            f"{len(engine.data.get('uncertainty_sources', []))} fuentes · vence {due or '—'}{state}"
+        )
+
+    def _browse_uncertainty_file(self) -> None:
+        filename, _ = QFileDialog.getOpenFileName(self, "Fichero de incertidumbres del VNA", str(self.library.root), "YAML (*.yaml *.yml)")
+        if not filename:
+            return
+        try:
+            UncertaintyEngine(filename)
+        except (UncertaintyCalculationError, OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Incertidumbres", f"El fichero no es válido: {exc}")
+            return
+        self.uncertainty_file.setText(self.library.copy_uncertainty_file(Path(filename)))
+        probe = Equipment(id="_", model_id=self.model.currentData() or "", uncertainty_file=self.uncertainty_file.text())
+        probe.set_source_path(self.original.source_path if self.original else None)
+        self._describe_uncertainty(probe)
 
     def _browse_s_file(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(
@@ -339,6 +389,7 @@ class EquipmentDialog(QDialog):
             connection=connection,
             calibration=calibration,
             s_parameters=s_parameters,
+            uncertainty_file=(self.uncertainty_file.text().strip() or None) if category.id == "vna" else None,
             location=self.location.text().strip() or None,
             notes=self.notes.toPlainText().strip() or None,
         )

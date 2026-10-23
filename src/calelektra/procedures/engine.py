@@ -66,6 +66,8 @@ from calelektra.setups.analysis import SetupAnalysis, analyze_setup
 from calelektra.setups.connections import CalibrationDesign, PlaneInfo, design_calibration
 from calelektra.setups.frequencies import FrequencyPlan
 from calelektra.setups.model import SWEEP_MODES, ConfiguredSetup, SetupTemplate
+from calelektra.uncertainty.engine import UncertaintyCalculationError
+from calelektra.uncertainty.traces import TraceUncertainty, UncertaintyOptions, dataset_uncertainty
 
 STEPS: dict[str, str] = {
     "validacion": "Validación del setup y del procedimiento",
@@ -74,6 +76,7 @@ STEPS: dict[str, str] = {
     "calibracion": "Calibración de los puertos",
     "verificacion": "Verificación de la calibración",
     "medida": "Medida del DUT",
+    "incertidumbre": "Cálculo de incertidumbres",
     "evaluacion": "Evaluación pasa / falla",
     "exportacion": "Exportación de resultados",
     "cierre": "Cierre del ensayo",
@@ -122,6 +125,9 @@ class RunListener:
     def step_changed(self, key: str, status: str, detail: str = "") -> None: ...
 
     def log(self, level: str, message: str) -> None: ...
+
+    def uncertainty(self, name: str, frequencies: np.ndarray, traces: dict[str, TraceUncertainty]) -> None:
+        """Expanded uncertainty of the traces of a measurement (after ``data``)."""
 
     def data(self, name: str, frequencies: np.ndarray, s: np.ndarray) -> None:
         """New measured data: ``s`` has shape ``(points, n, n)``."""
@@ -289,6 +295,23 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
         if isinstance(power, NumberRange) and not power.low <= sweep.power_dbm <= power.high:
             error(f"Potencia de {sweep.power_dbm:g} dBm fuera del rango de «{vna.id}» ({power} dBm)")
 
+    # uncertainty of the traces: data file of the VNA unit
+    if vna is not None and procedure.uncertainty.active:
+        if not vna.uncertainty_file:
+            warning(f"El VNA «{vna.id}» no tiene fichero de incertidumbres: los resultados no tendrán incertidumbre", "ensayo.incertidumbre")
+        else:
+            for _severity, message in library.uncertainty_problems(vna):
+                warning(f"Incertidumbre de «{vna.id}»: {message}", "ensayo.incertidumbre")
+            try:
+                covered = library.uncertainty_engine(vna).frequency_range_hz
+            except UncertaintyCalculationError:
+                covered = None
+            if covered and frequency_plan is not None and not (covered[0] <= frequency_plan.start and frequency_plan.stop <= covered[1]):
+                warning(
+                    f"El fichero de incertidumbres de «{vna.id}» cubre {FrequencyRange(*covered)}: fuera de ese rango no habrá incertidumbre",
+                    "ensayo.incertidumbre",
+                )
+
     # specifications of the model of the EUT (pass / fail)
     specs = library.specifications_of(dut) if dut is not None else []
     for spec, path in specs:
@@ -331,6 +354,7 @@ class RunResult:
     data: dict[str, np.ndarray] = field(default_factory=dict)  # name → complex (points, n, n)
     files: list[Path] = field(default_factory=list)
     spec_results: list[tuple[str, SpecResult]] = field(default_factory=list)  # (data set, result)
+    uncertainty: dict[str, dict[str, TraceUncertainty]] = field(default_factory=dict)  # data set → trace → U
 
     @property
     def status(self) -> str:
@@ -340,6 +364,12 @@ class RunResult:
 def _db(values: np.ndarray) -> np.ndarray:
     with np.errstate(divide="ignore"):
         return 20 * np.log10(np.maximum(np.abs(values), 1e-15))
+
+
+def _largest(arrays: list[np.ndarray]) -> float | None:
+    values = np.concatenate(arrays) if arrays else np.array([])
+    values = values[np.isfinite(values)]
+    return float(values.max()) if len(values) else None
 
 
 def _csv_number(value: float) -> str:
@@ -365,6 +395,7 @@ class ProcedureRunner:
         seed: int | None = None,
         folder: Path | None = None,
         name: str | None = None,
+        temperature: tuple[float, float] | None = None,
     ):
         self.library = library
         self.procedure = procedure
@@ -375,6 +406,7 @@ class ProcedureRunner:
         self.seed = seed
         self.folder = folder
         self.name = name
+        self.temperature = temperature  # minimum and maximum ambient temperature (°C) during the test
         self.plan: RunPlan | None = None
         self.vna: VectorNetworkAnalyzer | None = None
         self.result: RunResult | None = None
@@ -421,7 +453,10 @@ class ProcedureRunner:
 
     def _new_record(self) -> TestRecord:
         name = self.name or f"{self.procedure.eut_id or self.procedure.id} {datetime.now():%Y-%m-%d %H%M%S}"
-        return self.library.new_test_record(self.folder or self.library.tests_folder, name, self.procedure, self.operator_name)
+        record = self.library.new_test_record(self.folder or self.library.tests_folder, name, self.procedure, self.operator_name)
+        if self.temperature is not None:
+            record.conditions = {"temperatura_min_c": self.temperature[0], "temperatura_max_c": self.temperature[1]}
+        return record
 
     def run(self) -> RunResult:
         record = self._new_record()
@@ -840,6 +875,72 @@ class ProcedureRunner:
             self._log(f"Medida {name}: {len(f)} puntos")
         return "ok", f"{len(self.plan.lines)} medida(s) de 1 puerto ({CALIBRATION_STATUS[status]})"
 
+    def _step_incertidumbre(self) -> tuple[str, str]:
+        assert self.plan is not None and self.result is not None
+        result, record = self.result, self.result.record
+        settings = self.procedure.uncertainty
+        vna = self.plan.vna
+        if not settings.active:
+            return "omitido", "Desactivada en la plantilla de ensayo"
+        if vna is None or not vna.uncertainty_file:
+            return "omitido", f"El VNA «{vna.id if vna else '—'}» no tiene fichero de incertidumbres"
+        try:
+            engine = self.library.uncertainty_engine(vna)
+            designation = self.library.uncertainty_designation(vna)
+            engine.validate_equipment(designation)
+        except UncertaintyCalculationError as exc:
+            self._log(f"Sin incertidumbre: {exc}", "aviso")
+            return "aviso", f"No se calcula: {exc}"
+        assert result.frequencies is not None
+        today = self.today or date.today()
+        options = UncertaintyOptions(settings.coverage_factor, settings.trace_noise, settings.temperature_stability, self.temperature)
+        due, _valid, warnings = engine.calibration_status(today)
+        path = self.library.uncertainty_path(vna)
+        assert path is not None
+        entry: dict = {
+            "fichero": self._keep_file(path, "incertidumbres"),
+            "documento": engine.document,
+            "vna": f"{vna.id} — {designation}" + (f" nº {engine.serial_number}" if engine.serial_number else ""),
+            "k": settings.coverage_factor,
+            "ruido_traza": settings.trace_noise,
+            "estabilidad_temperatura": settings.temperature_stability,
+            "temperatura_c": list(self.temperature) if self.temperature else "no indicada",
+            "calibracion_vna_hasta": due,
+        }
+        if warnings:
+            entry["avisos"] = warnings
+        for message in warnings:
+            self._log(message, "aviso")
+        measurements = []
+        missing = 0
+        for name, s in result.data.items():
+            self._check_stop()
+            traces = dataset_uncertainty(
+                engine, designation, result.frequencies, s, lambda trace: self.procedure.sweep.trace(trace)[0], options, today
+            )
+            result.uncertainty[name] = traces
+            self.listener.uncertainty(name, result.frequencies, traces)
+            measurements.append({"medida": name, "trazas": {p: t.summary() for p, t in traces.items()}})
+            for trace in traces.values():
+                missing += trace.missing
+                for problem in trace.problems:
+                    self._log(f"Incertidumbre{f' ({name})' if len(result.data) > 1 else ''}: {problem}", "aviso")
+        entry["medidas"] = measurements
+        record.uncertainty = entry
+        largest = []
+        for parameter in dict.fromkeys(p for traces in result.uncertainty.values() for p in traces):
+            traces = [t[parameter] for t in result.uncertainty.values() if parameter in t]
+            db = _largest([t.magnitude_db for t in traces])
+            deg = _largest([t.phase_deg for t in traces])
+            if db is not None:
+                largest.append(f"{parameter} {db:.3g} dB" + (f" / {deg:.3g}°" if deg is not None else ""))
+        detail = f"U (k={settings.coverage_factor:g}) máx.: " + ("; ".join(largest) or "ningún punto")
+        if missing:
+            detail += f" — {missing} punto(s) sin incertidumbre (fuera de los rangos del fichero)"
+        if warnings:
+            detail += " — VNA fuera de calibración según el fichero"
+        return ("aviso" if missing or warnings else "ok"), detail
+
     def _step_evaluacion(self) -> tuple[str, str]:
         assert self.result is not None
         assert self.plan is not None
@@ -941,11 +1042,14 @@ class ProcedureRunner:
         summary: dict = {}
         if self.procedure.algorithm == "vna_2_puertos":
             s = result.data["DUT"]
+            uncertainty = result.uncertainty.get("DUT")
             path = folder / f"{self._file_stem()}.s2p"
-            write_touchstone(path, Touchstone(2, f, s, comments=self._comments([])), export.data_format, export.frequency_unit)
+            write_touchstone(path, Touchstone(2, f, s, comments=self._comments(self._uncertainty_comment(""))), export.data_format, export.frequency_unit)
             files.append(path)
             if export.csv:
-                files.append(self._write_csv_2p(folder / f"{self._file_stem()}.csv", f, s))
+                files.append(self._write_csv_2p(folder / f"{self._file_stem()}.csv", f, s, uncertainty))
+            if uncertainty:
+                files.append(self._write_uncertainty_csv("DUT", path, f, uncertainty))
             summary = self._summary_2p(f, s)
         else:
             dut = self.plan.dut
@@ -953,11 +1057,15 @@ class ProcedureRunner:
             per_line = {}
             for name, s in result.data.items():
                 suffix = name if name != "DUT" else ""
+                uncertainty = result.uncertainty.get(name)
                 path = folder / f"{self._file_stem(suffix)}.s1p"
-                write_touchstone(path, Touchstone(1, f, s, comments=self._comments([f"Línea: {name}"] if suffix else [])), export.data_format, export.frequency_unit)
+                comments = ([f"Línea: {name}"] if suffix else []) + self._uncertainty_comment(suffix)
+                write_touchstone(path, Touchstone(1, f, s, comments=self._comments(comments)), export.data_format, export.frequency_unit)
                 files.append(path)
                 if export.csv:
-                    files.append(self._write_csv_1p(folder / f"{self._file_stem(suffix)}.csv", f, s[:, 0, 0], network))
+                    files.append(self._write_csv_1p(folder / f"{self._file_stem(suffix)}.csv", f, s[:, 0, 0], network, uncertainty))
+                if uncertainty:
+                    files.append(self._write_uncertainty_csv(name, path, f, uncertainty))
                 per_line[name] = self._summary_1p(f, s[:, 0, 0], network)
             summary = {"lineas": per_line} if len(per_line) > 1 or "DUT" not in per_line else per_line["DUT"]
             if network in LISN_NETWORKS:
@@ -978,19 +1086,55 @@ class ProcedureRunner:
         self._write_log(log_path)
         return "ok", ", ".join(p.name for p in files if p.suffix != ".txt")
 
-    def _write_csv_2p(self, path: Path, f: np.ndarray, s: np.ndarray) -> Path:
+    def _uncertainty_comment(self, suffix: str) -> list[str]:
+        assert self.result is not None
+        if not self.result.uncertainty:
+            return []
+        k = f"{self.procedure.uncertainty.coverage_factor:g}"
+        return [f"Incertidumbre expandida (k={k}) de cada punto: {self._file_stem(suffix)}_incertidumbre.csv"]
+
+    def _uncertainty_columns(self, uncertainty: dict[str, TraceUncertainty] | None, name: str) -> tuple[list[str], list[np.ndarray]]:
+        if not uncertainty or name not in uncertainty:
+            return [], []
+        k = f"{self.procedure.uncertainty.coverage_factor:g}"
+        trace = uncertainty[name]
+        return [f"U {name} (dB, k={k})", f"U {name} (°, k={k})"], [trace.magnitude_db, trace.phase_deg]
+
+    def _write_uncertainty_csv(self, dataset: str, result_path: Path, f: np.ndarray, uncertainty: dict[str, TraceUncertainty]) -> Path:
+        """Expanded uncertainty of every point and trace, next to the result file (the charts read it back)."""
+        assert self.result is not None
+        path = result_path.with_name(f"{result_path.stem}_incertidumbre.csv")
+        header, columns = ["Frecuencia (Hz)"], [f]
+        for name in uncertainty:
+            names, values = self._uncertainty_columns(uncertainty, name)
+            header += names
+            columns += values
+        self._write_csv(path, header, columns)
+        for entry in self.result.record.uncertainty.get("medidas", []):
+            if entry.get("medida") == dataset:
+                entry["fichero_resultado"] = result_path.name
+                entry["fichero"] = path.name
+        return path
+
+    def _write_csv_2p(self, path: Path, f: np.ndarray, s: np.ndarray, uncertainty: dict[str, TraceUncertainty] | None = None) -> Path:
         header = ["Frecuencia (Hz)"]
         columns = [f]
         for name, (i, j) in (("S11", (0, 0)), ("S21", (1, 0)), ("S12", (0, 1)), ("S22", (1, 1))):
             header += [f"{name} (dB)", f"{name} (°)"]
             columns += [_db(s[:, i, j]), np.degrees(np.angle(s[:, i, j]))]
+            names, values = self._uncertainty_columns(uncertainty, name)
+            header += names
+            columns += values
         self._write_csv(path, header, columns)
         return path
 
-    def _write_csv_1p(self, path: Path, f: np.ndarray, gamma: np.ndarray, network: str | None) -> Path:
+    def _write_csv_1p(
+        self, path: Path, f: np.ndarray, gamma: np.ndarray, network: str | None, uncertainty: dict[str, TraceUncertainty] | None = None
+    ) -> Path:
         z = gamma_to_impedance(gamma)
-        header = ["Frecuencia (Hz)", "S11 (dB)", "S11 (°)", "|Z| (Ω)", "fase Z (°)"]
-        columns = [f, _db(gamma), np.degrees(np.angle(gamma)), np.abs(z), np.degrees(np.angle(z))]
+        names, values = self._uncertainty_columns(uncertainty, "S11")
+        header = ["Frecuencia (Hz)", "S11 (dB)", "S11 (°)", *names, "|Z| (Ω)", "fase Z (°)"]
+        columns = [f, _db(gamma), np.degrees(np.angle(gamma)), *values, np.abs(z), np.degrees(np.angle(z))]
         if network in LISN_NETWORKS:
             nominal = lisn_impedance(network, f)
             header += ["|Z| nominal (Ω)", "fase nominal (°)", "desviación |Z| (%)", "desviación fase (°)"]

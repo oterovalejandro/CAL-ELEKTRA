@@ -22,6 +22,7 @@ from calelektra.gui.setup_editor import SetupEditor
 from calelektra.gui.test_window import LaunchTestDialog, TestWindow
 from calelektra.procedures.engine import ProcedureRunner
 from calelektra.setups.model import ConfiguredSetup
+from conftest import E5061B_VALID_DAY, renew_calibration
 
 
 @pytest.fixture(scope="session")
@@ -258,6 +259,7 @@ def test_template_calls_a_setup_and_defines_the_eut(window, qapp, library_copy):
 
 
 def test_new_template_from_a_setup(window, qapp):
+    renew_calibration(window.library, "VNA-BF-01")
     editor = window.open_setup("lisn_impedancia_VNA-BF")
     editor.test_button.click()
     process(qapp)
@@ -321,7 +323,9 @@ def test_test_with_operator_dialogs(window, qapp, monkeypatch):
 
     library = window.library
     monkeypatch.setattr(test_window_module.PromptDialog, "exec", answer)
-    test = window._add_test_window(TestWindow(library, library.procedures["lisn_LISN-0001"], library.tests_folder, "LISN 1", "prueba"))
+    test = window._add_test_window(
+        TestWindow(library, library.procedures["lisn_LISN-0001"], library.tests_folder, "LISN 1", "prueba", today=E5061B_VALID_DAY)
+    )
     assert test.badge.text() == "Listo para lanzar"
     test.start()
     wait_for(lambda: not test.running)
@@ -370,3 +374,68 @@ def test_dialogs(window, qapp):
     assert "fuera de las especificaciones" in check.status.text()
     assert "configurar_barrido" in check.log.toPlainText()
     check.close()
+
+
+def test_uncertainty_bands_in_the_test_window_and_explorer(window, qapp):
+    import pyqtgraph as pg
+
+    library = window.library
+    test = window._add_test_window(
+        TestWindow(library, library.procedures["cable_CAB-DUT-0002"], library.tests_folder, "Cable con U", "prueba", automatic=True,
+                   temperature=(21.0, 25.0))
+    )
+    test.start()
+    wait_for(lambda: not test.running)
+    record = test.record
+    assert record.status == "completado" and record.conditions["temperatura_max_c"] == 25.0
+    plot = test.plot
+    assert set(plot.uncertainty["DUT"]) == {"S11", "S21", "S12", "S22"}
+    assert plot.uncertainty_box.isVisible() and plot.uncertainty_box.text() == "Incertidumbre (k=2)"
+    fills = [item for item in plot.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)]
+    assert len(fills) >= 4  # one band (or more, between gaps) per trace
+    plot.uncertainty_box.setChecked(False)
+    assert not [item for item in plot.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)]
+    plot.uncertainty_box.setChecked(True)
+    rows = {test.results.item(r, 0).text(): test.results.item(r, 1).text() for r in range(test.results.rowCount())}
+    assert rows["Temperatura ambiente"] == "21 – 25 °C" and rows["Incertidumbre · S21 (U, k=2)"].startswith("0.04 – 0.06 dB")
+
+    window.show_section("ensayos")
+    window.tests_view.show_test(record.folder)
+    process(qapp)
+    detail = window.tests_view.detail
+    assert set(detail.plot.uncertainty["DUT"]) == {"S11", "S21", "S12", "S22"}
+    assert np.allclose(detail.plot.uncertainty["DUT"]["S21"][0], plot.uncertainty["DUT"]["S21"][0], rtol=1e-6)
+    assert "Incertidumbre y condiciones" in detail.info.text()
+
+
+def test_launch_dialog_temperature_and_template_uncertainty(window, qapp):
+    library = window.library
+    dialog = LaunchTestDialog(library, "cable_CAB-DUT-0002", library.tests_folder, parent=window)
+    assert dialog.temperature() is None and "Incertidumbre</b> (k=2)" in dialog.summary.text()
+    dialog.record_temperature.setChecked(True)
+    dialog.temperature_min.setValue(26.0)
+    dialog.temperature_max.setValue(20.5)
+    assert dialog.temperature() == (20.5, 26.0)
+    dialog.close()
+
+    window.show_section("procedimientos")
+    view = window.procedures_view
+    view.reload(select="cable_CAB-DUT-0002")
+    editor = view.editor
+    assert editor.uncertainty.isChecked() and editor.coverage.value() == 2.0
+    editor.coverage.setValue(2.5)
+    editor.trace_noise.setChecked(False)
+    template = editor.build()
+    assert template.uncertainty.coverage_factor == 2.5 and not template.uncertainty.trace_noise
+    assert template.to_yaml_dict()["incertidumbre"] == {"activa": True, "k": 2.5, "ruido_traza": False, "estabilidad_temperatura": True}
+
+
+def test_vna_dialog_keeps_its_uncertainty_file(window, qapp):
+    library = window.library
+    dialog = EquipmentDialog(library, library.equipment["VNA-01"], window)
+    assert dialog.uncertainty_file.text().endswith("VNA_ZNB43_101683_uncertainties_calculation.yaml")
+    assert "VNA-ZNB43-101683-UNC-08-2026" in dialog.uncertainty_info.text() and "vence 2028-04-21" in dialog.uncertainty_info.text()
+    assert dialog.build().uncertainty_file == library.equipment["VNA-01"].uncertainty_file
+    cable = EquipmentDialog(library, library.equipment["CAB-DUT-0002"], window)
+    assert not cable.calibration_form.isRowVisible(cable.uncertainty_row)
+    assert cable.build().uncertainty_file is None

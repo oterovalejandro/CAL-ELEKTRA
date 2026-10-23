@@ -8,6 +8,8 @@ Folder layout under the library root::
     catalogo/especificaciones/          specification files of the models: S2P/S1P for pass / fail
                                         (``especificaciones_s``) and datasheet/uncertainty YAML (stored)
     catalogo/datos_s/*.sNp              S-parameter files referenced by equipment
+    catalogo/incertidumbres/*.yaml      uncertainty data files of the VNA units (``incertidumbre`` of the
+                                        equipment): datasheet, certificate, trace noise, temperature…
     hardware_setups/plantillas/*.yaml   generic hardware setup templates
     hardware_setups/configurados/*.yaml configured setups (equipment and frequency points)
     hardware_setups/listas/*.csv        frequency lists of the setups
@@ -40,6 +42,7 @@ from calelektra.core.units import UnitError
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import RECORD_FILE, TestRecord
 from calelektra.setups.model import ConfiguredSetup, SetupTemplate
+from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
 
 FOLDERS = {
     "categoria": Path("catalogo/categorias"),
@@ -51,6 +54,7 @@ FOLDERS = {
     "procedimiento": Path("procedimientos"),
 }
 S_PARAMETER_FOLDER = Path("catalogo/datos_s")
+UNCERTAINTY_FOLDER = Path("catalogo/incertidumbres")
 LIST_FOLDER = Path("hardware_setups/listas")
 TESTS_FOLDER = Path("ensayos")
 TEST_ROOTS_FILE = "carpetas.yaml"  # external test folders (inside ensayos/)
@@ -99,6 +103,7 @@ class Library:
         self.specification_files: list[Path] = []
         self.load_issues: list[Issue] = []
         self._touchstone_cache: dict[Path, tuple[float, Touchstone]] = {}
+        self._uncertainty_cache: dict[Path, tuple[float, UncertaintyEngine]] = {}
 
     # ── loading ────────────────────────────────────────────────────────────
     @classmethod
@@ -112,6 +117,7 @@ class Library:
             raise LibraryError(f"La biblioteca {self.root} no existe")
         self.load_issues = []
         self._touchstone_cache.clear()
+        self._uncertainty_cache.clear()
         self.categories = self._load_kind("categoria", Category)
         self.models = self._load_kind("modelo", EquipmentModel)
         self.equipment = self._load_kind("equipo", Equipment)
@@ -209,6 +215,9 @@ class Library:
                     eq.source_path,
                     equipment_id=eq.id,
                 )
+            if eq.uncertainty_file:
+                for severity, message in self.uncertainty_problems(eq):
+                    self._issue(severity, "equipo.incertidumbre", f"Equipo «{eq.id}»: {message}", eq.source_path, equipment_id=eq.id)
         for template in self.templates.values():
             if template.extends and template.extends not in self.templates:
                 self._issue(
@@ -407,6 +416,67 @@ class Library:
         data = read_touchstone(path)
         self._touchstone_cache[path] = (mtime, data)
         return data
+
+    # ── uncertainty data of the VNA units ──────────────────────────────────
+    def uncertainty_path(self, equipment: Equipment) -> Path | None:
+        if not equipment.uncertainty_file:
+            return None
+        relative = Path(equipment.uncertainty_file)
+        if relative.is_absolute():
+            return relative
+        base = equipment.source_path.parent if equipment.source_path else self.root / FOLDERS["equipo"]
+        return (base / relative).resolve()
+
+    def uncertainty_engine(self, equipment: Equipment) -> UncertaintyEngine:
+        """Uncertainty engine of the data file of an equipment (cached until the file changes)."""
+        path = self.uncertainty_path(equipment)
+        if path is None:
+            raise UncertaintyCalculationError(f"«{equipment.id}» no tiene fichero de incertidumbres")
+        try:
+            mtime = path.stat().st_mtime
+        except OSError as exc:
+            raise UncertaintyCalculationError(f"No se encuentra el fichero de incertidumbres {path.name}") from exc
+        cached = self._uncertainty_cache.get(path)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        try:
+            engine = UncertaintyEngine(path)
+        except (OSError, yaml.YAMLError) as exc:
+            raise UncertaintyCalculationError(f"{path.name}: {exc}") from exc
+        self._uncertainty_cache[path] = (mtime, engine)
+        return engine
+
+    def uncertainty_designation(self, equipment: Equipment) -> str:
+        """Text the engine checks against the equipment of the file (manufacturer and model)."""
+        model = self.model_of(equipment)
+        return f"{model.manufacturer} {model.designation}" if model else equipment.model_id
+
+    def uncertainty_problems(self, equipment: Equipment) -> list[tuple[Severity, str]]:
+        """Missing or invalid file, or a file of another model or unit."""
+        try:
+            engine = self.uncertainty_engine(equipment)
+        except UncertaintyCalculationError as exc:
+            return [(Severity.ERROR, str(exc))]
+        problems: list[tuple[Severity, str]] = []
+        try:
+            engine.validate_equipment(self.uncertainty_designation(equipment))
+        except UncertaintyCalculationError as exc:
+            problems.append((Severity.WARNING, str(exc)))
+        serial = engine.serial_number
+        if serial and equipment.serial_number and serial.strip().upper() != equipment.serial_number.strip().upper():
+            problems.append(
+                (Severity.WARNING, f"el fichero de incertidumbres es del nº de serie {serial} y el equipo es el {equipment.serial_number}")
+            )
+        return problems
+
+    def copy_uncertainty_file(self, source: Path) -> str:
+        """Copy an uncertainty data file into the library; returns its path relative to the equipment folder."""
+        target_dir = self.root / UNCERTAINTY_FOLDER
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / source.name
+        if source.resolve() != target.resolve():
+            shutil.copy2(source, target)
+        return str(Path("..") / "incertidumbres" / source.name)
 
     def frequency_range_of(self, equipment: Equipment) -> EquipmentRange:
         """Usable range: intersection of the model's range, the unit's own range and its S-parameter data."""

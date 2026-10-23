@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -52,7 +53,10 @@ from calelektra.gui.setup_diagram import SetupDiagramView
 from calelektra.gui.test_common import (
     is_logarithmic,
     plan_html,
+    record_coverage_factor,
     record_datasets,
+    uncertainty_rows,
+    record_uncertainty,
     record_smoothing,
     record_spec_curves,
     setup_state,
@@ -123,9 +127,32 @@ class LaunchTestDialog(QDialog):
         self.operator.setText(str(QSettings(*SETTINGS).value("operador", "")))
         self.automatic = QCheckBox("Simulación automática (sin diálogos al operador)")
         self.automatic.setToolTip("Solo con el VNA simulado: el banco simulado conecta los estándares y el EUT sin preguntar.")
+        self.record_temperature = QCheckBox()
+        self.record_temperature.setToolTip(
+            "Temperatura ambiente mínima y máxima durante el ensayo. Se guarda en el registro y, si sale del rango de "
+            "referencia del fichero de incertidumbres del VNA, añade la contribución de la estabilidad con la temperatura."
+        )
+        self.temperature_min = QDoubleSpinBox()
+        self.temperature_max = QDoubleSpinBox()
+        for spin, value in ((self.temperature_min, 21.0), (self.temperature_max, 25.0)):
+            spin.setRange(-20.0, 60.0)
+            spin.setDecimals(1)
+            spin.setSingleStep(0.5)
+            spin.setSuffix(" °C")
+            spin.setValue(value)
+            spin.setEnabled(False)
+            self.record_temperature.toggled.connect(spin.setEnabled)
+        temperature = QHBoxLayout()
+        temperature.addWidget(self.record_temperature)
+        temperature.addWidget(QLabel("mín."))
+        temperature.addWidget(self.temperature_min)
+        temperature.addWidget(QLabel("máx."))
+        temperature.addWidget(self.temperature_max)
+        temperature.addStretch(1)
         form.addRow("Plantilla de ensayo", self.procedure)
         form.addRow("Nombre del ensayo", self.name)
         form.addRow("Operador", self.operator)
+        form.addRow("Temperatura ambiente", temperature)
         form.addRow(self.automatic)
         left.body.addLayout(form)
 
@@ -174,6 +201,13 @@ class LaunchTestDialog(QDialog):
 
     def current_procedure(self) -> ProcedureTemplate | None:
         return self.library.procedures.get(self.procedure.currentData())
+
+    def temperature(self) -> tuple[float, float] | None:
+        """Ambient temperature (minimum, maximum) of the test, if the operator records it."""
+        if not self.record_temperature.isChecked():
+            return None
+        low, high = sorted((self.temperature_min.value(), self.temperature_max.value()))
+        return low, high
 
     def current_folder(self) -> Path | None:
         return self.folders.current_folder()
@@ -309,6 +343,7 @@ class RunWorker(QObject):
     step = Signal(str, str, str)
     log = Signal(str, str)
     data = Signal(str, object, object)
+    uncertainty = Signal(str, object)
     progress = Signal(float, str)
     finished = Signal(object)
 
@@ -335,6 +370,9 @@ class _Listener(RunListener):
 
     def data(self, name: str, frequencies, s) -> None:
         self.worker.data.emit(name, frequencies, s)
+
+    def uncertainty(self, name: str, frequencies, traces) -> None:
+        self.worker.uncertainty.emit(name, traces)
 
     def progress(self, fraction: float, text: str = "") -> None:
         self.worker.progress.emit(fraction, text)
@@ -366,6 +404,8 @@ class TestWindow(QWidget):
         automatic: bool = False,
         record: TestRecord | None = None,
         parent: QWidget | None = None,
+        temperature: tuple[float, float] | None = None,
+        today: date | None = None,
     ):
         super().__init__(parent)
         self.library = library
@@ -374,6 +414,8 @@ class TestWindow(QWidget):
         self.name = name
         self.operator_name = operator_name or (record.operator if record is not None else "") or ""
         self.automatic = automatic
+        self.temperature = temperature  # ambient temperature (°C) of the launch, for the uncertainty
+        self.today = today  # date of the checks (calibrations); None: today
         self.record = record
         self.result: RunResult | None = None
         self.thread: QThread | None = None
@@ -500,7 +542,7 @@ class TestWindow(QWidget):
         """Before the run: what the template will do and its check."""
         assert self.procedure is not None
         self.record = None
-        self.plan = prepare_run(self.library, self.procedure)
+        self.plan = prepare_run(self.library, self.procedure, self.today)
         self.title_label.setText(self.name or self.procedure.name)
         self.subtitle.setText(f"{self.procedure.name} · se guardará en {self.folder}")
         self._set_chips(None)
@@ -549,6 +591,9 @@ class TestWindow(QWidget):
             summary.append(f"<b>EUT:</b> {html.escape(str(record.dut.get('id')))} — {html.escape(str(record.dut.get('modelo', '')))}")
         if record.specifications:
             summary.append("<b>Especificaciones:</b> " + html.escape("; ".join(str(s.get("nombre")) for s in record.specifications)))
+        if record.uncertainty:
+            k = record_coverage_factor(record)
+            summary.append(f"<b>Incertidumbre</b> (k={k:g}): {html.escape(str(record.uncertainty.get('documento', '—')))}")
         self.plan_label.setText("<br>".join(summary))
         self._show_diagram()
         self.log_view.clear()
@@ -561,6 +606,8 @@ class TestWindow(QWidget):
         self.plot.clear()
         for label, frequencies_hz, s in record_datasets(record):
             self.plot.set_data(label, frequencies_hz, s, log_x=is_logarithmic(record))
+        for label, bands in record_uncertainty(record).items():
+            self.plot.set_uncertainty(label, bands, record_coverage_factor(record))
         self.plot.set_limits(record_spec_curves(record))
         self.plot.set_smoothing(record_smoothing(record))
         self._fill_results(record)
@@ -590,7 +637,7 @@ class TestWindow(QWidget):
     def _show_diagram(self) -> None:
         plan = self.plan
         if plan is None and self.procedure is not None:
-            plan = prepare_run(self.library, self.procedure)
+            plan = prepare_run(self.library, self.procedure, self.today)
         if plan is None or plan.setup is None or plan.template is None:
             self.diagram.scene().clear()
             return
@@ -629,7 +676,15 @@ class TestWindow(QWidget):
         self.worker = RunWorker(None)
         listener = _Listener(self.worker)
         self.runner = ProcedureRunner(
-            self.library, self.procedure, operator, listener, self.operator_name or None, folder=self.folder, name=self.name or default_test_name(self.procedure)
+            self.library,
+            self.procedure,
+            operator,
+            listener,
+            self.operator_name or None,
+            folder=self.folder,
+            name=self.name or default_test_name(self.procedure),
+            temperature=self.temperature,
+            today=self.today,
         )
         self.worker.runner = self.runner
         self.thread = QThread(self)
@@ -638,6 +693,7 @@ class TestWindow(QWidget):
         self.worker.step.connect(self._step)
         self.worker.log.connect(self._append_log)
         self.worker.data.connect(self._data)
+        self.worker.uncertainty.connect(self._uncertainty)
         self.worker.progress.connect(self._progress)
         self.worker.finished.connect(self._finished)
         self.worker.finished.connect(self.thread.quit)
@@ -688,6 +744,9 @@ class TestWindow(QWidget):
         if not name.startswith("Verificación"):
             self.tabs.setCurrentWidget(self.plot)
 
+    def _uncertainty(self, name: str, traces) -> None:
+        self.plot.set_uncertainty(name, traces, self.procedure.uncertainty.coverage_factor if self.procedure else 2.0)
+
     def _progress(self, fraction: float, text: str) -> None:
         self.progress_label.setText(text)
 
@@ -701,6 +760,8 @@ class TestWindow(QWidget):
             log_x = is_logarithmic(record)
             for data_name, s in result.data.items():
                 self.plot.set_data(data_name, result.frequencies, s, log_x=log_x)
+            for data_name, traces in result.uncertainty.items():
+                self.plot.set_uncertainty(data_name, traces, record_coverage_factor(record))
             self.plot.set_limits(record_spec_curves(record))
             self.plot.set_smoothing(record_smoothing(record))
         if record.spec_results:
@@ -774,6 +835,7 @@ class TestWindow(QWidget):
                 rows.append((prefix.replace("_", " "), str(value)))
 
         flatten("", record.results)
+        rows += uncertainty_rows(record)
         if record.files:
             rows.append(("Ficheros", ", ".join(record.files)))
         if record.folder is not None:

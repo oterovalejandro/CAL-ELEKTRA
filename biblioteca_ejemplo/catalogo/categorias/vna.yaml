@@ -87,7 +87,7 @@ operaciones:   # contrato de alto nivel (src/calelektra/instruments/base.py)
   - barrido_unico
   - leer_frecuencias
   - leer_parametros_s
-especificaciones:   # vocabulario (la incertidumbre se integrará más adelante)
+especificaciones:   # vocabulario de datasheet (la incertidumbre de cada unidad: campo «incertidumbre» del equipo)
   directividad_efectiva: { unidad: dB }
   adaptacion_fuente_efectiva: { unidad: dB }
   seguimiento_reflexion_efectivo: { unidad: dB }

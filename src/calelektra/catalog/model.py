@@ -225,6 +225,7 @@ class Equipment(CatalogItem):
     connection: ConnectionSettings | None = Field(default=None, alias="conexion")
     calibration: Calibration | None = Field(default=None, alias="calibracion")
     s_parameters: SParameterData | None = Field(default=None, alias="datos_s")
+    uncertainty_file: str | None = Field(default=None, alias="incertidumbre")  # uncertainty data file of the unit (VNA)
     location: str | None = Field(default=None, alias="ubicacion")
     notes: str | None = Field(default=None, alias="notas")
 

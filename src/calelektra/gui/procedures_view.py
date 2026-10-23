@@ -158,6 +158,22 @@ class ProcedureEditor(QWidget):
         ver_form.addRow("Tolerancia |S21| / reciprocidad", self.tolerance)
         ver_form.addRow("|Γ| máximo de la carga", self.s11_max)
 
+        uncertainty = style.Card("Incertidumbre", icon_name="info")
+        unc_form = QFormLayout()
+        uncertainty.body.addLayout(unc_form)
+        self.uncertainty = QCheckBox("Calcular la incertidumbre de cada traza")
+        self.uncertainty.setToolTip("Con el fichero de incertidumbres del VNA del hardware setup; las gráficas la muestran sombreada")
+        self.coverage = QDoubleSpinBox()
+        self.coverage.setRange(1.0, 3.0)
+        self.coverage.setDecimals(2)
+        self.coverage.setSingleStep(0.1)
+        self.trace_noise = QCheckBox("Ruido de traza (si la IFBW es ≥ la del dato)")
+        self.temperature_stability = QCheckBox("Estabilidad con la temperatura (fuera del rango de referencia)")
+        unc_form.addRow(self.uncertainty)
+        unc_form.addRow("Factor de cobertura k", self.coverage)
+        unc_form.addRow(self.trace_noise)
+        unc_form.addRow(self.temperature_stability)
+
         export = style.Card("Exportación", icon_name="exportar")
         exp_form = QFormLayout()
         export.body.addLayout(exp_form)
@@ -192,7 +208,7 @@ class ProcedureEditor(QWidget):
         options.body.addWidget(self.options)
 
         left_column, right_column = QVBoxLayout(), QVBoxLayout()
-        for column, cards in ((left_column, (general, setup_card, eut_card)), (right_column, (check, measurement, calibration, verification, export))):
+        for column, cards in ((left_column, (general, setup_card, eut_card)), (right_column, (check, measurement, calibration, verification, uncertainty, export))):
             column.setSpacing(12)
             for card in cards:
                 column.addWidget(card)
@@ -214,10 +230,12 @@ class ProcedureEditor(QWidget):
             widget.textChanged.connect(self._edited)
         for widget in (self.method, self.data_format, self.unit):
             widget.currentIndexChanged.connect(self._edited)
-        for widget in (self.power, self.tolerance, self.s11_max):
+        for widget in (self.power, self.tolerance, self.s11_max, self.coverage):
             widget.valueChanged.connect(self._edited)
-        for widget in (self.save_on_vna, self.verify, self.csv):
+        for widget in (self.save_on_vna, self.verify, self.csv, self.uncertainty, self.trace_noise, self.temperature_stability):
             widget.toggled.connect(self._edited)
+        for widget in (self.coverage, self.trace_noise, self.temperature_stability):
+            self.uncertainty.toggled.connect(widget.setEnabled)
         self.traces.changed.connect(self._edited)
         self.algorithm.currentIndexChanged.connect(self._algorithm_changed)
         self.setup.currentIndexChanged.connect(self._setup_changed)
@@ -375,6 +393,13 @@ class ProcedureEditor(QWidget):
         self.verify.setChecked(verification.active)
         self.tolerance.setValue(verification.s21_tolerance_db)
         self.s11_max.setValue(verification.s11_max_db)
+        uncertainty = procedure.uncertainty
+        self.uncertainty.setChecked(uncertainty.active)
+        self.coverage.setValue(uncertainty.coverage_factor)
+        self.trace_noise.setChecked(uncertainty.trace_noise)
+        self.temperature_stability.setChecked(uncertainty.temperature_stability)
+        for widget in (self.coverage, self.trace_noise, self.temperature_stability):
+            widget.setEnabled(uncertainty.active)
         export = procedure.export
         self.data_format.setCurrentIndex(max(self.data_format.findData(export.data_format), 0))
         self.unit.setCurrentText(export.frequency_unit)
@@ -416,6 +441,12 @@ class ProcedureEditor(QWidget):
                 "activa": self.verify.isChecked(),
                 "tolerancia_s21_db": self.tolerance.value(),
                 "s11_max_db": self.s11_max.value(),
+            },
+            "incertidumbre": {
+                "activa": self.uncertainty.isChecked(),
+                "k": self.coverage.value(),
+                "ruido_traza": self.trace_noise.isChecked(),
+                "estabilidad_temperatura": self.temperature_stability.isChecked(),
             },
             "exportacion": {
                 "formato": self.data_format.currentData(),

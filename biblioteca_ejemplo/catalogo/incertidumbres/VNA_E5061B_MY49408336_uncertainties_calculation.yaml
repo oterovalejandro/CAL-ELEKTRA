@@ -1,0 +1,729 @@
+document_control:
+  title: Keysight E5061B VNA Uncertainty Data File
+  document_id: VNA-E5061B-MY49408336-UNC-08-2026
+  revision: 1.0.0
+  created_date: '2026-08-06'
+  created_by: ALTER TECHNOLOGY CAL EC-LB
+  last_modified_date: '2026-08-06'
+  comments:
+  - File generated from Keysight E5061B datasheet 5990-4392EN and calibration certificate LE1773.000 / 5011865A010.
+  - Only maximum manufacturer datasheet values are used; typical and SPD values are excluded from uncertainty_sources unless
+    explicitly marked as performance-only metadata.
+  - Frequency ranges are stored in Hz to avoid ambiguity.
+  - Expanded uncertainties from the calibration certificate use k=2 unless otherwise stated.
+  - Graphical calibration results in the certificate are recorded as PASS / not digitized unless numerical values are tabulated.
+  - Transmission and reflection uncertainty curves in the datasheet are graphical. The YAML stores conservative maximum digitized/envelope
+    values from the declared specification plots and flags them as graphical_envelope.
+equipment:
+  equipment_type: Vector Network Analyzer
+  manufacturer: Keysight / Agilent
+  model: E5061B
+  model_variant: E5061B-3L5
+  serial_number: MY49408336
+  interface: Type-N female, 50 ohm; BNC female for LF/gain-phase ports
+  connector_type: Type-N female, 50 ohm, Ports 1 and 2; BNC female LF Out/R/T
+  nominal_impedance_ohm: 50
+  number_of_ports: 2
+  installed_options:
+  - 3L5
+  - '020'
+  - '010'
+  - '005'
+  frequency_range_hz:
+    start: 5
+    stop: 3000000000
+calibration_status:
+  certificate_number: 5011865A010
+  calibration_mark: 1865A010 / D-K-15195-01-00 / 2024-07
+  calibration_provider: Rohde & Schwarz Messgeraetebau GmbH
+  last_calibration_date: '2024-07-30'
+  calibration_due_date: '2026-07-30'
+  calibration_interval_months: 24
+reference_documents:
+  datasheet:
+    file_name: 5990-4392EN Data Sheet.pdf
+    title: Keysight E5061B Network Analyzer Data Sheet
+    document_number: 5990-4392EN
+    published_date: '2016-07-11'
+    specification_policy: Specification values are warranted. Typical and SPD values are not guaranteed and are excluded from
+      uncertainty_sources.
+    uncertainty_definition: Specifications include guardbands for statistical performance distribution, measurement uncertainties
+      and environmental conditions.
+  calibration_certificate:
+    file_name: LE1773.000_2024_07.pdf
+    certificate_number: 5011865A010
+    outgoing_results_date: '2024-07-30'
+    test_documentation: 5034.5159.02 06.00; service manual E5061-90140 2009-11
+measurement_configuration_basis:
+  datasheet_accuracy_conditions:
+    temperature_range_c:
+      minimum: 18
+      maximum: 28
+    measurement_bandwidth_hz: 10
+    nominal_source_power_dbm: -10
+    calibration_power_dbm: 0
+  trace_noise_conditions:
+    source_power_dbm: 10
+    if_bandwidth_hz: 3000
+  expanded_uncertainty_statement:
+    coverage_factor: 2
+    coverage_probability_percent: 95
+    basis: EA-4/02 M:2022
+  interpolation:
+    method: step_by_range
+    extrapolation_allowed: false
+uncertainty_sources:
+- source_id: DS_E5061B_TRANS_DB
+  source_type: manufacturer_datasheet
+  quantity: transmission_magnitude_uncertainty
+  applicable_to:
+  - S21
+  - S12
+  unit: dB
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100
+    f_stop_hz: 100000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 10
+      magnitude_db: 0.15
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.2
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.4
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 0.9
+    - level_min_db: -70
+      level_max_db: -60
+      magnitude_db: 2.5
+    - level_min_db: -80
+      level_max_db: -70
+      magnitude_db: 6.0
+    - level_min_db: -90
+      level_max_db: -80
+      magnitude_db: 10.0
+  - f_start_hz: 100000
+    f_stop_hz: 10000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 10
+      magnitude_db: 0.15
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.2
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.2
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 0.3
+    - level_min_db: -70
+      level_max_db: -60
+      magnitude_db: 0.7
+    - level_min_db: -80
+      level_max_db: -70
+      magnitude_db: 2.0
+    - level_min_db: -90
+      level_max_db: -80
+      magnitude_db: 4.5
+  - f_start_hz: 10000000
+    f_stop_hz: 3000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 10
+      magnitude_db: 0.15
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.2
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.2
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 0.3
+    - level_min_db: -70
+      level_max_db: -60
+      magnitude_db: 0.5
+    - level_min_db: -80
+      level_max_db: -70
+      magnitude_db: 1.5
+    - level_min_db: -90
+      level_max_db: -80
+      magnitude_db: 2.0
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: 5990-4392EN Data Sheet.pdf page 4 figures 1
+  comments: Conservative maximum graphical envelope. Typical/SPD values are not used.
+  unit_family: magnitude_all
+  selection_rule: range_match
+- source_id: DS_E5061B_TRANS_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: transmission_phase_uncertainty
+  applicable_to:
+  - S21
+  - S12
+  unit: degree
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100
+    f_stop_hz: 100000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 10
+      phase_deg: 0.9
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 1.2
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 2.5
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 6.0
+    - level_min_db: -70
+      level_max_db: -60
+      phase_deg: 20.0
+  - f_start_hz: 100000
+    f_stop_hz: 10000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 10
+      phase_deg: 0.8
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 1.1
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 1.5
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 2.0
+    - level_min_db: -70
+      level_max_db: -60
+      phase_deg: 4.5
+    - level_min_db: -80
+      level_max_db: -70
+      phase_deg: 15.0
+    - level_min_db: -90
+      level_max_db: -80
+      phase_deg: 40.0
+  - f_start_hz: 10000000
+    f_stop_hz: 3000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 10
+      phase_deg: 0.8
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 1.1
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 1.5
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 2.0
+    - level_min_db: -70
+      level_max_db: -60
+      phase_deg: 4.0
+    - level_min_db: -80
+      level_max_db: -70
+      phase_deg: 9.0
+    - level_min_db: -90
+      level_max_db: -80
+      phase_deg: 28.0
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: 5990-4392EN Data Sheet.pdf page 4 figures 1
+  comments: Conservative maximum graphical envelope. Typical/SPD values are not used.
+  unit_family: phase_deg
+  selection_rule: range_match
+- source_id: DS_E5061B_REFL_LINEAR
+  source_type: manufacturer_datasheet
+  quantity: reflection_linear_magnitude_uncertainty
+  applicable_to:
+  - S11
+  - S22
+  unit: linear
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100
+    f_stop_hz: 1000000000
+    level_ranges:
+    - level_min_linear: 0.0
+      level_max_linear: 0.2
+      magnitude_linear: 0.008
+    - level_min_linear: 0.2
+      level_max_linear: 0.4
+      magnitude_linear: 0.01
+    - level_min_linear: 0.4
+      level_max_linear: 0.6
+      magnitude_linear: 0.015
+    - level_min_linear: 0.6
+      level_max_linear: 0.8
+      magnitude_linear: 0.017
+    - level_min_linear: 0.8
+      level_max_linear: 1.0
+      magnitude_linear: 0.022
+  - f_start_hz: 1000000000
+    f_stop_hz: 3000000000
+    level_ranges:
+    - level_min_linear: 0.0
+      level_max_linear: 0.2
+      magnitude_linear: 0.01
+    - level_min_linear: 0.2
+      level_max_linear: 0.4
+      magnitude_linear: 0.013
+    - level_min_linear: 0.4
+      level_max_linear: 0.6
+      magnitude_linear: 0.017
+    - level_min_linear: 0.6
+      level_max_linear: 0.8
+      magnitude_linear: 0.021
+    - level_min_linear: 0.8
+      level_max_linear: 1.0
+      magnitude_linear: 0.025
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: 5990-4392EN Data Sheet.pdf page 4 figures 2
+  comments: Conservative maximum graphical envelope. Typical/SPD values are not used.
+  unit_family: magnitude_all
+  selection_rule: range_match
+- source_id: DS_E5061B_REFL_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: reflection_phase_uncertainty
+  applicable_to:
+  - S11
+  - S22
+  unit: degree
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100
+    f_stop_hz: 1000000000
+    level_ranges:
+    - level_min_linear: 0
+      level_max_linear: 0.05
+      phase_deg: 10.0
+    - level_min_linear: 0.05
+      level_max_linear: 0.1
+      phase_deg: 8.0
+    - level_min_linear: 0.1
+      level_max_linear: 0.2
+      phase_deg: 3.0
+    - level_min_linear: 0.2
+      level_max_linear: 0.4
+      phase_deg: 2.0
+    - level_min_linear: 0.4
+      level_max_linear: 1.0
+      phase_deg: 1.7
+  - f_start_hz: 1000000000
+    f_stop_hz: 3000000000
+    level_ranges:
+    - level_min_linear: 0
+      level_max_linear: 0.05
+      phase_deg: 10.0
+    - level_min_linear: 0.05
+      level_max_linear: 0.1
+      phase_deg: 8.0
+    - level_min_linear: 0.1
+      level_max_linear: 0.2
+      phase_deg: 4.0
+    - level_min_linear: 0.2
+      level_max_linear: 0.3
+      phase_deg: 3.0
+    - level_min_linear: 0.3
+      level_max_linear: 1.0
+      phase_deg: 1.8
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: 5990-4392EN Data Sheet.pdf page 4 figures 2
+  comments: Conservative maximum graphical envelope. Typical/SPD values are not used.
+  unit_family: phase_deg
+  selection_rule: range_match
+- source_id: DS_E5061B_TRACE_NOISE_DB
+  source_type: manufacturer_datasheet
+  quantity: trace_noise_magnitude_rms
+  applicable_to:
+  - S11
+  - S22
+  - S21
+  - S12
+  unit: dB_rms
+  uncertainty_type: rms_standard_deviation
+  coverage_factor: 1
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 5
+    f_stop_hz: 10000    
+    magnitude_db: 0.005
+  - f_start_hz: 10000
+    f_stop_hz: 3000000000
+    magnitude_db: 0.005
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 3000
+  source_document: 5990-4392EN Data Sheet.pdf page 15 table 16
+  comments: Trace noise maximum specification for Option 3L3/3L4/3L5.
+  unit_family: magnitude_db
+  selection_rule: range_match
+- source_id: DS_E5061B_TRACE_NOISE_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: trace_noise_phase_rms
+  applicable_to:
+  - S11
+  - S22
+  - S21
+  - S12
+  unit: degree_rms
+  uncertainty_type: rms_standard_deviation
+  coverage_factor: 1
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 5
+    f_stop_hz: 10000    
+    phase_deg: 0.03
+  - f_start_hz: 10000
+    f_stop_hz: 3000000000
+    phase_deg: 0.03
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 3000
+  source_document: 5990-4392EN Data Sheet.pdf page 15 table 16
+  comments: Trace noise maximum specification for Option 3L3/3L4/3L5.
+  unit_family: phase_deg
+  selection_rule: range_match
+- source_id: DS_E5061B_TEMP_STABILITY_MAG_DB
+  source_type: manufacturer_datasheet
+  quantity: temperature_stability_magnitude
+  applicable_to:
+  - S11
+  - S22
+  - S21
+  - S12
+  unit: dB_per_K
+  uncertainty_type: coefficient
+  coverage_factor: 1
+  distribution: rectangular
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 5
+    f_stop_hz: 3000000
+    magnitude_db_per_k: 0.02
+  - f_start_hz: 3000000
+    f_stop_hz: 3000000000
+    magnitude_db_per_k: 0.01
+  conditions: {}
+  source_document: 5990-4392EN Data Sheet.pdf page 15 table 17
+  comments: Trace noise maximum specification for Option 3L3/3L4/3L5.
+  unit_family: magnitude_db_per_k
+  selection_rule: range_match
+- source_id: DS_E5061B_TEMP_STABILITY_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: temperature_stability_phase
+  applicable_to:
+  - S11
+  - S22
+  - S21
+  - S12
+  unit: degree_per_K
+  uncertainty_type: coefficient
+  coverage_factor: 1
+  distribution: rectangular
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 5
+    f_stop_hz: 3000000
+    phase_deg_per_k: 0.2
+  - f_start_hz: 3000000
+    f_stop_hz: 3000000000
+    phase_deg_per_k: 0.1
+  conditions: {}
+  source_document: 5990-4392EN Data Sheet.pdf page 15 table 17
+  comments: Maximum specified stability for Option 3L3/3L4/3L5.
+  unit_family: phase_deg_per_k
+  selection_rule: range_match
+- source_id: CERT_E5061B_FREQ_ACC
+  source_type: calibration_certificate
+  quantity: output_frequency_accuracy
+  applicable_to:
+  - frequency
+  unit: Hz
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - frequency_hz: 300000
+    actual_deviation_hz: -0.92
+    uncertainty_hz: 0.05
+    max_allowed_deviation_hz: 2.1
+  - frequency_hz: 50000000
+    actual_deviation_hz: -153.6
+    uncertainty_hz: 5
+    max_allowed_deviation_hz: 350.0
+  - frequency_hz: 1500000000
+    actual_deviation_hz: -4608
+    uncertainty_hz: 100
+    max_allowed_deviation_hz: 10500
+  - frequency_hz: 3000000000
+    actual_deviation_hz: -9213
+    uncertainty_hz: 100
+    max_allowed_deviation_hz: 21000
+  conditions: {}
+  source_document: LE1773.000_2024_07.pdf page 5
+  comments: Certificate expanded uncertainty k=2 unless otherwise stated.
+  unit_family: frequency
+  selection_rule: exact_match_required
+effective_system_data:
+  conditions:
+    calibration_kit: 85032F
+    interface: Type-N 50 ohm
+    source_power_dbm: 0
+    measurement_bandwidth_hz: 10
+  units:
+    directivity: dB
+    source_match: dB
+    load_match: dB
+    reflection_tracking: dB
+    transmission_tracking: dB
+  frequency_ranges:
+  - f_start_hz: 100
+    f_stop_hz: 100000
+    directivity_min_db: 49
+    source_match_min_db: 41
+    load_match_min_db: 49
+    reflection_tracking_max_db: 0.011
+    transmission_tracking_max_db: 0.019
+  - f_start_hz: 100000
+    f_stop_hz: 1000000000
+    directivity_min_db: 49
+    source_match_min_db: 41
+    load_match_min_db: 49
+    reflection_tracking_max_db: 0.011
+    transmission_tracking_max_db: 0.019
+  - f_start_hz: 1000000000
+    f_stop_hz: 3000000000
+    directivity_min_db: 46
+    source_match_min_db: 40
+    load_match_min_db: 46
+    reflection_tracking_max_db: 0.021
+    transmission_tracking_max_db: 0.026
+  source_document: 5990-4392EN Data Sheet.pdf page 4 table 2
+performance_limits:
+  dynamic_range:
+    definition: Difference between test port rms noise floor and source maximum output power.
+    unit: dB
+    frequency_ranges:
+    - f_start_hz: 5
+      f_stop_hz: 100
+      if_bandwidth_hz: 2
+      spec_min_db: 90
+    - f_start_hz: 100
+      f_stop_hz: 9000
+      if_bandwidth_hz: 10
+      spec_min_db: 100
+    - f_start_hz: 9000
+      f_stop_hz: 100000
+      if_bandwidth_hz: 10
+      spec_min_db: 110
+    - f_start_hz: 100000
+      f_stop_hz: 1000000
+      if_bandwidth_hz: 10
+      spec_min_db: 115
+    - f_start_hz: 1000000
+      f_stop_hz: 3000000000
+      if_bandwidth_hz: 10
+      spec_min_db: 120
+    - f_start_hz: 100000
+      f_stop_hz: 1000000
+      if_bandwidth_hz: 3000
+      spec_min_db: 90
+    - f_start_hz: 1000000
+      f_stop_hz: 3000000000
+      if_bandwidth_hz: 3000
+      spec_min_db: 95
+    source_document: 5990-4392EN Data Sheet.pdf page 3 table 1
+  output_power_accuracy:
+    unit: dB
+    frequency_ranges:
+    - f_start_hz: 50000000
+      f_stop_hz: 50000000
+      power_dbm: 0
+      spec_max_db: 0.8
+      type: absolute
+    - f_start_hz: 5
+      f_stop_hz: 1500000000
+      power_dbm: 0
+      reference_frequency_hz: 50000000
+      spec_max_db: 1.0
+      type: relative_flatness
+    - f_start_hz: 1500000000
+      f_stop_hz: 3000000000
+      power_dbm: 0
+      reference_frequency_hz: 50000000
+      spec_max_db: 1.5
+      type: relative_flatness
+    source_document: 5990-4392EN Data Sheet.pdf page 13 table 12
+  output_power_linearity:
+    unit: dB
+    level_min_dbm: -10
+    level_max_dbm: 10
+    reference_level_dbm: 0
+    spec_max_db: 0.75
+    source_document: 5990-4392EN Data Sheet.pdf page 13 table 12
+  noise_floor:
+    unit: dBm
+    frequency_ranges:
+    - f_start_hz: 5
+      f_stop_hz: 100
+      if_bandwidth_hz: 10
+      spec_less_than_dbm: -80
+    - f_start_hz: 100
+      f_stop_hz: 9000
+      if_bandwidth_hz: 10
+      spec_less_than_dbm: -90
+    - f_start_hz: 9000
+      f_stop_hz: 100000
+      if_bandwidth_hz: 10
+      spec_less_than_dbm: -100
+    - f_start_hz: 100000
+      f_stop_hz: 1000000
+      if_bandwidth_hz: 10
+      spec_less_than_dbm: -105
+    - f_start_hz: 1000000
+      f_stop_hz: 3000000000
+      if_bandwidth_hz: 10
+      spec_less_than_dbm: -110
+    - f_start_hz: 100000
+      f_stop_hz: 1000000
+      if_bandwidth_hz: 3000
+      spec_less_than_dbm: -80
+    - f_start_hz: 1000000
+      f_stop_hz: 3000000000
+      if_bandwidth_hz: 3000
+      spec_less_than_dbm: -85
+    source_document: 5990-4392EN Data Sheet.pdf page 14 table 15
+  crosstalk:
+    unit: dB
+    frequency_ranges:
+    - f_start_hz: 5
+      f_stop_hz: 100
+      spec_less_than_db: -85
+    - f_start_hz: 100
+      f_stop_hz: 9000
+      spec_less_than_db: -100
+    - f_start_hz: 9000
+      f_stop_hz: 100000
+      spec_less_than_db: -110
+    - f_start_hz: 100000
+      f_stop_hz: 3000000000
+      spec_less_than_db: -115
+    source_document: 5990-4392EN Data Sheet.pdf page 14 table 14
+calibration_results_extracted:
+  outgoing_results:
+    status: PASS / all measured values within datasheet specifications
+    source_document: LE1773.000_2024_07.pdf pages 1 and 4-16
+    tested_sections:
+    - Output Frequency Accuracy
+    - Port1 RF Output Level Accuracy
+    - Port1 RF Output Level Flatness
+    - Port1 RF Output Level Linearity
+    - Port2 RF Output Level Accuracy
+    - Port2 RF Output Level Flatness
+    - Port2 RF Output Level Linearity
+    - LF-Output Level Accuracy
+    - LF-Output Level Flatness
+    - Trace Noise Test Mode S21
+    - Trace Noise Test Mode S12 or S11
+    - Cross Talk Test Mode S21
+    - Cross Talk Test Mode S12
+    - Noise Floor Port 1
+    - Noise Floor Port 2
+    - Dynamic Accuracy Port 1
+    - Dynamic Accuracy Port 2
+    - System Performance Test Port1 Port2
+    static_frequency_accuracy:
+    - frequency_hz: 300000
+      max_deviation_hz: 2.1
+      actual_deviation_hz: -0.92
+      measurement_uncertainty_hz: 0.05
+    - frequency_hz: 50000000
+      max_deviation_hz: 350.0
+      actual_deviation_hz: -153.6
+      measurement_uncertainty_hz: 5
+    - frequency_hz: 1500000000
+      max_deviation_hz: 10500
+      actual_deviation_hz: -4608
+      measurement_uncertainty_hz: 100
+    - frequency_hz: 3000000000
+      max_deviation_hz: 21000
+      actual_deviation_hz: -9213
+      measurement_uncertainty_hz: 100
+    graphical_sections_not_digitized_from_certificate:
+    - Trace noise magnitude and phase
+    - Cross talk
+    - Noise floor
+    - 'System performance: directivity, source match, load match, transmission tracking, reflection tracking'
+python_parser_contract:
+  minimum_required_keys_per_uncertainty_source:
+  - source_id
+  - source_type
+  - quantity
+  - applicable_to
+  - unit
+  - uncertainty_type
+  - coverage_factor
+  - frequency_ranges
+  - include_in_total
+  recommended_algorithm:
+  - Load YAML file.
+  - Filter uncertainty_sources by parameter, quantity, port and frequency.
+  - Select the matching frequency range and operating level/reflection coefficient range where applicable.
+  - 'Extract the field according to unit_family: magnitude_db, phase_deg, magnitude_linear, magnitude_db_per_k, phase_deg_per_k
+    or uncertainty_hz.'
+  - Convert expanded uncertainty to standard uncertainty using u = U/k.
+  - Use RMS entries directly as standard deviation unless the calculation policy requires scaling.
+  - For temperature coefficients, multiply by absolute temperature deviation and divide by sqrt(3) for rectangular distribution.
+  - Combine independent components by RSS.
+  - Expand combined standard uncertainty using requested k.
+  field_selection_notes:
+    transmission_magnitude_uncertainty: Use magnitude_db in matching range.
+    transmission_phase_uncertainty: Use phase_deg in matching range.
+    reflection_linear_magnitude_uncertainty: Use magnitude_linear in matching level range.
+    reflection_phase_uncertainty: Use phase_deg in matching level range.
+    trace_noise_magnitude_rms: Use magnitude_db when IF bandwidth is equal to or greater than the specified/datasheet condition,
+      according to engine policy.
+    trace_noise_phase_rms: Use phase_deg when IF bandwidth is equal to or greater than the specified/datasheet condition,
+      according to engine policy.
+    receiver_dynamic_accuracy_magnitude: Use magnitude_db and interpolate by input power if enabled.
+    receiver_dynamic_accuracy_phase: Use phase_deg and interpolate by input power if enabled.

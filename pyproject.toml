@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cal-elektra"
-version = "0.5.1"
+version = "0.6.0"
 description = "Software para laboratorio de calibración de equipos de MC: catálogo de equipos, hardware setups y control de VNA"
 readme = "README.md"
 requires-python = ">=3.11"

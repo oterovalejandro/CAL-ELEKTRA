@@ -1,7 +1,16 @@
-# VNA de baja frecuencia (modelo pendiente)
+# VNA de baja frecuencia: Keysight E5061B-3L5, nº de serie MY49408336.
+# Calibración del certificado 5011865A010 (vencida el 2026-07-30).
 formato: calelektra/equipo@0.3
 id: VNA-BF-01
-modelo: vna_bf_pendiente
+modelo: keysight_e5061b
+numero_serie: MY49408336
 estado: en_servicio
 conexion: { simulado: true }
-calibracion: { certificado: EJEMPLO-VNABF-2026, fecha: 2026-03-01, proxima: 2027-03-01 }
+calibracion:
+  certificado: 5011865A010
+  laboratorio: Rohde & Schwarz Messgerätebau GmbH (D-K-15195-01-00)
+  fecha: 2024-07-30
+  proxima: 2026-07-30
+campos:
+  opciones_instaladas: [3L5, "020", "010", "005"]
+incertidumbre: ../incertidumbres/VNA_E5061B_MY49408336_uncertainties_calculation.yaml

@@ -316,7 +316,15 @@ class MainWindow(QMainWindow):
         folder = dialog.current_folder()
         assert procedure is not None and folder is not None
         window = self._add_test_window(
-            TestWindow(self.library, procedure, folder, dialog.name.text().strip(), dialog.operator.text().strip(), dialog.automatic.isChecked())
+            TestWindow(
+                self.library,
+                procedure,
+                folder,
+                dialog.name.text().strip(),
+                dialog.operator.text().strip(),
+                dialog.automatic.isChecked(),
+                temperature=dialog.temperature(),
+            )
         )
         window.start()
         return window

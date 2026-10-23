@@ -1,0 +1,875 @@
+document_control:
+  title: R&S ZNB43 VNA Uncertainty Data File
+  document_id: VNA-ZNB43-101683-UNC-08-2026
+  revision: '1.0.0'
+  created_date: '2026-08-04'
+  created_by: ALTER TECHNOLOGY CAL EC-LB
+  last_modified_date: '2026-08-05'
+  comments: 
+    - File generated from ZNB datasheet v07.00 and calibration certificate LE1941.000 / 1250A307164552.
+    - All uncertainty entries include quantity, units, coverage factor, probability distribution and applicability conditions.
+    - Frequency ranges are stored in Hz to avoid ambiguity.
+    - Expanded uncertainties are converted to standard uncertainty by the calculation engine when required.
+    - Specification limits and measured points are stored separately from uncertainty contributions.
+    - Graphical calibration results that are not numerically tabulated are explicitly marked as not digitized.
+equipment:
+  equipment_type: Vector Network Analyzer
+  manufacturer: Rohde & Schwarz
+  model: ZNB43
+  model_variant: ZNB43_MK2
+  serial_number: '101683'
+  interface: 2.92 mm
+  connector_type: 2.92 mm NMD, male, ruggedized
+  nominal_impedance_ohm: 50
+  number_of_ports: 2
+  frequency_range_hz:
+    start: 100000
+    stop: 43500000000
+calibration_status:
+  certificate_number: 1250A307164552
+  calibration_mark: 307164552 / D-K-15195-01-00 / 2026-04
+  calibration_provider: Rohde & Schwarz Messgeraetebau GmbH
+  last_calibration_date: '2026-04-21'
+  calibration_due_date: '2028-04-21'
+  calibration_interval_months: 24
+reference_documents:
+  datasheet:
+    file_name: ZNB_specs_en_3608-3278-22_v0700.pdf
+    title: R&S ZNB Vector Network Analyzer Specifications
+    version: '07.00'
+    date: 2023-12
+    uncertainty_definition: Uncertainties use coverage factor k=2 and are calculated in line with GUM, considering environmental
+      conditions, aging, wear and tear.
+  calibration_certificate:
+    file_name: LE1941.000_2026_04.pdf
+    certificate_number: 1250A307164552
+    outgoing_results_date: '2026-04-21'
+    incoming_results_date: '2026-04-07'
+    test_documentation: 1334.3330.01-PB-02.10 
+measurement_configuration_basis:
+  datasheet_accuracy_conditions:
+    temperature_range_c:
+      minimum: 18
+      maximum: 28
+    measurement_bandwidth_hz: 10
+    nominal_source_power_dbm: -10
+    calibration_power_dbm: -10
+  trace_noise_conditions:
+    source_power_dbm: 0
+    if_bandwidth_hz: 10000
+  expanded_uncertainty_statement:
+    coverage_factor: 2
+    coverage_probability_percent: 95
+    basis: EA-4/02 M:2022
+  interpolation:
+    method: step_by_range
+    extrapolation_allowed: false
+uncertainty_sources:
+- source_id: DS_ZNB43_TRANS_DB
+  source_type: manufacturer_datasheet
+  quantity: transmission_magnitude_uncertainty
+  applicable_to:
+  - S21
+  - S12
+  unit: dB
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 1000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      magnitude_db: 0.04
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.05
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.08
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 0.22
+  - f_start_hz: 1000000
+    f_stop_hz: 10000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      magnitude_db: 0.04
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.04
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.06
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 0.13
+  - f_start_hz: 10000000000
+    f_stop_hz: 30000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      magnitude_db: 0.05
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.05
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.07
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 0.18
+  - f_start_hz: 30000000000
+    f_stop_hz: 40000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      magnitude_db: 0.06
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.08
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.18
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 0.54
+  - f_start_hz: 40000000000
+    f_stop_hz: 43500000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      magnitude_db: 0.06
+    - level_min_db: -40
+      level_max_db: -20
+      magnitude_db: 0.14
+    - level_min_db: -50
+      level_max_db: -40
+      magnitude_db: 0.39
+    - level_min_db: -60
+      level_max_db: -50
+      magnitude_db: 1.19
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 13
+  comments: Transmission magnitude uncertainty. Use magnitude_db only.
+  unit_family: magnitude_all
+  selection_rule: range_match
+- source_id: DS_ZNB43_TRANS_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: transmission_phase_uncertainty
+  applicable_to:
+  - S21
+  - S12
+  unit: degree
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 1000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      phase_deg: 0.4
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 0.4
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 0.6
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 1.5
+  - f_start_hz: 1000000
+    f_stop_hz: 10000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      phase_deg: 0.4
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 0.4
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 0.5
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 0.9
+  - f_start_hz: 10000000000
+    f_stop_hz: 30000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      phase_deg: 0.4
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 0.5
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 0.6
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 1.2
+  - f_start_hz: 30000000000
+    f_stop_hz: 40000000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      phase_deg: 0.5
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 0.6
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 1.3
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 3.7
+  - f_start_hz: 40000000000
+    f_stop_hz: 43500000000
+    level_ranges:
+    - level_min_db: -20
+      level_max_db: 0
+      phase_deg: 0.5
+    - level_min_db: -40
+      level_max_db: -20
+      phase_deg: 1.0
+    - level_min_db: -50
+      level_max_db: -40
+      phase_deg: 2.6
+    - level_min_db: -60
+      level_max_db: -50
+      phase_deg: 8.4
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 13
+  comments: Transmission phase uncertainty. Use phase_deg only.
+  unit_family: phase_deg
+  selection_rule: range_match
+- source_id: DS_ZNB43_REFL_DB
+  source_type: manufacturer_datasheet
+  quantity: reflection_log_magnitude_uncertainty
+  applicable_to:
+  - S11
+  - S22
+  unit: dB
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 10000000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      magnitude_db: 0.11
+    - level_min_db: -25
+      level_max_db: -15
+      magnitude_db: 0.23
+    - level_min_db: -105
+      level_max_db: -25
+      magnitude_db: 0.91
+  - f_start_hz: 10000000000
+    f_stop_hz: 20000000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      magnitude_db: 0.13
+    - level_min_db: -25
+      level_max_db: -15
+      magnitude_db: 0.44
+    - level_min_db: -110
+      level_max_db: -25
+      magnitude_db: 1.4
+  - f_start_hz: 20000000000
+    f_stop_hz: 26500000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      magnitude_db: 0.2
+    - level_min_db: -25
+      level_max_db: -15
+      magnitude_db: 0.69
+    - level_min_db: -110
+      level_max_db: -25
+      magnitude_db: 2.21
+  - f_start_hz: 26500000000
+    f_stop_hz: 40000000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      magnitude_db: 0.2
+    - level_min_db: -25
+      level_max_db: -15
+      magnitude_db: 0.69
+    - level_min_db: -95
+      level_max_db: -25
+      magnitude_db: 2.21
+  - f_start_hz: 40000000000
+    f_stop_hz: 43500000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      magnitude_db: 0.2
+    - level_min_db: -25
+      level_max_db: -15
+      magnitude_db: 0.69
+    - level_min_db: -95
+      level_max_db: -25
+      magnitude_db: 2.21
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf pages 14
+  comments: Reflection logarithmic magnitude uncertainty. Use magnitude_db only.
+  unit_family: magnitude_db
+  selection_rule: range_match
+- source_id: DS_ZNB43_REFL_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: reflection_phase_uncertainty
+  applicable_to:
+  - S11
+  - S22
+  unit: degree
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 10000000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      phase_deg: 0.7
+    - level_min_db: -25
+      level_max_db: -15
+      phase_deg: 1.9
+    - level_min_db: -105
+      level_max_db: -25
+      phase_deg: 6.1
+  - f_start_hz: 10000000000
+    f_stop_hz: 20000000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      phase_deg: 0.9
+    - level_min_db: -25
+      level_max_db: -15
+      phase_deg: 2.9
+    - level_min_db: -110
+      level_max_db: -25
+      phase_deg: 9.2
+  - f_start_hz: 20000000000
+    f_stop_hz: 26500000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      phase_deg: 1.3
+    - level_min_db: -25
+      level_max_db: -15
+      phase_deg: 4.5
+    - level_min_db: -110
+      level_max_db: -25
+      phase_deg: 14.3
+  - f_start_hz: 26500000000
+    f_stop_hz: 40000000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      phase_deg: 1.3
+    - level_min_db: -25
+      level_max_db: -15
+      phase_deg: 4.5
+    - level_min_db: -95
+      level_max_db: -25
+      phase_deg: 14.3
+  - f_start_hz: 40000000000
+    f_stop_hz: 43500000000
+    level_ranges:
+    - level_min_db: -15
+      level_max_db: 0
+      phase_deg: 1.3
+    - level_min_db: -25
+      level_max_db: -15
+      phase_deg: 4.5
+    - level_min_db: -95
+      level_max_db: -25
+      phase_deg: 14.3
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf pages 14
+  comments: Reflection phase uncertainty. Use phase_deg only.
+  unit_family: phase_deg
+  selection_rule: range_match
+- source_id: DS_ZNB43_REFL_LINEAR
+  source_type: manufacturer_datasheet
+  quantity: reflection_linear_magnitude_uncertainty
+  applicable_to:
+  - S11
+  - S22
+  unit: linear
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 10000000000
+    level_ranges:
+    - level_min_linear: 0.177828
+      level_max_linear: 1.000000
+      magnitude_linear: 0.013
+    - level_min_linear: 0.056234
+      level_max_linear: 0.177828
+      magnitude_linear: 0.006
+    - level_min_linear: 0.017783
+      level_max_linear: 0.056234
+      magnitude_linear: 0.006
+  - f_start_hz: 10000000000
+    f_stop_hz: 20000000000
+    level_ranges:
+    - level_min_linear: 0.177828
+      level_max_linear: 1.000000
+      magnitude_linear: 0.015
+    - level_min_linear: 0.056234
+      level_max_linear: 0.177828
+      magnitude_linear: 0.009
+    - level_min_linear: 0.017783
+      level_max_linear: 0.056234
+      magnitude_linear: 0.009
+  - f_start_hz: 20000000000
+    f_stop_hz: 26500000000
+    level_ranges:
+    - level_min_linear: 0.177828
+      level_max_linear: 1.000000
+      magnitude_linear: 0.023
+    - level_min_linear: 0.056234
+      level_max_linear: 0.177828
+      magnitude_linear: 0.014
+    - level_min_linear: 0.017783
+      level_max_linear: 0.056234
+      magnitude_linear: 0.014
+  - f_start_hz: 26500000000
+    f_stop_hz: 40000000000
+    level_ranges:
+    - level_min_linear: 0.177828
+      level_max_linear: 1.000000
+      magnitude_linear: 0.023
+    - level_min_linear: 0.056234
+      level_max_linear: 0.177828
+      magnitude_linear: 0.014
+    - level_min_linear: 0.017783
+      level_max_linear: 0.056234
+      magnitude_linear: 0.014
+  - f_start_hz: 40000000000
+    f_stop_hz: 43500000000
+    level_ranges:
+    - level_min_linear: 0.177828
+      level_max_linear: 1.000000
+      magnitude_linear: 0.023
+    - level_min_linear: 0.056234
+      level_max_linear: 0.177828
+      magnitude_linear: 0.014
+    - level_min_linear: 0.017783
+      level_max_linear: 0.056234
+      magnitude_linear: 0.014
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf pages 14
+  comments: Reflection linear magnitude uncertainty. Use magnitude_linear only.
+  unit_family: magnitude_linear
+  selection_rule: range_match
+- source_id: DS_ZNB43_TRACE_NOISE_DB
+  source_type: manufacturer_datasheet
+  quantity: trace_noise_magnitude_rms
+  applicable_to:
+  - S11
+  - S22
+  - S21
+  - S12
+  unit: dB_rms
+  uncertainty_type: rms_standard_deviation
+  coverage_factor: 1
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 5000000    
+    magnitude_db: 0.008
+  - f_start_hz: 5000000
+    f_stop_hz: 20000000000    
+    magnitude_db: 0.004
+  - f_start_hz: 20000000000
+    f_stop_hz: 35000000000    
+    magnitude_db: 0.006
+  - f_start_hz: 35000000000
+    f_stop_hz: 40000000000    
+    magnitude_db: 0.008
+  - f_start_hz: 40000000000
+    f_stop_hz: 42000000000    
+    magnitude_db: 0.006
+  - f_start_hz: 42000000000
+    f_stop_hz: 43500000000
+    magnitude_db: 0.01
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10000
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 17
+  comments: Trace noise RMS maximum values. Typical values and measured/spec distinction are not included.
+  unit_family: magnitude_db
+  selection_rule: range_match
+- source_id: DS_ZNB43_TRACE_NOISE_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: trace_noise_phase_rms
+  applicable_to:
+  - S11
+  - S22
+  - S21
+  - S12
+  unit: degree_rms
+  uncertainty_type: rms_standard_deviation
+  coverage_factor: 1
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 5000000    
+    phase_deg: 0.07
+  - f_start_hz: 5000000
+    f_stop_hz: 20000000000    
+    phase_deg: 0.035
+  - f_start_hz: 20000000000
+    f_stop_hz: 35000000000    
+    phase_deg: 0.05
+  - f_start_hz: 35000000000
+    f_stop_hz: 40000000000    
+    phase_deg: 0.08
+  - f_start_hz: 40000000000
+    f_stop_hz: 42000000000
+    phase_deg: 0.04
+  - f_start_hz: 42000000000
+    f_stop_hz: 43500000000
+    phase_deg: 0.08
+  conditions:
+    calibration: full_2_port
+    if_bandwidth_hz: 10000
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 17
+  comments: Trace noise RMS maximum values. Typical values and measured/spec distinction are not included.
+  unit_family: phase_deg
+  selection_rule: range_match
+- source_id: DS_ZNB43_TEMP_STABILITY_TRANS_DB
+  source_type: manufacturer_datasheet
+  quantity: temperature_stability_transmission_magnitude
+  applicable_to:
+  - S21
+  - S12
+  unit: dB_per_K
+  uncertainty_type: coefficient
+  coverage_factor: 1
+  distribution: rectangular
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 10000000000
+    magnitude_db_per_k: 0.014
+  - f_start_hz: 10000000000
+    f_stop_hz: 40000000000
+    magnitude_db_per_k: 0.022
+  - f_start_hz: 40000000000
+    f_stop_hz: 43500000000
+    magnitude_db_per_k: 0.036
+  conditions: {}
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 19
+  comments: Transmission magnitude temperature stability coefficient. Use magnitude_db_per_k.
+  unit_family: magnitude_db_per_k
+  selection_rule: range_match
+- source_id: DS_ZNB43_TEMP_STABILITY_TRANS_PHASE_DEG
+  source_type: manufacturer_datasheet
+  quantity: temperature_stability_transmission_phase
+  applicable_to:
+  - S21
+  - S12
+  unit: degree_per_GHz_per_K
+  uncertainty_type: coefficient
+  coverage_factor: 1
+  distribution: rectangular
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 43500000000
+    phase_deg_per_ghz_per_k: 0.012
+  conditions: {}
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 19
+  comments: Transmission phase temperature stability coefficient. Use phase_deg_per_ghz_per_k.
+  unit_family: phase_deg_per_k
+  selection_rule: range_match
+- source_id: CERT_STATIC_FREQ_ACC
+  source_type: calibration_certificate
+  quantity: static_frequency_accuracy
+  applicable_to:
+  - frequency
+  unit: Hz
+  uncertainty_type: expanded
+  coverage_factor: 2
+  distribution: normal
+  sensitivity_coefficient: 1.0
+  include_in_total: true
+  frequency_ranges:
+  - frequency_hz: 1000000000
+    actual_deviation_hz: -33
+    uncertainty_hz: 1
+    max_allowed_deviation_hz: 500
+  conditions: {}
+  source_document: LE1941.000_2026_04.pdf page 9
+  comments: Certificate states expanded uncertainty k=2 unless otherwise stated.
+  unit_family: frequency
+  selection_rule: exact_match_required
+effective_system_data:
+  conditions:
+    calibration_kit: ZN-Z229
+    interface: 2.92 mm
+    source_power_dbm: -10
+    measurement_bandwidth_hz: 10
+  units:
+    directivity: dB
+    source_match: dB
+    load_match: dB
+    reflection_tracking: dB
+    transmission_tracking: dB
+  frequency_ranges:
+  - f_start_hz: 100000
+    f_stop_hz: 10000000000
+    directivity_min_db: 45
+    source_match_min_db: 41
+    load_match_min_db: 44
+    reflection_tracking_max_db: 0.05
+    transmission_tracking_max_db: 0.03
+  - f_start_hz: 10000000000
+    f_stop_hz: 20000000000
+    directivity_min_db: 42
+    source_match_min_db: 40
+    load_match_min_db: 41
+    reflection_tracking_max_db: 0.05
+    transmission_tracking_max_db: 0.03
+  - f_start_hz: 20000000000
+    f_stop_hz: 26500000000
+    directivity_min_db: 38
+    source_match_min_db: 36
+    load_match_min_db: 37
+    reflection_tracking_max_db: 0.08
+    transmission_tracking_max_db: 0.03
+  - f_start_hz: 26500000000
+    f_stop_hz: 40000000000
+    directivity_min_db: 38
+    source_match_min_db: 36
+    load_match_min_db: 37
+    reflection_tracking_max_db: 0.08
+    transmission_tracking_max_db: 0.04
+  - f_start_hz: 40000000000
+    f_stop_hz: 43500000000
+    directivity_min_db: 38
+    source_match_min_db: 36
+    load_match_min_db: 37
+    reflection_tracking_max_db: 0.08
+    transmission_tracking_max_db: 0.05
+    measured: true
+  source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 15
+performance_limits:
+  dynamic_range:
+    definition: Difference between maximum output power and receiver noise floor; 10 Hz measurement bandwidth, no user correction.
+    unit: dB
+    frequency_ranges:
+    - f_start_hz: 100000
+      f_stop_hz: 1000000
+      spec_min_db: 105
+      typical_db: 120
+    - f_start_hz: 1000000
+      f_stop_hz: 10000000
+      spec_min_db: 110
+      typical_db: 125
+    - f_start_hz: 10000000
+      f_stop_hz: 5000000000
+      spec_min_db: 120
+      typical_db: 128
+    - f_start_hz: 5000000000
+      f_stop_hz: 10000000000
+      spec_min_db: 115
+      typical_db: 125
+    - f_start_hz: 10000000000
+      f_stop_hz: 30000000000
+      spec_min_db: 110
+      typical_db: 115
+    - f_start_hz: 30000000000
+      f_stop_hz: 35000000000
+      spec_min_db: 105
+      typical_db: 110
+    - f_start_hz: 35000000000
+      f_stop_hz: 38000000000
+      spec_min_db: 100
+      typical_db: 108
+    - f_start_hz: 38000000000
+      f_stop_hz: 40000000000
+      spec_min_db: 95
+      typical_db: 105
+    - f_start_hz: 40000000000
+      f_stop_hz: 43500000000
+      measured_db: 95
+      interface: 2.92 mm
+    source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 5
+  power_accuracy_source_minus_10_dbm:
+    unit: dB
+    frequency_ranges:
+    - f_start_hz: 100000
+      f_stop_hz: 20000000000
+      spec_max_db: 3
+      typical_db: 0.5
+    - f_start_hz: 20000000000
+      f_stop_hz: 40000000000
+      spec_max_db: 5
+      typical_db: 1.0
+    - f_start_hz: 40000000000
+      f_stop_hz: 43500000000
+      measured_db: 1.0
+      interface: 2.92 mm
+    source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 20
+  input_noise_level_normalized_1hz:
+    unit: dBm
+    bandwidth_normalization_formula: noise_at_BW = noise_1Hz + 10*log10(BW_Hz/1Hz)
+    frequency_ranges:
+    - f_start_hz: 100000
+      f_stop_hz: 300000
+      spec_less_than_dbm: -110
+      typical_dbm: -120
+    - f_start_hz: 300000
+      f_stop_hz: 1000000
+      spec_less_than_dbm: -115
+      typical_dbm: -125
+    - f_start_hz: 1000000
+      f_stop_hz: 5000000000
+      spec_less_than_dbm: -120
+      typical_dbm: -125
+    - f_start_hz: 5000000000
+      f_stop_hz: 20000000000
+      spec_less_than_dbm: -118
+      typical_dbm: -122
+    - f_start_hz: 20000000000
+      f_stop_hz: 30000000000
+      spec_less_than_dbm: -115
+      typical_dbm: -122
+    - f_start_hz: 30000000000
+      f_stop_hz: 35000000000
+      spec_less_than_dbm: -110
+      typical_dbm: -118
+    - f_start_hz: 35000000000
+      f_stop_hz: 40000000000
+      spec_less_than_dbm: -105
+      typical_dbm: -115
+    - f_start_hz: 40000000000
+      f_stop_hz: 43500000000
+      measured_dbm: -108
+      interface: 2.92 mm
+    source_document: ZNB_specs_en_3608-3278-22_v0700.pdf page 24
+calibration_results_extracted:
+  outgoing_results:
+    status: PASS / all measured values within manufacturer specifications
+    static_frequency_accuracy:
+      frequency_hz: 1000000000
+      max_deviation_hz: 500
+      actual_deviation_hz: -33
+      measurement_uncertainty_hz: 1
+    connector_gauge:
+    - connector: 2.92 mm male
+      port: 1
+      dll_um: -40
+      dul_um: -10
+      actual_um: -31
+      mu_status: functional/non-accredited, no MU stated
+    - connector: 2.92 mm male
+      port: 2
+      dll_um: -40
+      dul_um: -10
+      actual_um: -20
+      mu_status: functional/non-accredited, no MU stated
+    bias_functional_test:
+    - test_point: Input BNC 1
+      max_deviation_v: 0.1
+      mu_v: 0.01
+      actual_v: 0.0
+    - test_point: Output Port 1
+      max_deviation_v: 0.1
+      mu_v: 0.01
+      actual_v: 0.0
+    - test_point: Input BNC 2
+      max_deviation_v: 0.1
+      mu_v: 0.01
+      actual_v: 0.0
+    - test_point: Output Port 2
+      max_deviation_v: 0.1
+      mu_v: 0.01
+      actual_v: 0.0
+    reference_output_level:
+      dll_dbm: 5
+      dul_dbm: 13
+      actual_dbm: 7.6
+      measurement_uncertainty_db: 0.4
+    graphical_sections_not_digitized:
+    - Output Power Maximum PORT1/PORT2
+    - Output Power Accuracy PORT1/PORT2
+    - Reference Receiver Accuracy PORT1/PORT2
+    - Output Power Linearity PORT1/PORT2
+    - Measurement Receiver Accuracy PORT1/PORT2
+    - Receiver Linearity
+    - Input Noise Level PORT1/PORT2
+    - Trace noise magnitude and phase
+    - Uncorrected system performance
+    - Dynamic Range S21/S12
+    source_document: LE1941.000_2026_04.pdf pages 4-30
+python_parser_contract:
+  minimum_required_keys_per_uncertainty_source:
+  - source_id
+  - source_type
+  - quantity
+  - applicable_to
+  - unit
+  - uncertainty_type
+  - coverage_factor
+  - frequency_ranges
+  - include_in_total
+  recommended_algorithm:
+  - Load YAML file.
+  - Filter uncertainty_sources by parameter, quantity, port and frequency.
+  - Select the matching frequency range and operating level/reflection range where applicable.
+  - Extract the correct field according to quantity, e.g. magnitude_db, phase_deg, linear_magnitude, uncertainty_hz.
+  - Convert expanded uncertainty to standard uncertainty using u = U/k.
+  - If treating limits with rectangular distribution, use u = a/sqrt(3).
+  - Apply sensitivity coefficient.
+  - Combine independent components by RSS.
+  - Expand combined standard uncertainty using requested k.
+  field_selection_notes:
+    transmission_magnitude_uncertainty: Use magnitude_db in matching range.
+    transmission_phase_uncertainty: Use phase_deg in matching range.
+    reflection_log_magnitude_uncertainty: Use log_magnitude_db at matching reflection_level_db.
+    reflection_phase_uncertainty: Use phase_deg at matching reflection_level_db.
+    reflection_linear_magnitude_uncertainty: Use linear_magnitude for matching linear_range_db.
+    trace_noise_magnitude_rms: Use spec_max_db_rms, typical_db_rms or measured_db_rms according to selected policy.
+    trace_noise_phase_rms: Use spec_max_deg_rms, typical_deg_rms or measured_deg_rms according to selected policy.

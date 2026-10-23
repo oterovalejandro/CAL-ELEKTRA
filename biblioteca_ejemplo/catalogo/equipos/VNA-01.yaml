@@ -1,11 +1,16 @@
-# VNA principal (ZNB43, 2 puertos)
+# VNA principal: R&S ZNB43 (2 puertos), nº de serie 101683
 formato: calelektra/equipo@0.3
 id: VNA-01
 modelo: rs_znb43
+numero_serie: '101683'
 estado: en_servicio
-numero_serie: PENDIENTE
 conexion:
   simulado: true            # usa el VNA dummy hasta conectar el ZNB43 real
   recurso: "TCPIP::192.168.0.50::hislip0::INSTR"
-calibracion: { certificado: EJEMPLO-VNA-2026, laboratorio: Fabricante, fecha: 2026-02-10, proxima: 2027-02-10 }
+calibracion:
+  certificado: 1250A307164552
+  laboratorio: Rohde & Schwarz Messgerätebau GmbH (D-K-15195-01-00)
+  fecha: 2026-04-21
+  proxima: 2028-04-21
+incertidumbre: ../incertidumbres/VNA_ZNB43_101683_uncertainties_calculation.yaml
 ubicacion: Sala de control

@@ -4,7 +4,8 @@
 
 Works on a temporary copy of the example library and first launches the
 example test templates in folders, so the dashboard and the test explorer
-have data.
+have data. The LISN template uses the E5061B, whose certificate expired on
+2026-07-30: it is launched on a day when the calibration was valid.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import shutil
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from PySide6.QtTest import QTest
@@ -50,13 +52,19 @@ def main() -> None:
     apply_theme(app)
     library = Library.load(work)
     client = library.tests_folder / "2026" / "Cliente ACME"
-    for folder, name, template in (
-        (client, "Cable 2,92 mm nº 2001", "cable_CAB-DUT-0002"),
-        (client, "Cable 2,92 mm nº 3001", "cable_CAB-DUT-0003"),
-        (client, "Cable N nº 1234", "cable_CAB-DUT-0001"),
-        (library.tests_folder / "2026" / "LISN", "LISN-0001 verificación anual", "lisn_LISN-0001"),
+    lisn = None
+    for folder, name, template, today in (
+        (client, "Cable 2,92 mm nº 2001", "cable_CAB-DUT-0002", None),
+        (client, "Cable 2,92 mm nº 3001", "cable_CAB-DUT-0003", None),
+        (client, "Cable N nº 1234", "cable_CAB-DUT-0001", None),
+        (library.tests_folder / "2026" / "LISN", "LISN-0001 verificación anual", "lisn_LISN-0001", date(2026, 7, 15)),
     ):
-        ProcedureRunner(library, library.procedures[template], AutoOperator(), operator_name="Demo", seed=1, folder=folder, name=name).run()
+        result = ProcedureRunner(
+            library, library.procedures[template], AutoOperator(), operator_name="Demo", seed=1, folder=folder, name=name, today=today,
+            temperature=(21.5, 24.0),
+        ).run()
+        if template.startswith("lisn"):
+            lisn = result.record
 
     window = MainWindow(library)
     window.resize(1600, 980)
@@ -141,6 +149,11 @@ def main() -> None:
     wait(test)
     test.tabs.setCurrentIndex(0)
     grab(window, out / "23_ensayo_grafica.png")
+    test.plot.mode.setCurrentIndex(test.plot.mode.findData("fase"))
+    test.plot.plot.setXRange(0, 3e9)
+    grab(window, out / "23b_ensayo_incertidumbre_fase.png")
+    test.plot.mode.setCurrentIndex(test.plot.mode.findData("db"))
+    test.plot.plot.getPlotItem().getViewBox().autoRange()
     test.tabs.setCurrentIndex(1)
     grab(window, out / "24_ensayo_pasa_falla.png")
     test.tabs.setCurrentIndex(2)
@@ -152,10 +165,18 @@ def main() -> None:
     failed = next(r for r in library.tests() if r.verdict == "FALLA")
     window.tests_view.show_test(failed.folder)
     grab(window, out / "27_explorador_ensayos.png")
+    lisn_window = window._add_test_window(TestWindow(library, record=lisn))
+    lisn_window.tabs.setCurrentIndex(0)
+    grab(window, out / "28_lisn_incertidumbre.png")
+    lisn_window.tabs.setCurrentIndex(3)
+    lisn_window.results.scrollToBottom()
+    grab(window, out / "29_resultados_incertidumbre.png")
 
     equipment_dialog = EquipmentDialog(library, library.equipment["VNA-01"], window)
     equipment_dialog.show()
     grab(equipment_dialog, out / "30_editar_equipo_vna.png")
+    equipment_dialog.tabs.setCurrentIndex(1)
+    grab(equipment_dialog, out / "30b_vna_incertidumbres.png")
     equipment_dialog.close()
     new_dialog = EquipmentDialog(library, parent=window, model_id="cable_coaxial_292_hh")
     new_dialog.show()

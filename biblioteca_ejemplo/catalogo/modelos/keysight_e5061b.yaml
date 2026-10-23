@@ -1,0 +1,24 @@
+# Keysight E5061B con la opción 3L5 (5 Hz – 3 GHz, 2 puertos N hembra, puertos
+# de baja frecuencia en BNC). VNA de baja frecuencia del laboratorio.
+# Datasheet 5990-4392EN; la incertidumbre de cada unidad está en su fichero de
+# incertidumbres (campo «incertidumbre» del equipo). Sin driver integrado: se
+# usa el VNA simulado.
+formato: calelektra/modelo@0.3
+id: keysight_e5061b
+categoria: vna
+fabricante: Keysight
+modelo: E5061B
+variante: 3L5, 2 puertos
+campos:
+  rango_frecuencia: [5 Hz, 3 GHz]
+  num_puertos: 2
+  conector_puertos: { familia: N, genero: hembra }
+  impedancia_ref_ohm: 50
+  potencia_salida_dbm: [-45, 10]
+  ifbw: [1 Hz, 30 kHz]
+  puntos_max: 1601
+  metodos_calibracion: [OSM, TOSM, UOSM, normalizacion]
+comunicacion:
+  driver: dummy
+documentos:
+  - { tipo: datasheet, referencia: "Keysight E5061B Network Analyzer Data Sheet 5990-4392EN (2016-07-11)" }

@@ -12,6 +12,16 @@ from calelektra.setups.model import ConfiguredSetup
 
 EXAMPLE_LIBRARY = Path(__file__).resolve().parents[1] / "biblioteca_ejemplo"
 TODAY = date(2026, 10, 19)
+# The certificate of the E5061B (VNA-BF-01, the VNA of the LISN setup) expired on 2026-07-30:
+# the tests of the LISN flow run on a day when it was still valid.
+E5061B_VALID_DAY = date(2026, 7, 15)
+
+
+def renew_calibration(library: Library, equipment_id: str, due: date = date(2027, 7, 30)) -> None:
+    """Calibration of an equipment of the library copy valid until ``due`` (tests of flows, not of calibration dates)."""
+    equipment = library.equipment[equipment_id]
+    equipment.calibration.due = due
+    library.save_equipment(equipment)
 
 
 @pytest.fixture

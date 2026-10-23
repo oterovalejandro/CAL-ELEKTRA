@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Mapping
 
 import numpy as np
 import pyqtgraph as pg
@@ -36,6 +37,7 @@ from calelektra.instruments.factory import open_vna
 from calelektra.instruments.simulation import touchstone_model
 from calelektra.procedures.processing import smooth
 from calelektra.procedures.specs import SpecCurve
+from calelektra.uncertainty.traces import TraceUncertainty
 
 TRACE_COLORS = {"S11": "#2b7bb9", "S21": "#c0392b", "S12": "#d98a00", "S22": "#2e8b57"}
 DATASET_COLORS = ["#2b7bb9", "#c0392b", "#2e8b57", "#d98a00", "#7b5ea7", "#4f8a8b", "#8d6e63"]
@@ -45,12 +47,33 @@ MODES = {
     "z": ("Impedancia |Z|", "Ω"),
 }
 
+BAND_ALPHA = 60  # opacity (0–255) of the uncertainty band of a trace
+
 pg.setConfigOptions(antialias=True, background="w", foreground="#2c3e50")
 
 
 def _db(values: np.ndarray) -> np.ndarray:
     with np.errstate(divide="ignore"):
         return 20 * np.log10(np.maximum(np.abs(values), 1e-15))
+
+
+def band_segments(y: np.ndarray, u: np.ndarray, wrap: bool = False) -> list[slice]:
+    """Runs of points where the band can be drawn: ``u`` finite and, for a wrapped phase, no ±180° jump."""
+    valid = np.isfinite(y) & np.isfinite(u)
+    breaks = np.zeros(len(y), dtype=bool)  # True: the point does not connect to the previous one
+    if wrap and len(y) > 1:
+        breaks[1:] = np.abs(np.diff(y)) > 180
+    segments, start = [], None
+    for k in range(len(y)):
+        if not valid[k] or (breaks[k] and start is not None):
+            if start is not None and k - start >= 2:
+                segments.append(slice(start, k))
+            start = k if valid[k] else None
+        elif start is None:
+            start = k
+    if start is not None and len(y) - start >= 2:
+        segments.append(slice(start, len(y)))
+    return segments
 
 
 class SParameterPlot(QWidget):
@@ -62,6 +85,8 @@ class SParameterPlot(QWidget):
         self.visible: dict[str, bool] = {}
         self.limits: list[SpecCurve] = []
         self.smoothing: dict[str, float] = {}  # trace (S11…) → % of the points; display only
+        self.uncertainty: dict[str, dict[str, tuple[np.ndarray, np.ndarray]]] = {}  # data set → trace → (U dB, U °)
+        self.coverage_factor = 2.0
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         controls = QHBoxLayout()
@@ -81,10 +106,18 @@ class SParameterPlot(QWidget):
         self.smooth_box.setToolTip("Suavizado de la plantilla de ensayo: solo cambia la visualización, no los datos")
         self.smooth_box.toggled.connect(lambda _on: self.redraw())
         self.smooth_box.setVisible(False)
+        self.uncertainty_box = QCheckBox("Incertidumbre")
+        self.uncertainty_box.setChecked(True)
+        self.uncertainty_box.setToolTip(
+            "Zona sombreada: valor ± incertidumbre expandida de cada punto, calculada con el fichero de incertidumbres del VNA"
+        )
+        self.uncertainty_box.toggled.connect(lambda _on: self.redraw())
+        self.uncertainty_box.setVisible(False)
         controls.addWidget(self.mode)
         controls.addWidget(self.log_x)
         controls.addWidget(self.show_limits)
         controls.addWidget(self.smooth_box)
+        controls.addWidget(self.uncertainty_box)
         controls.addStretch(1)
         layout.addLayout(controls)
         traces = QHBoxLayout()
@@ -105,6 +138,20 @@ class SParameterPlot(QWidget):
         self.visible.clear()
         self.limits = []
         self.smoothing = {}
+        self.uncertainty = {}
+        self.redraw()
+
+    def set_uncertainty(self, name: str, traces: Mapping[str, Any], coverage_factor: float = 2.0) -> None:
+        """Expanded uncertainty of the traces of data set ``name``: ``TraceUncertainty`` or (U dB, U °) per trace."""
+        bands = {}
+        for parameter, trace in traces.items():
+            if isinstance(trace, TraceUncertainty):
+                bands[parameter] = (trace.magnitude_db, trace.phase_deg)
+            else:
+                bands[parameter] = (np.asarray(trace[0], dtype=float), np.asarray(trace[1], dtype=float))
+        self.uncertainty[name] = bands
+        self.coverage_factor = coverage_factor
+        self.uncertainty_box.setText(f"Incertidumbre (k={coverage_factor:g})")
         self.redraw()
 
     def set_smoothing(self, smoothing: dict[str, float]) -> None:
@@ -128,8 +175,8 @@ class SParameterPlot(QWidget):
             self.log_x.blockSignals(False)
         self.redraw()
 
-    def _traces(self) -> list[tuple[str, str, np.ndarray, np.ndarray, str]]:
-        """(trace key, label, f, values, colour) of every parameter of every data set."""
+    def _traces(self) -> list[tuple[str, str, str, np.ndarray, np.ndarray, str]]:
+        """(trace key, data set, parameter, f, values, colour) of every parameter of every data set."""
         traces = []
         several = len(self.datasets) > 1
         for index, (dataset, (f, s)) in enumerate(self.datasets.items()):
@@ -139,8 +186,25 @@ class SParameterPlot(QWidget):
                     name = f"S{i + 1}{j + 1}"
                     label = f"{dataset} · {name}" if several else name
                     color = DATASET_COLORS[index % len(DATASET_COLORS)] if several and n == 1 else TRACE_COLORS.get(name, "#555")
-                    traces.append((label, name, f, s[:, i, j], color))
+                    traces.append((label, dataset, name, f, s[:, i, j], color))
         return traces
+
+    def _band(self, dataset: str, parameter: str, mode: str, points: int) -> np.ndarray | None:
+        bands = self.uncertainty.get(dataset, {}).get(parameter)
+        if bands is None or mode not in ("db", "fase"):
+            return None
+        u = bands[0] if mode == "db" else bands[1]
+        return u if len(u) == points else None
+
+    def _draw_band(self, x: np.ndarray, y: np.ndarray, u: np.ndarray, color: str, wrap: bool) -> None:
+        brush = pg.mkColor(color)
+        brush.setAlpha(BAND_ALPHA)
+        for segment in band_segments(y, u, wrap):
+            upper = pg.PlotCurveItem(x[segment], (y + u)[segment])
+            lower = pg.PlotCurveItem(x[segment], (y - u)[segment])
+            fill = pg.FillBetweenItem(upper, lower, brush=brush, pen=pg.mkPen(None))
+            fill.setZValue(-5)
+            self.plot.addItem(fill)
 
     def redraw(self) -> None:
         self.plot.clear()
@@ -163,7 +227,9 @@ class SParameterPlot(QWidget):
         self.plot.setLogMode(x=log_x, y=False)
         self.smooth_box.setVisible(bool(self.smoothing))
         smoothing = self.smoothing if self.smooth_box.isChecked() else {}
-        for label, parameter, f, values, color in traces:
+        self.uncertainty_box.setVisible(bool(self.uncertainty) and mode in ("db", "fase"))
+        bands = self.uncertainty_box.isChecked()
+        for label, dataset, parameter, f, values, color in traces:
             if parameter in smoothing:
                 values = smooth(values, smoothing[parameter])
             reflection = parameter[1] == parameter[2]
@@ -184,7 +250,11 @@ class SParameterPlot(QWidget):
             else:
                 with np.errstate(divide="ignore", invalid="ignore"):
                     y = np.abs(gamma_to_impedance(values))
-            self.plot.plot(np.maximum(f, 1e-3), y, pen=pg.mkPen(color, width=2), name=label)
+            x = np.maximum(f, 1e-3)
+            u = self._band(dataset, parameter, mode, len(y)) if bands else None
+            if u is not None:
+                self._draw_band(np.log10(x) if log_x else x, y, u, color, wrap=mode == "fase")  # view coordinates
+            self.plot.plot(x, y, pen=pg.mkPen(color, width=2), name=label)
         self._draw_limits(mode, log_x)
 
     def _draw_limits(self, mode: str, log_x: bool) -> None:

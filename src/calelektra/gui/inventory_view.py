@@ -34,6 +34,7 @@ from calelektra.gui.equipment_dialogs import EquipmentDialog, confirm_delete_equ
 from calelektra.gui.icons import icon
 from calelektra.gui.plots import SParameterDialog, VnaCheckDialog
 from calelektra.instruments.factory import driver_description
+from calelektra.uncertainty.engine import UncertaintyCalculationError
 
 COLUMNS = ["ID", "Categoría", "Modelo", "Nº serie", "Rango útil", "Conectores", "Calibración hasta", "Estado"]
 SOURCE_NAMES = {"equipo": "equipo", "modelo": "modelo", "defecto": "por defecto", None: ""}
@@ -216,6 +217,19 @@ class EquipmentDetail(QWidget):
             self.calibration_label.setText(
                 "<span style='color:#d98a00'>Sin datos de calibración</span>" if needs else "La categoría no requiere calibración."
             )
+        if equipment.uncertainty_file:
+            try:
+                engine = self.library.uncertainty_engine(equipment)
+            except UncertaintyCalculationError as exc:
+                extra = f"<span style='color:#c0392b'>{html.escape(str(exc))}</span>"
+            else:
+                problems = "".join(f"<br><span style='color:#d98a00'>{html.escape(m)}</span>" for _s, m in self.library.uncertainty_problems(equipment))
+                extra = (
+                    f"{html.escape(engine.document)} · {len(engine.data.get('uncertainty_sources', []))} fuentes "
+                    f"(datasheet, certificado, ruido de traza, temperatura){problems}"
+                )
+            name = html.escape(Path(equipment.uncertainty_file).name)
+            self.calibration_label.setText(self.calibration_label.text() + f"<br><br><b>Incertidumbres:</b> {name}<br>{extra}")
 
         if equipment.s_parameters is not None:
             self.s_card.setVisible(True)
