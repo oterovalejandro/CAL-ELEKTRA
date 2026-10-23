@@ -49,7 +49,7 @@ Si un punto se queda sin incertidumbre, se guarda el primer motivo de cada traza
 ## 3. En los ensayos
 
 - **Plantilla de ensayo.** Nueva tarjeta «Incertidumbre» con: calcular sí o no, factor de cobertura k, ruido de traza y estabilidad con la temperatura (`incertidumbre:` en el YAML).
-- **Lanzamiento.** Se puede anotar la **temperatura ambiente** mínima y máxima. Queda en el registro (`condiciones`) y, si sale de 18 – 28 °C, añade la estabilidad con la temperatura. La comprobación previa avisa si el VNA no tiene fichero de incertidumbres o si las frecuencias salen del rango del fichero.
+- **Lanzamiento.** *(Sustituido en la versión 0.7: la temperatura sale de la sonda TPH y la incertidumbre queda pendiente hasta cargarla; ver [`08_condiciones_ambientales_y_paquete.md`](08_condiciones_ambientales_y_paquete.md).)* Se podía anotar la **temperatura ambiente** mínima y máxima. Queda en el registro (`condiciones`) y, si sale de 18 – 28 °C, añade la estabilidad con la temperatura. La comprobación previa avisa si el VNA no tiene fichero de incertidumbres o si las frecuencias salen del rango del fichero.
 
 ![Lanzar ensayo: temperatura ambiente y fichero de incertidumbres del VNA](capturas/v06/20_lanzar_ensayo.png)
 
@@ -68,7 +68,7 @@ En las gráficas de la ventana del ensayo y del explorador de ensayos, cada traz
 
 - La zona se corta donde un punto no tiene incertidumbre y en los saltos de ±180° de la fase.
 - Si la plantilla suaviza la visualización, la zona se dibuja alrededor de la traza suavizada.
-- En la vista de impedancia |Z| no hay zona: falta la propagación a Z (`calc_Z_from_S` de `math_utils`), que no está entre los ficheros recibidos.
+- En la vista de impedancia |Z| no hay zona: falta la propagación a Z (`calc_Z_from_S` de `math_utils`), que no está entre los ficheros recibidos. **Decisión (0.7):** de momento no se implementa; solo parámetros S.
 
 | | |
 |---|---|
@@ -79,7 +79,7 @@ En las gráficas de la ventana del ensayo y del explorador de ensayos, cada traz
 
 | Observación | Efecto |
 |---|---|
-| La tabla de transmisión del ZNB43 llega hasta 0 dB (`level_max_db: 0`) | Un cable muy corto o un through que, por ruido, mida S21 por encima de 0 dB (p. ej. +0,003 dB) se queda sin incertidumbre en ese punto. El algoritmo no extrapola; habría que decidir una política (ampliar el rango en el fichero o tomar 0 dB como nivel) |
+| La tabla de transmisión del ZNB43 llega hasta 0 dB (`level_max_db: 0`) | Un cable muy corto o un through que, por ruido, mida S21 por encima de 0 dB (p. ej. +0,003 dB) se queda sin incertidumbre en ese punto. El algoritmo no extrapola. **Decisión (0.7):** el algoritmo no cambia; el laboratorio ampliará el YAML de incertidumbres del VNA |
 | Reflexión de la E5061B dada en lineal (`magnitude_linear`) | Al pasarla a dB crece mucho cuando |Γ| es pequeño. A −50 dB, 0,008 lineal son unos 26 dB (k = 2). Es lo esperado: en esa zona la magnitud en dB no está determinada |
 | Ruido de traza con condición de IFBW | Con IFBW menor que la del dato (10 kHz en el ZNB43, 3 kHz en la E5061B) no se suma, porque el ruido es menor |
 | Calibración vencida de la E5061B | El motor avisa y el ensayo la registra. El setup de la LISN no se puede usar hasta actualizar el certificado |

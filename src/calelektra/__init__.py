@@ -1,3 +1,3 @@
 """CAL-ELEKTRA: software de laboratorio de calibración de equipos de MC."""
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

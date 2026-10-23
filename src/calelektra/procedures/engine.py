@@ -40,7 +40,7 @@ from typing import Callable, Protocol
 import numpy as np
 
 from calelektra.catalog.fields import NumberRange
-from calelektra.catalog.library import Library, LibraryError
+from calelektra.catalog.library import Library, LibraryError, dump_yaml
 from calelektra.catalog.model import Equipment
 from calelektra.core.connectors import FAMILIES, GENDERS, Connector
 from calelektra.core.frequency import FrequencyRange
@@ -60,14 +60,22 @@ from calelektra.instruments.factory import driver_description, open_vna
 from calelektra.instruments.simulation import simulated_dut, unknown_through_model
 from calelektra.catalog.model import SpecFile
 from calelektra.procedures.model import ALGORITHMS, PLANES_NEEDED, ProcedureTemplate
-from calelektra.procedures.record import StepRecord, TestRecord
+from calelektra.procedures.record import SETUP_SNAPSHOT, TEMPLATE_SNAPSHOT, StepRecord, TestRecord
 from calelektra.procedures.specs import VERDICTS, SpecResult, evaluate_spec, verdict
 from calelektra.setups.analysis import SetupAnalysis, analyze_setup
 from calelektra.setups.connections import CalibrationDesign, PlaneInfo, design_calibration
 from calelektra.setups.frequencies import FrequencyPlan
 from calelektra.setups.model import SWEEP_MODES, ConfiguredSetup, SetupTemplate
+from calelektra.procedures.record_uncertainty import PENDING_NOTE, compute_uncertainty, is_pending
+from calelektra.procedures.results import (
+    db as _db,
+    uncertainty_csv_path,
+    write_results_csv_1p,
+    write_results_csv_2p,
+    write_uncertainty_csv,
+)
 from calelektra.uncertainty.engine import UncertaintyCalculationError
-from calelektra.uncertainty.traces import TraceUncertainty, UncertaintyOptions, dataset_uncertainty
+from calelektra.uncertainty.traces import TraceUncertainty
 
 STEPS: dict[str, str] = {
     "validacion": "Validación del setup y del procedimiento",
@@ -361,21 +369,6 @@ class RunResult:
         return self.record.status
 
 
-def _db(values: np.ndarray) -> np.ndarray:
-    with np.errstate(divide="ignore"):
-        return 20 * np.log10(np.maximum(np.abs(values), 1e-15))
-
-
-def _largest(arrays: list[np.ndarray]) -> float | None:
-    values = np.concatenate(arrays) if arrays else np.array([])
-    values = values[np.isfinite(values)]
-    return float(values.max()) if len(values) else None
-
-
-def _csv_number(value: float) -> str:
-    return f"{value:.7g}".replace(".", ",")
-
-
 class ProcedureRunner:
     """Runs a test template: launching it creates the test record in ``folder``.
 
@@ -395,7 +388,6 @@ class ProcedureRunner:
         seed: int | None = None,
         folder: Path | None = None,
         name: str | None = None,
-        temperature: tuple[float, float] | None = None,
     ):
         self.library = library
         self.procedure = procedure
@@ -406,7 +398,6 @@ class ProcedureRunner:
         self.seed = seed
         self.folder = folder
         self.name = name
-        self.temperature = temperature  # minimum and maximum ambient temperature (°C) during the test
         self.plan: RunPlan | None = None
         self.vna: VectorNetworkAnalyzer | None = None
         self.result: RunResult | None = None
@@ -454,8 +445,7 @@ class ProcedureRunner:
     def _new_record(self) -> TestRecord:
         name = self.name or f"{self.procedure.eut_id or self.procedure.id} {datetime.now():%Y-%m-%d %H%M%S}"
         record = self.library.new_test_record(self.folder or self.library.tests_folder, name, self.procedure, self.operator_name)
-        if self.temperature is not None:
-            record.conditions = {"temperatura_min_c": self.temperature[0], "temperatura_max_c": self.temperature[1]}
+        record.conditions = {"estado": "pendiente"}  # until the workbook of the TPH probe is loaded
         return record
 
     def run(self) -> RunResult:
@@ -476,6 +466,8 @@ class ProcedureRunner:
             record.message = "Ensayo completado" + (" con la verificación de la calibración fuera de tolerancia" if self._verification_failed else "")
             if record.verdict and record.verdict != "SIN_ESPECIFICACIONES":
                 record.message += f" — {VERDICTS[record.verdict].upper()}"
+            if is_pending(record):
+                record.message += PENDING_NOTE
         except RunAborted as exc:
             record.status, record.message = "abortado", str(exc)
             if current:
@@ -525,10 +517,32 @@ class ProcedureRunner:
             record.dut = self._equipment_entry(plan.dut_role or "dut", plan.dut.id)
         if plan.frequency_plan is not None:
             record.frequency_range = [format_frequency(plan.frequency_plan.start, decimal="."), format_frequency(plan.frequency_plan.stop, decimal=".")]
+        self._write_snapshots()
         detail = "Plantilla, hardware setup y EUT compatibles"
         if warnings:
             detail += f" ({len(warnings)} avisos)"
         return ("aviso" if warnings else "ok"), detail
+
+    def _write_snapshots(self) -> None:
+        """The test template and the hardware setup as launched, as YAML files of the test."""
+        assert self.plan is not None and self.plan.setup is not None and self.result is not None
+        record = self.result.record
+        if record.folder is None:
+            return
+        setup = {
+            "formato": "calelektra/hardware_setup_ensayo@0.3",
+            "ensayo": record.id,
+            "setup": self.plan.setup.to_yaml_dict(),  # with the EUT of the template in its role
+            "plantilla_setup": self.plan.template.model_dump(by_alias=True, exclude_none=True, mode="json") if self.plan.template else None,
+            "equipos": record.equipment,
+        }
+        for name, data, title in (
+            (SETUP_SNAPSHOT, setup, "Hardware setup del ensayo, tal como se lanzó"),
+            (TEMPLATE_SNAPSHOT, self.procedure.to_yaml_dict(), "Plantilla de ensayo, tal como se lanzó"),
+        ):
+            dump_yaml(data, record.folder / name, header=f"{title} — ensayo {record.id}")
+            if name not in record.files:
+                record.files.append(name)
 
     def _assigned(self) -> list[tuple[str, str]]:
         assert self.plan is not None and self.plan.template is not None
@@ -878,9 +892,8 @@ class ProcedureRunner:
     def _step_incertidumbre(self) -> tuple[str, str]:
         assert self.plan is not None and self.result is not None
         result, record = self.result, self.result.record
-        settings = self.procedure.uncertainty
         vna = self.plan.vna
-        if not settings.active:
+        if not self.procedure.uncertainty.active:
             return "omitido", "Desactivada en la plantilla de ensayo"
         if vna is None or not vna.uncertainty_file:
             return "omitido", f"El VNA «{vna.id if vna else '—'}» no tiene fichero de incertidumbres"
@@ -892,54 +905,29 @@ class ProcedureRunner:
             self._log(f"Sin incertidumbre: {exc}", "aviso")
             return "aviso", f"No se calcula: {exc}"
         assert result.frequencies is not None
-        today = self.today or date.today()
-        options = UncertaintyOptions(settings.coverage_factor, settings.trace_noise, settings.temperature_stability, self.temperature)
-        due, _valid, warnings = engine.calibration_status(today)
         path = self.library.uncertainty_path(vna)
         assert path is not None
-        entry: dict = {
-            "fichero": self._keep_file(path, "incertidumbres"),
-            "documento": engine.document,
-            "vna": f"{vna.id} — {designation}" + (f" nº {engine.serial_number}" if engine.serial_number else ""),
-            "k": settings.coverage_factor,
-            "ruido_traza": settings.trace_noise,
-            "estabilidad_temperatura": settings.temperature_stability,
-            "temperatura_c": list(self.temperature) if self.temperature else "no indicada",
-            "calibracion_vna_hasta": due,
-        }
-        if warnings:
-            entry["avisos"] = warnings
-        for message in warnings:
-            self._log(message, "aviso")
-        measurements = []
-        missing = 0
-        for name, s in result.data.items():
+
+        def measured(name: str, traces: dict[str, TraceUncertainty]) -> None:
             self._check_stop()
-            traces = dataset_uncertainty(
-                engine, designation, result.frequencies, s, lambda trace: self.procedure.sweep.trace(trace)[0], options, today
-            )
             result.uncertainty[name] = traces
             self.listener.uncertainty(name, result.frequencies, traces)
-            measurements.append({"medida": name, "trazas": {p: t.summary() for p, t in traces.items()}})
-            for trace in traces.values():
-                missing += trace.missing
-                for problem in trace.problems:
-                    self._log(f"Incertidumbre{f' ({name})' if len(result.data) > 1 else ''}: {problem}", "aviso")
-        entry["medidas"] = measurements
-        record.uncertainty = entry
-        largest = []
-        for parameter in dict.fromkeys(p for traces in result.uncertainty.values() for p in traces):
-            traces = [t[parameter] for t in result.uncertainty.values() if parameter in t]
-            db = _largest([t.magnitude_db for t in traces])
-            deg = _largest([t.phase_deg for t in traces])
-            if db is not None:
-                largest.append(f"{parameter} {db:.3g} dB" + (f" / {deg:.3g}°" if deg is not None else ""))
-        detail = f"U (k={settings.coverage_factor:g}) máx.: " + ("; ".join(largest) or "ningún punto")
-        if missing:
-            detail += f" — {missing} punto(s) sin incertidumbre (fuera de los rangos del fichero)"
-        if warnings:
-            detail += " — VNA fuera de calibración según el fichero"
-        return ("aviso" if missing or warnings else "ok"), detail
+
+        run = compute_uncertainty(
+            engine, designation, result.frequencies, result.data, self.procedure, record.conditions, self.today or date.today(), measured
+        )
+        serial = f" nº {engine.serial_number}" if engine.serial_number else ""
+        record.uncertainty = {
+            "fichero": self._keep_file(path, "incertidumbres"),
+            "vna": f"{vna.id} — {designation}{serial}",
+            "equipo_vna": vna.id,
+            **run.entry,
+        }
+        for problem in run.problems:
+            self._log(f"Incertidumbre: {problem}", "aviso")
+        if is_pending(record):
+            self._log("Incertidumbre provisional (sin la componente de temperatura): cargue las condiciones ambientales del ensayo", "aviso")
+        return run.status, run.detail
 
     def _step_evaluacion(self) -> tuple[str, str]:
         assert self.result is not None
@@ -1044,12 +1032,12 @@ class ProcedureRunner:
             s = result.data["DUT"]
             uncertainty = result.uncertainty.get("DUT")
             path = folder / f"{self._file_stem()}.s2p"
-            write_touchstone(path, Touchstone(2, f, s, comments=self._comments(self._uncertainty_comment(""))), export.data_format, export.frequency_unit)
+            write_touchstone(path, Touchstone(2, f, s, comments=self._comments(self._uncertainty_comment(path))), export.data_format, export.frequency_unit)
             files.append(path)
             if export.csv:
-                files.append(self._write_csv_2p(folder / f"{self._file_stem()}.csv", f, s, uncertainty))
+                files.append(write_results_csv_2p(path.with_suffix(".csv"), f, s, uncertainty, self._k))
             if uncertainty:
-                files.append(self._write_uncertainty_csv("DUT", path, f, uncertainty))
+                files.append(self._write_uncertainty("DUT", path, f, uncertainty))
             summary = self._summary_2p(f, s)
         else:
             dut = self.plan.dut
@@ -1059,13 +1047,13 @@ class ProcedureRunner:
                 suffix = name if name != "DUT" else ""
                 uncertainty = result.uncertainty.get(name)
                 path = folder / f"{self._file_stem(suffix)}.s1p"
-                comments = ([f"Línea: {name}"] if suffix else []) + self._uncertainty_comment(suffix)
+                comments = ([f"Línea: {name}"] if suffix else []) + self._uncertainty_comment(path)
                 write_touchstone(path, Touchstone(1, f, s, comments=self._comments(comments)), export.data_format, export.frequency_unit)
                 files.append(path)
                 if export.csv:
-                    files.append(self._write_csv_1p(folder / f"{self._file_stem(suffix)}.csv", f, s[:, 0, 0], network, uncertainty))
+                    files.append(write_results_csv_1p(path.with_suffix(".csv"), f, s[:, 0, 0], network, uncertainty, self._k))
                 if uncertainty:
-                    files.append(self._write_uncertainty_csv(name, path, f, uncertainty))
+                    files.append(self._write_uncertainty(name, path, f, uncertainty))
                 per_line[name] = self._summary_1p(f, s[:, 0, 0], network)
             summary = {"lineas": per_line} if len(per_line) > 1 or "DUT" not in per_line else per_line["DUT"]
             if network in LISN_NETWORKS:
@@ -1086,74 +1074,25 @@ class ProcedureRunner:
         self._write_log(log_path)
         return "ok", ", ".join(p.name for p in files if p.suffix != ".txt")
 
-    def _uncertainty_comment(self, suffix: str) -> list[str]:
+    @property
+    def _k(self) -> float:
+        return self.procedure.uncertainty.coverage_factor
+
+    def _uncertainty_comment(self, result_path: Path) -> list[str]:
         assert self.result is not None
         if not self.result.uncertainty:
             return []
-        k = f"{self.procedure.uncertainty.coverage_factor:g}"
-        return [f"Incertidumbre expandida (k={k}) de cada punto: {self._file_stem(suffix)}_incertidumbre.csv"]
+        return [f"Incertidumbre expandida (k={self._k:g}) de cada punto: {uncertainty_csv_path(result_path).name}"]
 
-    def _uncertainty_columns(self, uncertainty: dict[str, TraceUncertainty] | None, name: str) -> tuple[list[str], list[np.ndarray]]:
-        if not uncertainty or name not in uncertainty:
-            return [], []
-        k = f"{self.procedure.uncertainty.coverage_factor:g}"
-        trace = uncertainty[name]
-        return [f"U {name} (dB, k={k})", f"U {name} (°, k={k})"], [trace.magnitude_db, trace.phase_deg]
-
-    def _write_uncertainty_csv(self, dataset: str, result_path: Path, f: np.ndarray, uncertainty: dict[str, TraceUncertainty]) -> Path:
-        """Expanded uncertainty of every point and trace, next to the result file (the charts read it back)."""
+    def _write_uncertainty(self, dataset: str, result_path: Path, f: np.ndarray, uncertainty: dict[str, TraceUncertainty]) -> Path:
+        """Uncertainty CSV of a measurement; the record keeps both file names."""
         assert self.result is not None
-        path = result_path.with_name(f"{result_path.stem}_incertidumbre.csv")
-        header, columns = ["Frecuencia (Hz)"], [f]
-        for name in uncertainty:
-            names, values = self._uncertainty_columns(uncertainty, name)
-            header += names
-            columns += values
-        self._write_csv(path, header, columns)
+        path = write_uncertainty_csv(uncertainty_csv_path(result_path), f, uncertainty, self._k)
         for entry in self.result.record.uncertainty.get("medidas", []):
             if entry.get("medida") == dataset:
                 entry["fichero_resultado"] = result_path.name
                 entry["fichero"] = path.name
         return path
-
-    def _write_csv_2p(self, path: Path, f: np.ndarray, s: np.ndarray, uncertainty: dict[str, TraceUncertainty] | None = None) -> Path:
-        header = ["Frecuencia (Hz)"]
-        columns = [f]
-        for name, (i, j) in (("S11", (0, 0)), ("S21", (1, 0)), ("S12", (0, 1)), ("S22", (1, 1))):
-            header += [f"{name} (dB)", f"{name} (°)"]
-            columns += [_db(s[:, i, j]), np.degrees(np.angle(s[:, i, j]))]
-            names, values = self._uncertainty_columns(uncertainty, name)
-            header += names
-            columns += values
-        self._write_csv(path, header, columns)
-        return path
-
-    def _write_csv_1p(
-        self, path: Path, f: np.ndarray, gamma: np.ndarray, network: str | None, uncertainty: dict[str, TraceUncertainty] | None = None
-    ) -> Path:
-        z = gamma_to_impedance(gamma)
-        names, values = self._uncertainty_columns(uncertainty, "S11")
-        header = ["Frecuencia (Hz)", "S11 (dB)", "S11 (°)", *names, "|Z| (Ω)", "fase Z (°)"]
-        columns = [f, _db(gamma), np.degrees(np.angle(gamma)), *values, np.abs(z), np.degrees(np.angle(z))]
-        if network in LISN_NETWORKS:
-            nominal = lisn_impedance(network, f)
-            header += ["|Z| nominal (Ω)", "fase nominal (°)", "desviación |Z| (%)", "desviación fase (°)"]
-            columns += [
-                np.abs(nominal),
-                np.degrees(np.angle(nominal)),
-                100 * (np.abs(z) - np.abs(nominal)) / np.abs(nominal),
-                np.degrees(np.angle(z / nominal)),
-            ]
-        self._write_csv(path, header, columns)
-        return path
-
-    @staticmethod
-    def _write_csv(path: Path, header: list[str], columns: list[np.ndarray]) -> None:
-        rows = [";".join(header)]
-        for k in range(len(columns[0])):
-            frequency = f"{float(columns[0][k]):.12g}"
-            rows.append(";".join([frequency] + [_csv_number(float(column[k])) for column in columns[1:]]))
-        path.write_text("\n".join(rows) + "\n", encoding="utf-8-sig")
 
     @staticmethod
     def _summary_2p(f: np.ndarray, s: np.ndarray) -> dict:

@@ -10,7 +10,7 @@ Ejemplos de lo que cubre:
 
 ## Estado
 
-**Versión 0.6** — funcional con el VNA simulado:
+**Versión 0.7** — funcional con el VNA simulado:
 
 - **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**.
 - **Hardware setups** para cada grupo de equipos (p. ej. cables 2,92 mm) con sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM).
@@ -19,11 +19,12 @@ Ejemplos de lo que cubre:
 - Setup sencillo de **calibración de cables solo con VNA**: calibra los dos puertos, verifica, mide S11, S21, S12 y S22 y exporta un .s2p. También impedancia de LISN por línea (.s1p).
 - **VNA simulado** realista (errores sistemáticos, calibración OSM/TOSM/UOSM, CAL/CAI) y **adaptador del R&S ZNB43** sobre los comandos del driver RsZnx, con barrido segmentado para las listas (pendiente de probar con el equipo).
 - **Incertidumbre de cada traza** (magnitud en dB y fase en °, k = 2) con el **fichero de incertidumbres de cada unidad de VNA** (ZNB43 nº 101683 y E5061B nº MY49408336) y el algoritmo de cálculo del laboratorio, con resultados idénticos a los del script original. Las gráficas la muestran como una **zona sombreada** alrededor de cada traza, y el ensayo la guarda en su registro y en un CSV. Ver [`docs/07_incertidumbres.md`](docs/07_incertidumbres.md).
+- **Condiciones ambientales de la sonda TPH**: al terminar un ensayo la incertidumbre queda **pendiente** (calculada sin la componente de temperatura) hasta que se carga el **.xlsx exportado de la sonda**; entonces se recalcula con la temperatura del ensayo. **«Guardar ensayo…»** reúne en un .zip el hardware setup y la plantilla tal como se lanzaron, las horas de inicio y fin, las condiciones ambientales, las medidas en Touchstone sin suavizado, los CSV, la incertidumbre y un resumen. Ver [`docs/08_condiciones_ambientales_y_paquete.md`](docs/08_condiciones_ambientales_y_paquete.md).
 - **Depuración del control del VNA sin interfaz gráfica**: funciones que escriben cada parámetro del ZNB (frecuencias, puntos, paso, escala lineal o logarítmica, lista, trazas S11…S22 y su formato, promedios, IFBW, potencia, suavizado, max hold, reinicio del barrido, formato de exportación…), lo leen de vuelta y revisan la cola de errores; consola con eco de cada comando SCPI, scripts, comprobación completa con informe y un ZNB43 simulado a nivel SCPI. Ver [`docs/06_depuracion_vna.md`](docs/06_depuracion_vna.md).
 
-Todavía falta: incertidumbre de la impedancia (|Z|), procedimientos de NSA y S_VSWR, mástiles, driver de la E5061B e informes. El detalle está en [`docs/04_algoritmo_medida_vna.md`](docs/04_algoritmo_medida_vna.md) y [`docs/05_plantillas_de_ensayo_y_ensayos.md`](docs/05_plantillas_de_ensayo_y_ensayos.md).
+Todavía falta: procedimientos de NSA y S_VSWR, mástiles, driver de la E5061B e informes; la incertidumbre de la impedancia (|Z|) queda aplazada. El detalle está en [`docs/04_algoritmo_medida_vna.md`](docs/04_algoritmo_medida_vna.md) y [`docs/05_plantillas_de_ensayo_y_ensayos.md`](docs/05_plantillas_de_ensayo_y_ensayos.md).
 
-![Ensayo de un cable con pasa / falla frente a las especificaciones de su modelo y la incertidumbre de cada traza](docs/capturas/v06/23_ensayo_grafica.png)
+![Ensayo de un cable con pasa / falla frente a las especificaciones de su modelo y la incertidumbre de cada traza](docs/capturas/v07/23_ensayo_grafica.png)
 
 ## Puesta en marcha
 
@@ -64,13 +65,14 @@ src/calelektra/
   core/          unidades, rangos y cobertura, Touchstone, conectores, cálculo de la calibración
   catalog/       categorías con campos tipados, modelos, equipos y biblioteca YAML
   setups/        plantillas, setups configurados (con sus frecuencias), requisitos, conexiones y su validación
-  procedures/    plantillas de ensayo, pasa / falla, motor y registro de ensayos
+  procedures/    plantillas de ensayo, pasa / falla, motor y registro de ensayos, condiciones ambientales
+                 (sonda TPH), incertidumbre pendiente / completa y paquete .zip del ensayo
   instruments/   interfaz de alto nivel del VNA, VNA simulado, adaptador R&S ZNx, factoría;
                  znx_debug/: depuración SCPI del ZNx (funciones, consola, comprobación, ZNB simulado)
   uncertainty/   incertidumbre de las medidas con VNA (motor del laboratorio y trazas completas)
   gui/           interfaz gráfica (PySide6)
 biblioteca_ejemplo/   catálogo (con especificaciones S de los modelos), inventario, ficheros de incertidumbres de los VNA, S2P sintéticos, setups (con listas de frecuencias) y plantillas de ensayo
-docs/                 diseño paso a paso (01 ingeniería inversa … 07 incertidumbres)
+docs/                 diseño paso a paso (01 ingeniería inversa … 08 condiciones ambientales y paquete)
 tools/                generador de S2P sintéticos, capturas de pantalla y secuencia de ejemplo para depurar el VNA
 tests/                pruebas con pytest
 ```
@@ -84,3 +86,4 @@ tests/                pruebas con pytest
 5. [Hardware setups con frecuencias, plantillas de ensayo (setup + EUT) y ensayos como registros — versión 0.5](docs/05_plantillas_de_ensayo_y_ensayos.md)
 6. [Depuración del control del VNA sin interfaz gráfica — versión 0.5.1](docs/06_depuracion_vna.md)
 7. [Incertidumbre de las medidas con VNA y zona sombreada en las gráficas — versión 0.6](docs/07_incertidumbres.md)
+8. [Condiciones ambientales de la sonda TPH, incertidumbre pendiente y paquete del ensayo — versión 0.7](docs/08_condiciones_ambientales_y_paquete.md)

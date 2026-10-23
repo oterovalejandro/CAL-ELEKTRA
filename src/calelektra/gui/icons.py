@@ -310,6 +310,18 @@ def _verdict(p: QPainter, c: QColor) -> None:
     _poly(p, (8.5, 11.5), (11, 14), (15.5, 9))
 
 
+
+@_register("condiciones")
+def _thermometer(p: QPainter, c: QColor) -> None:
+    _pen(p, c)
+    p.drawRoundedRect(QRectF(10, 3, 4, 13), 2, 2)
+    _poly(p, (16.5, 6), (19, 6))
+    _poly(p, (16.5, 9), (19, 9))
+    _poly(p, (16.5, 12), (19, 12))
+    _poly(p, (12, 8), (12, 15))
+    p.setBrush(c)
+    p.drawEllipse(QRectF(8.5, 13.5, 7, 7))
+
 def available() -> list[str]:
     return sorted(_ICONS)
 

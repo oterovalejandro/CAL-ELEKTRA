@@ -222,6 +222,7 @@ class MainWindow(QMainWindow):
         self.tests_view.open_test.connect(self.open_test_folder)
         self.tests_view.repeat_test.connect(self.repeat_test)
         self.tests_view.tests_changed.connect(self.home.reload)
+        self.tests_view.record_changed.connect(self._record_changed)
 
     # ── sections and ribbon ────────────────────────────────────────────────
     def show_section(self, key: str) -> None:
@@ -323,7 +324,6 @@ class MainWindow(QMainWindow):
                 dialog.name.text().strip(),
                 dialog.operator.text().strip(),
                 dialog.automatic.isChecked(),
-                temperature=dialog.temperature(),
             )
         )
         window.start()
@@ -331,6 +331,7 @@ class MainWindow(QMainWindow):
 
     def _add_test_window(self, window: TestWindow) -> TestWindow:
         window.finished.connect(lambda folder, w=window: (self._retitle_test(w), self._tests_changed(folder)))
+        window.record_changed.connect(self._record_changed)
         index = self.workspace.addTab(window, icon("ensayos", style.OK.name(), 16), window.title)
         self.workspace.setCurrentIndex(index)
         return window
@@ -383,6 +384,14 @@ class MainWindow(QMainWindow):
 
     def _tests_changed(self, folder: str) -> None:
         self.tests_view.folders.reload()
+        self.tests_view.reload(select=folder)
+        self.home.reload()
+
+    def _record_changed(self, folder: str) -> None:
+        """A test record was changed (ambient conditions loaded): refresh where it is shown."""
+        for window in self._documents(TestWindow):
+            if window.record is not None and window.record.folder == Path(folder) and window is not self.sender():
+                window.reload_record()
         self.tests_view.reload(select=folder)
         self.home.reload()
 

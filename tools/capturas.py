@@ -5,19 +5,22 @@
 Works on a temporary copy of the example library and first launches the
 example test templates in folders, so the dashboard and the test explorer
 have data. The LISN template uses the E5061B, whose certificate expired on
-2026-07-30: it is launched on a day when the calibration was valid.
+2026-07-30: it is launched on a day when the calibration was valid. A
+synthetic workbook of the TPH probe gives the ambient conditions of all the
+tests but one, whose uncertainty stays pending.
 """
 
 from __future__ import annotations
 
+import math
 import shutil
 import sys
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from calelektra.catalog.library import Library
 from calelektra.gui.app import EXAMPLE_LIBRARY
@@ -26,7 +29,9 @@ from calelektra.gui.main_window import MainWindow
 from calelektra.gui.plots import SParameterDialog
 from calelektra.gui.style import apply_theme
 from calelektra.gui.test_window import LaunchTestDialog, PromptDialog, TestWindow
+from calelektra.procedures.ambient import AmbientReading, write_tph_workbook
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, PromptRequest
+from calelektra.procedures.record_uncertainty import load_ambient_conditions
 
 
 def grab(widget, path: Path) -> None:
@@ -43,6 +48,17 @@ def wait(test: TestWindow) -> None:
             break
 
 
+def probe_workbook(path: Path, start: datetime, end: datetime) -> Path:
+    """Synthetic export of the TPH probe: a reading per minute, 22,8 – 23,6 °C."""
+    readings = []
+    time = start.replace(second=45, microsecond=0) - timedelta(minutes=10)
+    while time <= end:
+        i = len(readings)
+        readings.append(AmbientReading(time, round(23.2 + 0.4 * math.sin(i / 9), 1), round(942.6 + 0.3 * math.sin(i / 40), 1), round(37 + 1.5 * math.cos(i / 15), 1)))
+        time += timedelta(minutes=1)
+    return write_tph_workbook(path, readings, "VIRTUAL LAB: Datos sonda TPH")
+
+
 def main() -> None:
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "capturas")
     out.mkdir(parents=True, exist_ok=True)
@@ -53,6 +69,7 @@ def main() -> None:
     library = Library.load(work)
     client = library.tests_folder / "2026" / "Cliente ACME"
     lisn = None
+    records = []
     for folder, name, template, today in (
         (client, "Cable 2,92 mm nº 2001", "cable_CAB-DUT-0002", None),
         (client, "Cable 2,92 mm nº 3001", "cable_CAB-DUT-0003", None),
@@ -61,10 +78,14 @@ def main() -> None:
     ):
         result = ProcedureRunner(
             library, library.procedures[template], AutoOperator(), operator_name="Demo", seed=1, folder=folder, name=name, today=today,
-            temperature=(21.5, 24.0),
         ).run()
+        records.append(result.record)
         if template.startswith("lisn"):
             lisn = result.record
+    workbook = probe_workbook(work.parent / "Condiciones_ambientales.xlsx", min(r.started for r in records), datetime.now() + timedelta(hours=1))
+    for record in records:
+        if "3001" not in record.title:  # this one keeps its uncertainty pending
+            load_ambient_conditions(library, record, workbook)
 
     window = MainWindow(library)
     window.resize(1600, 980)
@@ -160,11 +181,19 @@ def main() -> None:
     grab(window, out / "25_ensayo_hardware_setup.png")
     test.tabs.setCurrentIndex(3)
     grab(window, out / "26_ensayo_resultados.png")
+    test.load_conditions(workbook)
+    for box in window.findChildren(QMessageBox):
+        grab(box, out / "26b_condiciones_cargadas.png")
+        box.close()
+    grab(window, out / "26c_ensayo_con_condiciones.png")
 
     window.show_section("ensayos")
     failed = next(r for r in library.tests() if r.verdict == "FALLA")
     window.tests_view.show_test(failed.folder)
     grab(window, out / "27_explorador_ensayos.png")
+    pending = next(r for r in library.tests() if "3001" in r.title)
+    window.tests_view.show_test(pending.folder)
+    grab(window, out / "27b_explorador_incertidumbre_pendiente.png")
     lisn_window = window._add_test_window(TestWindow(library, record=lisn))
     lisn_window.tabs.setCurrentIndex(0)
     grab(window, out / "28_lisn_incertidumbre.png")

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import yaml
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QMessageBox
 
 from calelektra.catalog.library import Library
 from calelektra.core.frequency import FrequencyRange
@@ -22,7 +22,7 @@ from calelektra.gui.setup_editor import SetupEditor
 from calelektra.gui.test_window import LaunchTestDialog, TestWindow
 from calelektra.procedures.engine import ProcedureRunner
 from calelektra.setups.model import ConfiguredSetup
-from conftest import E5061B_VALID_DAY, renew_calibration
+from conftest import E5061B_VALID_DAY, renew_calibration, tph_workbook
 
 
 @pytest.fixture(scope="session")
@@ -376,18 +376,32 @@ def test_dialogs(window, qapp):
     check.close()
 
 
-def test_uncertainty_bands_in_the_test_window_and_explorer(window, qapp):
+def chips_of(layout) -> list[str]:
+    return [layout.itemAt(i).widget().text() for i in range(layout.count()) if isinstance(layout.itemAt(i).widget(), QLabel)]
+
+
+def close_messages(widget) -> list[str]:
+    """Texts of the (non-blocking) message boxes shown to the operator, which are closed."""
+    texts = []
+    for box in widget.window().findChildren(QMessageBox):
+        if box.isVisible():
+            texts.append(box.text())
+            box.close()
+    return texts
+
+
+def test_uncertainty_bands_in_the_test_window_and_explorer(window, qapp, tmp_path):
     import pyqtgraph as pg
 
     library = window.library
     test = window._add_test_window(
-        TestWindow(library, library.procedures["cable_CAB-DUT-0002"], library.tests_folder, "Cable con U", "prueba", automatic=True,
-                   temperature=(21.0, 25.0))
+        TestWindow(library, library.procedures["cable_CAB-DUT-0002"], library.tests_folder, "Cable con U", "prueba", automatic=True)
     )
+    assert not test.conditions_button.isEnabled() and not test.save_button.isEnabled()
     test.start()
     wait_for(lambda: not test.running)
     record = test.record
-    assert record.status == "completado" and record.conditions["temperatura_max_c"] == 25.0
+    assert record.status == "completado" and record.conditions == {"estado": "pendiente"}
     plot = test.plot
     assert set(plot.uncertainty["DUT"]) == {"S11", "S21", "S12", "S22"}
     assert plot.uncertainty_box.isVisible() and plot.uncertainty_box.text() == "Incertidumbre (k=2)"
@@ -397,7 +411,22 @@ def test_uncertainty_bands_in_the_test_window_and_explorer(window, qapp):
     assert not [item for item in plot.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)]
     plot.uncertainty_box.setChecked(True)
     rows = {test.results.item(r, 0).text(): test.results.item(r, 1).text() for r in range(test.results.rowCount())}
-    assert rows["Temperatura ambiente"] == "21 – 25 °C" and rows["Incertidumbre · S21 (U, k=2)"].startswith("0.04 – 0.06 dB")
+    assert rows["Condiciones ambientales"].startswith("pendientes") and rows["Incertidumbre · estado"].startswith("PENDIENTE")
+    assert rows["Incertidumbre · S21 (U, k=2)"].startswith("0.04 – 0.06 dB")
+    assert "INCERTIDUMBRE PENDIENTE" in chips_of(test.chips)
+    assert test.conditions_button.isEnabled() and test.action_save.isEnabled()
+
+    # the probe workbook of the test completes the uncertainty
+    assert test.load_conditions(tph_workbook(tmp_path / "Condiciones_ambientales.xlsx", record.started, record.finished, 22.5))
+    assert any("Incertidumbre recalculada" in text for text in close_messages(test))
+    process(qapp)
+    assert "INCERTIDUMBRE PENDIENTE" not in chips_of(test.chips)
+    rows = {test.results.item(r, 0).text(): test.results.item(r, 1).text() for r in range(test.results.rowCount())}
+    assert rows["Temperatura ambiente"] == "22.5 – 22.5 °C (media 22.5)" and rows["Incertidumbre · estado"].startswith("completa")
+    assert "Humedad relativa" in rows and set(plot.uncertainty["DUT"]) == {"S11", "S21", "S12", "S22"}
+    zip_path = test.save_package(tmp_path / "Cable con U.zip")
+    assert zip_path is not None and zip_path.is_file()
+    assert any("Ensayo guardado" in text for text in close_messages(test))
 
     window.show_section("ensayos")
     window.tests_view.show_test(record.folder)
@@ -405,17 +434,41 @@ def test_uncertainty_bands_in_the_test_window_and_explorer(window, qapp):
     detail = window.tests_view.detail
     assert set(detail.plot.uncertainty["DUT"]) == {"S11", "S21", "S12", "S22"}
     assert np.allclose(detail.plot.uncertainty["DUT"]["S21"][0], plot.uncertainty["DUT"]["S21"][0], rtol=1e-6)
-    assert "Incertidumbre y condiciones" in detail.info.text()
+    assert "Incertidumbre y condiciones" in detail.info.text() and "Temperatura ambiente" in detail.info.text()
+    assert "INCERTIDUMBRE PENDIENTE" not in chips_of(detail.chips)
 
 
-def test_launch_dialog_temperature_and_template_uncertainty(window, qapp):
+def test_explorer_loads_the_conditions_of_a_pending_test(window, qapp, tmp_path):
+    library = window.library
+    record = ProcedureRunner(library, library.procedures["cable_CAB-DUT-0002"], seed=3).run().record
+    opened = window.open_test_folder(record.folder)
+    window.show_section("ensayos")
+    view = window.tests_view
+    view.show_test(record.folder)
+    process(qapp)
+    assert "INCERTIDUMBRE PENDIENTE" in chips_of(view.detail.chips)
+    assert view.action_conditions.isEnabled() and view.action_save.isEnabled()
+    row = next(r for r in range(view.table.rowCount()) if view.table.item(r, 0).text() == record.title)
+    assert view.table.item(row, 6).text().endswith("incertidumbre pendiente")
+    # a workbook that does not cover the test: a warning, nothing changes
+    early = tph_workbook(tmp_path / "otro_dia.xlsx", record.started.replace(year=2025), record.finished.replace(year=2025))
+    assert not view.load_conditions(early)
+    assert any("no cubre el ensayo" in text for text in close_messages(view))
+    assert view.load_conditions(tph_workbook(tmp_path / "tph.xlsx", record.started, record.finished))
+    close_messages(view)
+    process(qapp)
+    assert "INCERTIDUMBRE PENDIENTE" not in chips_of(view.detail.chips)
+    assert library.load_test(record.folder).uncertainty["estado"] == "completa"
+    assert opened.record.uncertainty["estado"] == "completa"  # the open window shows the record again
+    assert view.save_package(tmp_path / "paquete.zip").is_file()
+    close_messages(view)
+
+
+def test_launch_dialog_and_template_uncertainty(window, qapp):
     library = window.library
     dialog = LaunchTestDialog(library, "cable_CAB-DUT-0002", library.tests_folder, parent=window)
-    assert dialog.temperature() is None and "Incertidumbre</b> (k=2)" in dialog.summary.text()
-    dialog.record_temperature.setChecked(True)
-    dialog.temperature_min.setValue(26.0)
-    dialog.temperature_max.setValue(20.5)
-    assert dialog.temperature() == (20.5, 26.0)
+    assert "Incertidumbre</b> (k=2)" in dialog.summary.text()
+    assert not hasattr(dialog, "record_temperature")  # the temperature comes from the TPH probe, not from the operator
     dialog.close()
 
     window.show_section("procedimientos")
@@ -423,6 +476,7 @@ def test_launch_dialog_temperature_and_template_uncertainty(window, qapp):
     view.reload(select="cable_CAB-DUT-0002")
     editor = view.editor
     assert editor.uncertainty.isChecked() and editor.coverage.value() == 2.0
+    assert "sonda TPH" in editor.temperature_stability.toolTip()
     editor.coverage.setValue(2.5)
     editor.trace_noise.setChecked(False)
     template = editor.build()

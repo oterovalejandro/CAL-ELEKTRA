@@ -100,12 +100,14 @@ def test_library_keeps_the_uncertainty_file_of_each_vna(library):
 
 
 def test_cable_test_with_uncertainty(library):
-    result = ProcedureRunner(library, library.procedures["cable_CAB-DUT-0002"], AutoOperator(), today=TODAY, seed=2, temperature=(22.0, 24.5)).run()
+    result = ProcedureRunner(library, library.procedures["cable_CAB-DUT-0002"], AutoOperator(), today=TODAY, seed=2).run()
     record = result.record
     assert record.status == "completado"
+    # without the ambient conditions of the test the uncertainty is provisional: no temperature component
     step = next(s for s in record.steps if s.key == "incertidumbre")
-    assert step.status == "ok" and "S21 0.06 dB" in step.detail
-    assert record.conditions == {"temperatura_min_c": 22.0, "temperatura_max_c": 24.5}
+    assert step.status == "aviso" and "S21 0.06 dB" in step.detail and "PROVISIONAL" in step.detail
+    assert record.conditions == {"estado": "pendiente"}
+    assert record.uncertainty["estado"] == "pendiente" and "incertidumbre pendiente" in record.message
     data = record.uncertainty
     assert data["k"] == 2.0 and data["documento"].startswith("VNA-ZNB43-101683")
     assert (record.folder / data["fichero"]).is_file()  # the file used is kept with the test

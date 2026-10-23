@@ -42,7 +42,8 @@ def test_vna_only_cable_calibration_exports_s2p(library):
     assert [key for key, status in listener.steps if status not in ("en_curso",)] == [
         "validacion", "conexion", "configuracion", "calibracion", "verificacion", "medida", "incertidumbre", "evaluacion", "exportacion", "cierre",
     ]
-    s2p = record.folder / record.files[0]
+    assert {"hardware_setup.yaml", "plantilla_ensayo.yaml"} <= set(record.files)  # as launched
+    s2p = record.folder / next(f for f in record.files if f.endswith(".s2p"))
     data = read_touchstone(s2p)
     # the frequencies are those of the hardware setup: 50 MHz – 40 GHz, step 50 MHz
     assert data.n_ports == 2 and len(data.frequencies) == 800
@@ -175,4 +176,4 @@ def test_operator_can_stop_the_test(library):
     result, _, listener = run(library, "cable_CAB-DUT-0002", answers=lambda p: "3/" not in p.title)
     assert result.status == "abortado"
     assert ("calibracion", "abortado") in listener.steps
-    assert result.record.files == ["registro.txt"]
+    assert result.record.files == ["hardware_setup.yaml", "plantilla_ensayo.yaml", "registro.txt"]

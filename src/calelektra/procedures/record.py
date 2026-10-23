@@ -21,6 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from calelektra.procedures.model import ProcedureTemplate
 
 RECORD_FILE = "ensayo.yaml"
+SETUP_SNAPSHOT = "hardware_setup.yaml"  # hardware setup (with its template and equipment) as launched
+TEMPLATE_SNAPSHOT = "plantilla_ensayo.yaml"  # test template as launched
 STATUS_NAMES = {
     "en_curso": "En curso",
     "completado": "Completado",

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import shutil
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from calelektra.catalog.library import Library
+from calelektra.procedures.ambient import AmbientReading, write_tph_workbook
 from calelektra.procedures.engine import dut_role_of, with_dut
 from calelektra.setups.model import ConfiguredSetup
 
@@ -41,3 +42,13 @@ def setup_with_dut(library: Library, setup_id: str, dut_id: str) -> ConfiguredSe
     """The setup as a test sees it: with the cable to calibrate of the test in its DUT role."""
     setup = library.setups[setup_id]
     return with_dut(setup, dut_role_of(library.resolved_template(setup.template)), dut_id)
+
+
+def tph_workbook(path: Path, start: datetime, end: datetime, temperature: float = 23.0, every: timedelta = timedelta(minutes=1)) -> Path:
+    """Workbook of the TPH probe (layout of the laboratory export) with a reading every minute around ``start`` – ``end``."""
+    readings = []
+    time = start.replace(microsecond=0) - timedelta(minutes=5)
+    while time <= end + timedelta(minutes=5):
+        readings.append(AmbientReading(time, temperature, 942.6, 37.0 + 0.1 * (len(readings) % 3)))
+        time += every
+    return write_tph_workbook(path, readings, "VIRTUAL LAB: Datos sonda TPH")

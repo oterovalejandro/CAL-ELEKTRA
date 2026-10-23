@@ -169,6 +169,10 @@ class ProcedureEditor(QWidget):
         self.coverage.setSingleStep(0.1)
         self.trace_noise = QCheckBox("Ruido de traza (si la IFBW es ≥ la del dato)")
         self.temperature_stability = QCheckBox("Estabilidad con la temperatura (fuera del rango de referencia)")
+        self.temperature_stability.setToolTip(
+            "Con la temperatura del ensayo, de las condiciones ambientales (fichero .xlsx de la sonda TPH). Hasta que se "
+            "cargan, la incertidumbre queda pendiente: se calcula sin esta componente."
+        )
         unc_form.addRow(self.uncertainty)
         unc_form.addRow("Factor de cobertura k", self.coverage)
         unc_form.addRow(self.trace_noise)

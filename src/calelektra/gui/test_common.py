@@ -7,7 +7,8 @@ import re
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtWidgets import QLabel
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import QFileDialog, QLabel, QMessageBox, QWidget
 
 from calelektra.catalog.library import Library
 from calelektra.catalog.model import Equipment, SpecFile
@@ -15,10 +16,20 @@ from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import format_frequency
 from calelektra.gui import style
 from calelektra.instruments.factory import is_simulated
+from calelektra.procedures.ambient import AmbientError
 from calelektra.procedures.engine import RunPlan
 from calelektra.procedures.model import ALGORITHMS, TRACES, SweepSettings
+from calelektra.procedures.package import save_test_package
 from calelektra.procedures.record import TestRecord
+from calelektra.procedures.record_uncertainty import conditions_loaded, is_pending, load_ambient_conditions
 from calelektra.procedures.specs import VERDICTS, SpecCurve, spec_curves
+from calelektra.uncertainty.engine import UncertaintyCalculationError
+
+SETTINGS = ("CAL-ELEKTRA", "CAL-ELEKTRA")
+PENDING_TOOLTIP = (
+    "La incertidumbre se ha calculado sin la componente de temperatura y queda pendiente de las condiciones "
+    "ambientales del ensayo: cárguelas con «Condiciones ambientales…» (fichero .xlsx de la sonda TPH)."
+)
 
 
 def equipment_text(library: Library, equipment: Equipment) -> str:
@@ -78,6 +89,11 @@ def plan_html(library: Library, plan: RunPlan) -> str:
             k = f"{procedure.uncertainty.coverage_factor:g}"
             name = html.escape(plan.vna.uncertainty_file.replace("\\", "/").rsplit("/", 1)[-1])
             lines.append(f"<b>Incertidumbre</b> (k={k}): fichero de incertidumbres de {plan.vna.id} ({name})")
+            if procedure.uncertainty.temperature_stability:
+                lines.append(
+                    "<b>Condiciones ambientales:</b> de la sonda TPH (.xlsx), se cargan al terminar el ensayo; "
+                    "hasta entonces la incertidumbre queda pendiente (sin la componente de temperatura)"
+                )
         else:
             lines.append(f"<b>Incertidumbre:</b> {plan.vna.id} no tiene fichero de incertidumbres")
     if plan.lines != ["—"]:
@@ -161,18 +177,42 @@ def record_uncertainty(record: TestRecord) -> dict[str, dict[str, tuple[np.ndarr
     return bands
 
 
-def uncertainty_rows(record: TestRecord) -> list[tuple[str, str]]:
-    """Rows of the results table about the uncertainty of the traces."""
-    data = record.uncertainty
+def conditions_rows(record: TestRecord) -> list[tuple[str, str]]:
+    """Rows of the results table about the ambient conditions of the test."""
+    conditions = record.conditions
     rows: list[tuple[str, str]] = []
-    if record.conditions:
-        low, high = record.conditions.get("temperatura_min_c"), record.conditions.get("temperatura_max_c")
-        if low is not None and high is not None:
-            rows.append(("Temperatura ambiente", f"{low:g} – {high:g} °C"))
+    if conditions_loaded(conditions):
+        for key, label, unit in (("temperatura_c", "Temperatura ambiente", "°C"), ("humedad_pct", "Humedad relativa", "%"), ("presion_hpa", "Presión", "hPa")):
+            values = conditions.get(key)
+            if values:
+                rows.append((label, f"{values['min']:g} – {values['max']:g} {unit} (media {values['media']:g})"))
+        rows.append(
+            (
+                "Condiciones ambientales",
+                f"{conditions.get('lecturas')} lecturas de la sonda TPH ({conditions.get('lecturas_desde')} – {conditions.get('lecturas_hasta')})"
+                + (f" · {conditions['fichero']}" if conditions.get("fichero") else ""),
+            )
+        )
+    elif conditions.get("temperatura_min_c") is not None and conditions.get("temperatura_max_c") is not None:  # tests of version 0.6
+        rows.append(("Temperatura ambiente", f"{conditions['temperatura_min_c']:g} – {conditions['temperatura_max_c']:g} °C"))
+    elif conditions.get("estado") == "pendiente" and record.status != "en_curso":
+        rows.append(("Condiciones ambientales", "pendientes: cargue el fichero .xlsx de la sonda TPH"))
+    return rows
+
+
+def uncertainty_rows(record: TestRecord) -> list[tuple[str, str]]:
+    """Rows of the results table about the ambient conditions and the uncertainty of the traces."""
+    data = record.uncertainty
+    rows = conditions_rows(record)
     if not data:
         return rows
     k = data.get("k", 2)
     rows.append(("Incertidumbre", f"k = {k:g} · {data.get('documento', '—')} · {data.get('vna', '')}"))
+    if is_pending(record):
+        rows.append(("Incertidumbre · estado", "PENDIENTE de las condiciones ambientales: provisional, sin la componente de temperatura"))
+    elif isinstance(data.get("temperatura_c"), list):
+        low, high = data["temperatura_c"]
+        rows.append(("Incertidumbre · estado", f"completa, con la temperatura del ensayo ({low:g} – {high:g} °C)"))
     for warning in data.get("avisos", []):
         rows.append(("Incertidumbre · aviso", str(warning)))
     several = len(data.get("medidas", [])) > 1
@@ -189,6 +229,76 @@ def uncertainty_rows(record: TestRecord) -> list[tuple[str, str]]:
             for problem in trace.get("problemas", []):
                 rows.append((f"{prefix} · {parameter} · fuera de rango", str(problem)))
     return rows
+
+
+def pending_chip(record: TestRecord | None) -> QLabel | None:
+    """«INCERTIDUMBRE PENDIENTE» (or «CONDICIONES PENDIENTES») while the ambient conditions are not loaded."""
+    if record is None or record.status == "en_curso":
+        return None
+    if is_pending(record):
+        label = style.chip("INCERTIDUMBRE PENDIENTE", style.WARNING)
+        label.setToolTip(PENDING_TOOLTIP)
+        return label
+    if record.conditions.get("estado") == "pendiente":
+        label = style.chip("CONDICIONES PENDIENTES", style.NEUTRAL)
+        label.setToolTip("Cargue las condiciones ambientales del ensayo con «Condiciones ambientales…» (fichero .xlsx de la sonda TPH).")
+        return label
+    return None
+
+
+def notify(parent: QWidget, title: str, text: str, warning: bool = False) -> QMessageBox:
+    """Message to the operator that does not block (the box is closed by the operator)."""
+    box = QMessageBox(QMessageBox.Icon.Warning if warning else QMessageBox.Icon.Information, title, text, QMessageBox.StandardButton.Ok, parent)
+    box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    box.open()
+    return box
+
+
+def load_conditions(parent: QWidget, library: Library, record: TestRecord, path: str | Path | None = None) -> bool:
+    """Load the ambient conditions of a test from a workbook of the TPH probe (asks for it if ``path`` is None).
+
+    The uncertainty of the test is calculated again with them.
+    """
+    settings = QSettings(*SETTINGS)
+    if path is None:
+        start = str(settings.value("carpeta_condiciones", "") or (record.folder or ""))
+        path, _ = QFileDialog.getOpenFileName(parent, "Condiciones ambientales del ensayo", start, "Datos de la sonda TPH (*.xlsx)")
+        if not path:
+            return False
+    settings.setValue("carpeta_condiciones", str(Path(path).parent))
+    try:
+        message = load_ambient_conditions(library, record, path)
+    except (AmbientError, UncertaintyCalculationError, OSError, ValueError) as exc:
+        notify(parent, "Condiciones ambientales", str(exc), warning=True)
+        return False
+    notify(parent, "Condiciones ambientales", message)
+    return True
+
+
+def save_package(parent: QWidget, record: TestRecord, path: str | Path | None = None) -> Path | None:
+    """Save all the information of a test in a ZIP file (asks where if ``path`` is None)."""
+    if record.folder is None:
+        return None
+    settings = QSettings(*SETTINGS)
+    if path is None:
+        start = Path(str(settings.value("carpeta_paquetes", "") or record.folder.parent)) / f"{record.id}.zip"
+        path, _ = QFileDialog.getSaveFileName(parent, "Guardar ensayo", str(start), "Paquete del ensayo (*.zip)")
+        if not path:
+            return None
+    try:
+        saved = save_test_package(record, path)
+    except (OSError, ValueError) as exc:
+        notify(parent, "Guardar ensayo", str(exc), warning=True)
+        return None
+    settings.setValue("carpeta_paquetes", str(saved.parent))
+    text = (
+        f"Ensayo guardado en {saved}:\nhardware setup, plantilla de ensayo, horas de inicio y fin, condiciones ambientales, "
+        "registro, resultados (Touchstone sin suavizado, CSV) e incertidumbre."
+    )
+    if is_pending(record) or record.conditions.get("estado") == "pendiente":
+        text += "\n\nAtención: las condiciones ambientales no están cargadas y la incertidumbre es provisional (sin la componente de temperatura)."
+    notify(parent, "Guardar ensayo", text, warning=is_pending(record))
+    return saved
 
 
 def record_coverage_factor(record: TestRecord) -> float:

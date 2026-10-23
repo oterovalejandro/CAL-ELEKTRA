@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -43,7 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calelektra.catalog.library import Library
+from calelektra.catalog.library import Library, LibraryError
 from calelektra.core.issues import Severity
 from calelektra.gui import style
 from calelektra.gui.icons import icon
@@ -51,7 +50,10 @@ from calelektra.gui.illustrations import illustration
 from calelektra.gui.plots import SParameterPlot
 from calelektra.gui.setup_diagram import SetupDiagramView
 from calelektra.gui.test_common import (
+    SETTINGS,
     is_logarithmic,
+    load_conditions,
+    pending_chip,
     plan_html,
     record_coverage_factor,
     record_datasets,
@@ -59,6 +61,7 @@ from calelektra.gui.test_common import (
     record_uncertainty,
     record_smoothing,
     record_spec_curves,
+    save_package,
     setup_state,
     verdict_chip,
 )
@@ -68,8 +71,6 @@ from calelektra.procedures.engine import STEPS, AutoOperator, ProcedureRunner, P
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import TestRecord
 from calelektra.procedures.specs import VERDICTS
-
-SETTINGS = ("CAL-ELEKTRA", "CAL-ELEKTRA")
 
 
 def default_test_name(procedure: ProcedureTemplate) -> str:
@@ -127,32 +128,9 @@ class LaunchTestDialog(QDialog):
         self.operator.setText(str(QSettings(*SETTINGS).value("operador", "")))
         self.automatic = QCheckBox("Simulación automática (sin diálogos al operador)")
         self.automatic.setToolTip("Solo con el VNA simulado: el banco simulado conecta los estándares y el EUT sin preguntar.")
-        self.record_temperature = QCheckBox()
-        self.record_temperature.setToolTip(
-            "Temperatura ambiente mínima y máxima durante el ensayo. Se guarda en el registro y, si sale del rango de "
-            "referencia del fichero de incertidumbres del VNA, añade la contribución de la estabilidad con la temperatura."
-        )
-        self.temperature_min = QDoubleSpinBox()
-        self.temperature_max = QDoubleSpinBox()
-        for spin, value in ((self.temperature_min, 21.0), (self.temperature_max, 25.0)):
-            spin.setRange(-20.0, 60.0)
-            spin.setDecimals(1)
-            spin.setSingleStep(0.5)
-            spin.setSuffix(" °C")
-            spin.setValue(value)
-            spin.setEnabled(False)
-            self.record_temperature.toggled.connect(spin.setEnabled)
-        temperature = QHBoxLayout()
-        temperature.addWidget(self.record_temperature)
-        temperature.addWidget(QLabel("mín."))
-        temperature.addWidget(self.temperature_min)
-        temperature.addWidget(QLabel("máx."))
-        temperature.addWidget(self.temperature_max)
-        temperature.addStretch(1)
         form.addRow("Plantilla de ensayo", self.procedure)
         form.addRow("Nombre del ensayo", self.name)
         form.addRow("Operador", self.operator)
-        form.addRow("Temperatura ambiente", temperature)
         form.addRow(self.automatic)
         left.body.addLayout(form)
 
@@ -201,13 +179,6 @@ class LaunchTestDialog(QDialog):
 
     def current_procedure(self) -> ProcedureTemplate | None:
         return self.library.procedures.get(self.procedure.currentData())
-
-    def temperature(self) -> tuple[float, float] | None:
-        """Ambient temperature (minimum, maximum) of the test, if the operator records it."""
-        if not self.record_temperature.isChecked():
-            return None
-        low, high = sorted((self.temperature_min.value(), self.temperature_max.value()))
-        return low, high
 
     def current_folder(self) -> Path | None:
         return self.folders.current_folder()
@@ -393,6 +364,7 @@ class TestWindow(QWidget):
     __test__ = False  # not a pytest test class
 
     finished = Signal(str)  # folder of the test
+    record_changed = Signal(str)  # folder of the test: its record was changed (ambient conditions)
 
     def __init__(
         self,
@@ -404,7 +376,6 @@ class TestWindow(QWidget):
         automatic: bool = False,
         record: TestRecord | None = None,
         parent: QWidget | None = None,
-        temperature: tuple[float, float] | None = None,
         today: date | None = None,
     ):
         super().__init__(parent)
@@ -414,7 +385,6 @@ class TestWindow(QWidget):
         self.name = name
         self.operator_name = operator_name or (record.operator if record is not None else "") or ""
         self.automatic = automatic
-        self.temperature = temperature  # ambient temperature (°C) of the launch, for the uncertainty
         self.today = today  # date of the checks (calibrations); None: today
         self.record = record
         self.result: RunResult | None = None
@@ -453,12 +423,29 @@ class TestWindow(QWidget):
         self.stop_button.clicked.connect(self.stop)
         self.folder_button = QPushButton(icon("carpeta", style.PRIMARY.name()), "Abrir carpeta")
         self.folder_button.clicked.connect(self.open_folder)
+        self.conditions_button = QPushButton(icon("condiciones", style.PRIMARY.name()), "Condiciones ambientales…")
+        self.conditions_button.setToolTip(
+            "Cargar las condiciones ambientales del ensayo (fichero .xlsx de la sonda TPH) y completar la incertidumbre"
+        )
+        self.conditions_button.clicked.connect(lambda: self.load_conditions())
+        self.save_button = QPushButton(icon("guardar", style.PRIMARY.name()), "Guardar ensayo…")
+        self.save_button.setToolTip(
+            "Guardar toda la información del ensayo en un .zip: hardware setup, plantilla, horas de inicio y fin, "
+            "condiciones ambientales, resultados sin suavizado e incertidumbre"
+        )
+        self.save_button.clicked.connect(lambda: self.save_package())
         self.action_start = QAction(icon("ejecutar", style.OK.name()), "Iniciar", self)
         self.action_start.triggered.connect(self.start)
         self.action_stop = QAction(icon("detener", style.ERROR.name()), "Detener", self)
         self.action_stop.triggered.connect(self.stop)
         self.action_folder = QAction(icon("carpeta", style.PRIMARY.name()), "Abrir\ncarpeta", self)
         self.action_folder.triggered.connect(self.open_folder)
+        self.action_conditions = QAction(icon("condiciones", style.PRIMARY.name()), "Condiciones\nambientales", self)
+        self.action_conditions.setToolTip(self.conditions_button.toolTip())
+        self.action_conditions.triggered.connect(lambda: self.load_conditions())
+        self.action_save = QAction(icon("guardar", style.PRIMARY.name()), "Guardar\nensayo", self)
+        self.action_save.setToolTip(self.save_button.toolTip())
+        self.action_save.triggered.connect(lambda: self.save_package())
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setTextVisible(False)
@@ -470,6 +457,8 @@ class TestWindow(QWidget):
         controls.addWidget(self.progress, 1)
         controls.addWidget(self.progress_label)
         controls.addSpacing(10)
+        controls.addWidget(self.conditions_button)
+        controls.addWidget(self.save_button)
         controls.addWidget(self.folder_button)
         layout.addLayout(controls)
 
@@ -531,7 +520,7 @@ class TestWindow(QWidget):
         return str(self.record.folder) if self.record is not None and self.record.folder else None
 
     def ribbon_actions(self) -> list[QAction | None]:
-        return [self.action_start, self.action_stop, None, self.action_folder]
+        return [self.action_start, self.action_stop, None, self.action_conditions, self.action_save, None, self.action_folder]
 
     def _reset_steps(self) -> None:
         for key, item in self.step_items.items():
@@ -563,6 +552,8 @@ class TestWindow(QWidget):
         self.start_button.setEnabled(runnable)
         self.stop_button.setEnabled(False)
         self.folder_button.setEnabled(self.folder.is_dir())
+        self.conditions_button.setEnabled(False)
+        self.save_button.setEnabled(False)
         self._sync_actions()
 
     def show_record(self, record: TestRecord) -> None:
@@ -620,6 +611,9 @@ class TestWindow(QWidget):
         self.start_button.setEnabled(current is not None)
         self.stop_button.setEnabled(False)
         self.folder_button.setEnabled(record.folder is not None)
+        done = record.folder is not None and record.status != "en_curso"
+        self.conditions_button.setEnabled(done)
+        self.save_button.setEnabled(done)
         self._sync_actions()
 
     def _set_chips(self, record: TestRecord | None) -> None:
@@ -631,6 +625,9 @@ class TestWindow(QWidget):
         if simulated:
             self.chips.addWidget(style.chip("SIMULACIÓN" + (" AUTOMÁTICA" if self.automatic else ""), style.SIMULATION), 0, Qt.AlignmentFlag.AlignVCenter)
         chip = verdict_chip(record.verdict if record is not None else None)
+        if chip is not None:
+            self.chips.addWidget(chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        chip = pending_chip(record)
         if chip is not None:
             self.chips.addWidget(chip, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -649,6 +646,8 @@ class TestWindow(QWidget):
         self.action_start.setEnabled(self.start_button.isEnabled())
         self.action_stop.setEnabled(self.stop_button.isEnabled())
         self.action_folder.setEnabled(self.folder_button.isEnabled())
+        self.action_conditions.setEnabled(self.conditions_button.isEnabled())
+        self.action_save.setEnabled(self.save_button.isEnabled())
 
     # ── actions ────────────────────────────────────────────────────────────
     def start(self) -> None:
@@ -683,7 +682,6 @@ class TestWindow(QWidget):
             self.operator_name or None,
             folder=self.folder,
             name=self.name or default_test_name(self.procedure),
-            temperature=self.temperature,
             today=self.today,
         )
         self.worker.runner = self.runner
@@ -700,6 +698,8 @@ class TestWindow(QWidget):
         self.running = True
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.conditions_button.setEnabled(False)
+        self.save_button.setEnabled(False)
         self.badge.set_state("En curso", style.ACCENT)
         self.progress.setValue(0)
         self._sync_actions()
@@ -717,6 +717,32 @@ class TestWindow(QWidget):
     def open_folder(self) -> None:
         folder = self.record.folder if self.record is not None and self.record.folder else self.folder
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def load_conditions(self, path: str | Path | None = None) -> bool:
+        """Ambient conditions of the test (workbook of the TPH probe): the uncertainty is completed with them."""
+        if self.record is None or self.running:
+            return False
+        if not load_conditions(self, self.library, self.record, path):
+            return False
+        self.show_record(self.record)
+        self._append_log("info", "Condiciones ambientales cargadas" + (": incertidumbre recalculada" if self.record.uncertainty else ""))
+        self.record_changed.emit(str(self.record.folder))
+        return True
+
+    def save_package(self, path: str | Path | None = None) -> Path | None:
+        """All the information of the test in a .zip."""
+        if self.record is None or self.running:
+            return None
+        return save_package(self, self.record, path)
+
+    def reload_record(self) -> None:
+        """Read the record again (it was changed elsewhere)."""
+        if self.record is None or self.record.folder is None or self.running:
+            return
+        try:
+            self.show_record(self.library.load_test(self.record.folder))
+        except LibraryError:
+            return
 
     # ── worker signals ─────────────────────────────────────────────────────
     def _step(self, key: str, status: str, detail: str) -> None:

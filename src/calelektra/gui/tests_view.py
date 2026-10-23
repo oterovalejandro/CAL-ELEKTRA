@@ -35,16 +35,20 @@ from calelektra.gui.icons import icon
 from calelektra.gui.plots import SParameterPlot
 from calelektra.gui.test_common import (
     is_logarithmic,
+    load_conditions,
+    pending_chip,
     record_coverage_factor,
     record_datasets,
     record_smoothing,
     record_spec_curves,
     record_uncertainty,
+    save_package,
     uncertainty_rows,
     verdict_chip,
 )
 from calelektra.gui.test_folders import TestFolderTree
 from calelektra.procedures.record import STATUS_NAMES, TestRecord
+from calelektra.procedures.record_uncertainty import is_pending
 from calelektra.procedures.specs import VERDICTS
 
 COLUMNS = ["Ensayo", "Carpeta", "Fecha", "EUT", "Plantilla de ensayo", "Setup", "Estado", "Veredicto"]
@@ -128,9 +132,9 @@ class TestDetail(QWidget):
         )
         top = Qt.AlignmentFlag.AlignTop
         self.chips.addWidget(style.chip(record.status_name, style.status_color(record.status)), 0, top)
-        chip = verdict_chip(record.verdict)
-        if chip is not None:
-            self.chips.addWidget(chip, 0, top)
+        for chip in (verdict_chip(record.verdict), pending_chip(record)):
+            if chip is not None:
+                self.chips.addWidget(chip, 0, top)
         if record.simulated:
             self.chips.addWidget(style.chip("SIMULADO", style.SIMULATION), 0, top)
 
@@ -240,6 +244,7 @@ class TestsView(QWidget):
     launch_test = Signal(object)  # folder where to launch a test template
     open_test = Signal(object)  # folder of the test
     repeat_test = Signal(object)  # folder of the test: launch its template again
+    record_changed = Signal(str)  # folder of the test: its record was changed (ambient conditions)
     tests_changed = Signal()
     title = "Ensayos"
 
@@ -324,6 +329,14 @@ class TestsView(QWidget):
         self.action_external = QAction(icon("carpeta_externa", style.PRIMARY.name()), "Carpeta\nexterna", self)
         self.action_folder = QAction(icon("carpeta", style.PRIMARY.name()), "Abrir\ncarpeta", self)
         self.action_delete = QAction(icon("eliminar", style.ERROR.name()), "Eliminar", self)
+        self.action_conditions = QAction(icon("condiciones", style.PRIMARY.name()), "Condiciones\nambientales", self)
+        self.action_conditions.setToolTip(
+            "Cargar las condiciones ambientales del ensayo seleccionado (fichero .xlsx de la sonda TPH) y completar su incertidumbre"
+        )
+        self.action_save = QAction(icon("guardar", style.PRIMARY.name()), "Guardar\nensayo", self)
+        self.action_save.setToolTip("Guardar toda la información del ensayo seleccionado en un .zip")
+        self.action_conditions.triggered.connect(lambda: self.load_conditions())
+        self.action_save.triggered.connect(lambda: self.save_package())
         self.action_new.triggered.connect(lambda: self.launch_test.emit(self.folders.current_folder() or self.library.tests_folder))
         self.action_open.triggered.connect(self._open)
         self.action_repeat.triggered.connect(self._repeat)
@@ -340,6 +353,9 @@ class TestsView(QWidget):
             self.action_new,
             self.action_open,
             self.action_repeat,
+            None,
+            self.action_conditions,
+            self.action_save,
             None,
             self.action_new_folder,
             self.action_external,
@@ -389,7 +405,7 @@ class TestsView(QWidget):
                 record.dut_id or "—",
                 record.procedure.get("nombre", "—"),
                 record.setup.get("nombre", "—"),
-                record.status_name + (" · simulado" if record.simulated else ""),
+                record.status_name + (" · simulado" if record.simulated else "") + (" · incertidumbre pendiente" if is_pending(record) else ""),
                 VERDICTS.get(record.verdict, "—") if record.verdict else "—",
             ]
             if text and text not in " ".join(values).lower():
@@ -440,6 +456,9 @@ class TestsView(QWidget):
         self.action_folder.setEnabled(has)
         self.action_delete.setEnabled(has)
         self.action_repeat.setEnabled(has and (record.template_id or "") in self.library.procedures)
+        done = has and record.status != "en_curso"
+        self.action_conditions.setEnabled(done)
+        self.action_save.setEnabled(done)
 
     def _open(self) -> None:
         record = self._record()
@@ -450,6 +469,20 @@ class TestsView(QWidget):
         record = self._record()
         if record is not None:
             self.repeat_test.emit(record.folder)
+
+    def load_conditions(self, path: str | Path | None = None) -> bool:
+        """Ambient conditions of the selected test (workbook of the TPH probe)."""
+        record = self._record()
+        if record is None or not load_conditions(self, self.library, record, path):
+            return False
+        self.reload(select=record_key(record))
+        self.record_changed.emit(str(record.folder))
+        return True
+
+    def save_package(self, path: str | Path | None = None) -> Path | None:
+        """All the information of the selected test in a .zip."""
+        record = self._record()
+        return save_package(self, record, path) if record is not None else None
 
     def _open_folder(self) -> None:
         record = self._record()
