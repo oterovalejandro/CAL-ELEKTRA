@@ -386,6 +386,34 @@ class ConfiguredSetup(BaseModel):
     def path_ids(self, key: str) -> list[str]:
         return [item.equipment for item in self.paths.get(key, [])]
 
+    def equipment_places(self) -> dict[str, list[str]]:
+        """Where each equipment is used: role keys (once per role, whatever the segment) and path positions (``P1-1``…).
+
+        Every equipment can take only one place in a setup (``equipo.repetido`` in the analysis).
+        """
+        places: dict[str, list[str]] = {}
+
+        def add(equipment_id: str, place: str) -> None:
+            found = places.setdefault(equipment_id, [])
+            if place not in found:
+                found.append(place)
+
+        for role, value in self.assignments.items():
+            for equipment_id in assignment_ids(value):
+                add(equipment_id, role)
+        for segment in self.segments:
+            for role, value in segment.assignments.items():
+                for equipment_id in assignment_ids(value):
+                    add(equipment_id, role)
+        for key, items in self.paths.items():
+            for index, item in enumerate(items, start=1):
+                add(item.equipment, f"{key}-{index}")
+        return places
+
+    def used_outside(self, place: str | None = None) -> set[str]:
+        """Equipment already used in the setup in a place other than ``place`` (a role key or a path position)."""
+        return {equipment_id for equipment_id, places in self.equipment_places().items() if any(p != place for p in places)}
+
     def equipment_ids(self) -> set[str]:
         """Every equipment of the setup: roles, segments and paths."""
         ids: set[str] = set()

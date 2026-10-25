@@ -112,3 +112,21 @@ def test_segment_outside_required_range(library):
     setup.segments = [Segment(name="todo", range=FrequencyRange(500e6, 18e9))]
     analysis = analyze_setup(setup, library, TODAY)
     assert "segmento.fuera" in codes(analysis, Severity.WARNING)
+
+
+def test_each_equipment_takes_one_place(library):
+    setup = library.setups["sac_nsa_3m"]
+    setup.segments[1].assignments["antena_tx"] = "BIC-01"  # the same role in another segment: allowed
+    analysis = analyze_setup(setup, library, TODAY)
+    assert "equipo.repetido" not in codes(analysis)
+    setup.segments[0].assignments["antena_rx"] = "BIC-01"  # TX and RX antenna at once: not allowed
+    repeated = [i for i in analyze_setup(setup, library, TODAY).issues if i.code == "equipo.repetido"]
+    assert len(repeated) == 1 and repeated[0].segment == "Bicónicas" and "«Antena TX», «Antena RX»" in repeated[0].message
+    assert setup.used_outside("antena_tx") >= {"PATH-TX-01", "VNA-01", "BIC-01"}  # BIC-01 is also the RX antenna now
+
+    as_eut = analyze_setup(setup_with_dut(library, "cable_N_18G", "CAB-PT-N-02"), library, TODAY)  # the EUT is in a path
+    [issue] = [i for i in as_eut.issues if i.code == "equipo.repetido"]
+    assert "«CAB-PT-N-02» está asignado más de una vez en el setup («Camino P2 · 1», «DUT»)" in issue.message
+    cable = library.setups["cable_N_18G"]
+    cable.assignments["kit_cal"] = "CAB-PT-N-01"  # a cable of a path in a role
+    assert "equipo.repetido" in codes(analyze_setup(cable, library, TODAY), Severity.ERROR)

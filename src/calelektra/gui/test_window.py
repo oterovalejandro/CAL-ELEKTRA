@@ -524,6 +524,32 @@ class TestWindow(QWidget):
     def ribbon_actions(self) -> list[QAction | None]:
         return [self.action_start, self.action_stop, None, self.action_conditions, self.action_save, None, self.action_folder]
 
+    @property
+    def template_id(self) -> str | None:
+        if self.procedure is not None:
+            return self.procedure.id
+        return self.record.template_id if self.record is not None else None
+
+    def library_changed(self) -> None:
+        """The library changed (equipment, setups or templates edited): the window uses their current versions.
+
+        Before a run, the launch is checked again; after a run, «Repetir» launches the current version of the
+        template. The record of a test made is not changed: it keeps what was used.
+        """
+        if self.running:
+            return
+        self.procedure = self.library.procedures.get(self.template_id or "")
+        if self.record is not None:
+            self.start_button.setEnabled(self.procedure is not None)
+            self._show_diagram()
+            self._sync_actions()
+        elif self.procedure is not None:
+            self.show_launch()
+        else:
+            self.badge.set_state("Plantilla eliminada", style.ERROR)
+            self.start_button.setEnabled(False)
+            self._sync_actions()
+
     def _reset_steps(self) -> None:
         for key, item in self.step_items.items():
             item.setIcon(style.status_icon("pendiente"))
@@ -653,9 +679,10 @@ class TestWindow(QWidget):
 
     # ── actions ────────────────────────────────────────────────────────────
     def start(self) -> None:
-        """Launch the template (again, after a test: a new test in the same folder)."""
+        """Launch the template (again, after a test: a new test in the same folder), in its current version."""
         if self.running:
             return
+        self.procedure = self.library.procedures.get(self.template_id or "") or (self.procedure if self.record is None else None)
         if self.record is not None:
             if self.procedure is None:
                 QMessageBox.warning(self, "Repetir ensayo", "La plantilla de ensayo de este ensayo ya no existe en la biblioteca.")

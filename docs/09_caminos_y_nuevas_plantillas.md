@@ -148,7 +148,25 @@ Plantillas de ensayo nuevas: `transmision_CAB-DUT-0001` y `acoplador_ACP-0001`. 
 - **Kit de calibración.** Uno por setup: los dos planos deben ser de la misma familia de conector, o mecánicamente compatibles.
 - **Normalización en el ZNB.** El adaptador R&S la define como `FTRans` (`SENS:CORR:COLL:METH:DEF …,FTR,1,2`) y adquiere el through con `THR`. Como el resto del adaptador, falta probarlo con el equipo.
 
-## 7. Ficheros del código
+## 7. Versión 0.8.1
+
+- **Cada equipo ocupa un solo lugar en un setup.**
+  - En el editor del setup, los equipos que ya están en otro rol o en un camino no se ofrecen. Tampoco se ofrecen en el mismo camino, para no repetirlos.
+  - Un mismo rol por segmento (p. ej. la antena TX) sí puede repetir equipo en otro segmento.
+  - En la plantilla de ensayo, el EUT no puede ser un equipo del setup: no aparecen sus cables, adaptadores, cargas…
+  - Si un YAML repite un equipo, la validación da el error «está asignado más de una vez en el setup». También lo da si el EUT de la plantilla está dentro del setup.
+- **Las ventanas abiertas usan la versión actual de la biblioteca.** Antes, al editar un equipo, un setup o una plantilla:
+  - la pestaña de un ensayo ya abierta mantenía la comprobación anterior (p. ej. seguía «No ejecutable»);
+  - «Repetir» volvía a lanzar la versión de la plantilla de cuando se abrió la pestaña, así que había que volver a crearla.
+
+  Ahora, al guardar cualquier cambio de la biblioteca:
+  - las pestañas de lanzamiento vuelven a comprobar el ensayo;
+  - «Repetir» y «Iniciar» toman la plantilla vigente;
+  - el editor de plantillas vuelve a comprobar la plantilla aunque tenga cambios sin guardar, sin tocar el formulario.
+
+  El registro de un ensayo ya hecho no cambia: conserva lo que se usó.
+
+## 8. Ficheros del código
 
 | Fichero | Contenido |
 |---|---|

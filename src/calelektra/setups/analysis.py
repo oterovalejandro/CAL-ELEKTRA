@@ -125,6 +125,7 @@ class _Analyzer:
             for key, role in self.template.roles.items():
                 if role.per_segment:
                     self._check_role(key, role, segment, label)
+        self._check_repeated_equipment(named)
         self._check_requirements(named)
         self._check_connections(named)
         self._check_vna_calibration()
@@ -185,6 +186,35 @@ class _Analyzer:
                             equipment_id=equipment_id,
                         )
                     )
+
+    # ── every equipment in one place only ───────────────────────────────────
+    def _check_repeated_equipment(self, named: bool) -> None:
+        """An equipment cannot be in two roles or path positions at once (the DUT of the test included)."""
+        assert self.template is not None
+        seen: set[tuple[str, tuple[str, ...]]] = set()
+        for segment in self.setup.effective_segments():
+            places: dict[str, list[str]] = {}
+            per_segment = False
+            for key, role in self.template.roles.items():
+                for equipment_id in self.setup.ids_for(key, segment if role.per_segment else None):
+                    places.setdefault(equipment_id, []).append(key)
+                    per_segment = per_segment or role.per_segment
+            for equipment_id, roles in places.items():
+                if len(roles) < 2 or (equipment_id, tuple(roles)) in seen:
+                    continue
+                seen.add((equipment_id, tuple(roles)))
+                labels = ", ".join(f"«{self.template.roles[r].display(r)}»" for r in roles)
+                segment_label = segment.name if named and any(self.template.roles[r].per_segment for r in roles) else None
+                self.result.add(
+                    Issue(
+                        Severity.ERROR,
+                        "equipo.repetido",
+                        f"«{equipment_id}» está asignado más de una vez en el setup ({labels}): cada equipo solo puede ocupar un lugar",
+                        role=roles[-1],
+                        equipment_id=equipment_id,
+                        segment=segment_label,
+                    )
+                )
 
     # ── requirements on the fields of the assigned equipment ───────────────
     def _check_requirements(self, named: bool) -> None:

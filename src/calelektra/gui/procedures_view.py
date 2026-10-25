@@ -640,7 +640,9 @@ class ProceduresView(QWidget):
             self.list.setCurrentRow(row)
         self.list.blockSignals(False)
         if not self.dirty and self.list.currentItem() is not None:
-            self._selected(self.list.currentItem())  # a form being edited is never overwritten by a reload
+            self._selected(self.list.currentItem())  # a form being edited is never overwritten by a reload…
+        elif self.dirty:
+            self.editor.refresh_check()  # … but it is checked again with the current equipment and setups
         self._update_actions()
 
     def _current_id(self) -> str | None:

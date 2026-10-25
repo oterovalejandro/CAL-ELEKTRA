@@ -597,3 +597,66 @@ def test_transmission_and_coupler_tests_in_the_window(window, qapp):
     detail = window.tests_view.detail
     assert set(detail.plot.datasets) == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
     assert "Caminos y medidas" in detail.info.text() and "Medida ENTRADA-ACOPLADO" in detail.info.text()
+
+
+def test_equipment_already_used_in_the_setup_is_not_offered(window, qapp):
+    library = window.library
+    renew_calibration(library, "KIT-N-01")
+    editor = window.open_setup("acoplador_N_18G")
+    editor._role_clicked("carga_1")
+    offered = [_combo_in_role_panel(editor).itemData(i) for i in range(_combo_in_role_panel(editor).count())]
+    assert "LOAD-N-01" in offered and "LOAD-N-02" not in offered  # LOAD-N-02 is the other load
+    assert "ya usados en otro rol" in editor.role_panel.info.text()
+    editor.show_path("P2")
+    panel = editor.role_panel
+    candidates = {panel.path_candidates.itemData(i) for i in range(panel.path_candidates.count())}
+    assert not candidates & {"CAB-PT-N-01", "CAB-PT-N-02", "ADP-NN-01", "ADP-NN-02"}  # in a path already
+    assert {"ADP-THRU-N-01", "CAB-PT-BF-01"} <= candidates
+    # a repeated equipment (hand-written YAML) is an error of the setup
+    editor.setup.paths["P2"][1] = editor.setup.paths["P1"][1].model_copy()
+    editor.refresh()
+    repeated = [i for i in editor.analysis.issues if i.code == "equipo.repetido"]
+    assert repeated and "«ADP-NN-01» está asignado más de una vez" in repeated[0].message and not editor.analysis.ok
+    # the EUT of a test template cannot be an equipment of its setup
+    window.show_section("procedimientos")
+    view = window.procedures_view
+    view.reload(select="cable_CAB-DUT-0001")
+    euts = {view.editor.eut.itemData(i) for i in range(view.editor.eut.count())}
+    assert "CAB-DUT-0001" in euts and not euts & {"CAB-PT-N-01", "CAB-PT-N-02"}
+
+
+def test_open_test_windows_follow_the_edits_of_the_library(window, qapp):
+    library = window.library
+    launch = window._add_test_window(
+        TestWindow(library, library.procedures["cable_CAB-DUT-0002"], library.tests_folder, "Cable", "prueba", automatic=True)
+    )
+    assert launch.plan.ok and launch.start_button.isEnabled()
+    # the EUT is edited in the inventory: the launch that is open is checked again
+    dialog = EquipmentDialog(library, library.equipment["CAB-DUT-0002"], window)
+    dialog.status.setCurrentIndex(dialog.status.findData("fuera_de_servicio"))
+    dialog._save()
+    window.inventory._after_change("CAB-DUT-0002")
+    process(qapp)
+    assert not launch.plan.ok and not launch.start_button.isEnabled() and launch.badge.text() == "No ejecutable"
+    assert any("no está en servicio" in i.message for i in launch.plan.issues)
+    dialog = EquipmentDialog(library, library.equipment["CAB-DUT-0002"], window)
+    dialog.status.setCurrentIndex(dialog.status.findData("en_servicio"))
+    dialog._save()
+    window.inventory._after_change("CAB-DUT-0002")
+    process(qapp)
+    assert launch.plan.ok and launch.start_button.isEnabled()
+
+    # after a run, «Repetir» uses the current version of the template
+    launch.start()
+    wait_for(lambda: not launch.running)
+    assert launch.record.status == "completado"
+    edited = library.procedures["cable_CAB-DUT-0002"].model_copy(deep=True, update={"version": "2.0"})
+    edited.set_source_path(library.procedures["cable_CAB-DUT-0002"].source_path)
+    library.save_procedure(edited)
+    library.reload()
+    window._library_changed()
+    assert launch.procedure is library.procedures["cable_CAB-DUT-0002"] and launch.procedure.version == "2.0"
+    assert launch.record.template["version"] == "1.0"  # the record keeps the template as it was launched
+    launch.start()
+    wait_for(lambda: not launch.running)
+    assert launch.record.template["version"] == "2.0"

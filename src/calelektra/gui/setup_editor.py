@@ -128,14 +128,16 @@ class RolePanel(QWidget):
             details.append(f"<b>Montado en:</b> {template.roles[role.mounted_on].display(role.mounted_on) if role.mounted_on in template.roles else role.mounted_on}")
         for note in role.notes:
             details.append(f"• {note}")
+        details.append("<i>Cada equipo ocupa un solo lugar: los ya usados en otro rol o en un camino del setup no se ofrecen.</i>")
         self.info.setText("<br>".join(details))
 
+        used = setup.used_outside(role_key)  # equipment already in another role or in a path: not offered
         if role.per_segment and setup.segments:
-            self.assignment_form.addRow("Común (todos los segmentos)", self._selector(setup.assignments, role_key, role))
+            self.assignment_form.addRow("Común (todos los segmentos)", self._selector(setup.assignments, role_key, role, used=used))
             for segment in setup.segments:
-                self.assignment_form.addRow(f"Segmento «{segment.name}»", self._selector(segment.assignments, role_key, role, fallback=True))
+                self.assignment_form.addRow(f"Segmento «{segment.name}»", self._selector(segment.assignments, role_key, role, fallback=True, used=used))
         else:
-            self.assignment_form.addRow("Equipo", self._selector(setup.assignments, role_key, role))
+            self.assignment_form.addRow("Equipo", self._selector(setup.assignments, role_key, role, used=used))
 
         ids = []
         for segment in setup.effective_segments():
@@ -195,8 +197,11 @@ class RolePanel(QWidget):
         candidates = QComboBox()
         candidates.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         candidates.setMinimumContentsLength(22)
+        used = set(setup.equipment_places())  # an equipment takes one place: not offered again (not even in this path)
         for equipment in self.library.equipment_in_categories(list(definition.categories)):
-            candidates.addItem(self._candidate_text(equipment.id), equipment.id)
+            if equipment.id not in used:
+                candidates.addItem(self._candidate_text(equipment.id), equipment.id)
+        candidates.setToolTip("Los equipos ya usados en el setup (en un camino o en otro rol) no se ofrecen")
         add = QPushButton(icon("nuevo", style.PRIMARY.name()), "Añadir al final")
         add_row = QWidget()
         add_layout = QHBoxLayout(add_row)
@@ -274,15 +279,18 @@ class RolePanel(QWidget):
         if not self.issues_list.count():
             self.issues_list.addItem(QListWidgetItem(style.severity_icon(self, None), "Sin incidencias"))
 
-    def _selector(self, assignments: dict, role_key: str, role: Role, fallback: bool = False) -> QWidget:
-        candidates = self.library.equipment_in_categories(role.categories)
+    def _selector(self, assignments: dict, role_key: str, role: Role, fallback: bool = False, used: set[str] | None = None) -> QWidget:
+        """Equipment of the categories of the role, except those already used elsewhere in the setup."""
         current = assignments.get(role_key)
+        current_ids = set(current or []) if not isinstance(current, str) else {current}
+        used = used or set()
+        candidates = [e for e in self.library.equipment_in_categories(role.categories) if e.id not in used or e.id in current_ids]
         if role.multiple:
             widget = QListWidget()
             widget.setMaximumHeight(110)
             chosen = set(current or []) if not isinstance(current, str) else {current}
             for equipment in candidates:
-                item = QListWidgetItem(self._candidate_text(equipment.id))
+                item = QListWidgetItem(self._candidate_text(equipment.id) + ("  ⚠ ya usado en el setup" if equipment.id in used else ""))
                 item.setData(Qt.ItemDataRole.UserRole, equipment.id)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Checked if equipment.id in chosen else Qt.CheckState.Unchecked)
@@ -310,7 +318,7 @@ class RolePanel(QWidget):
         current_id = current if isinstance(current, str) else (current[0] if current else None)
         known = {e.id for e in candidates}
         for equipment in candidates:
-            combo.addItem(self._candidate_text(equipment.id), equipment.id)
+            combo.addItem(self._candidate_text(equipment.id) + ("  ⚠ ya usado en el setup" if equipment.id in used else ""), equipment.id)
         if current_id and current_id not in known:
             combo.addItem(f"{current_id}  ⚠ no compatible o inexistente", current_id)
         index = combo.findData(current_id) if current_id else 0
@@ -729,6 +737,7 @@ class SetupEditor(QWidget):
 
     # ── refresh ────────────────────────────────────────────────────────────
     def refresh(self) -> None:
+        self.template = self.library.resolved_template(self.setup.template)  # the library may have been reloaded
         self.analysis = analyze_setup(self.setup, self.library)
         self._update_badge()
         self._redraw_diagram()

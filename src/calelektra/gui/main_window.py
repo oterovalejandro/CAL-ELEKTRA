@@ -432,6 +432,8 @@ class MainWindow(QMainWindow):
         for editor in self._documents(SetupEditor):
             editor.refresh()
             self._retitle(editor)
+        for window in self._documents(TestWindow):
+            window.library_changed()  # launches and «Repetir» use the current equipment, setups and templates
         self._update_status()
 
     def choose_library(self) -> None:

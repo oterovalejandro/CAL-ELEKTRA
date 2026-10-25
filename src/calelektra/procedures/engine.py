@@ -181,13 +181,17 @@ def suitable_setups(library: Library, algorithm: str) -> list[ConfiguredSetup]:
 
 
 def eut_choices(library: Library, setup: ConfiguredSetup | None) -> tuple[str | None, str, list[Equipment]]:
-    """DUT role of a setup, its label and the equipment of its categories (the possible EUTs)."""
+    """DUT role of a setup, its label and the equipment of its categories (the possible EUTs).
+
+    The equipment already used by the setup (its paths, the VNA, the kit, the loads…) cannot be the EUT.
+    """
     template = library.resolved_template(setup.template) if setup is not None else None
     role_key = dut_role_of(template)
-    if template is None or role_key is None:
+    if setup is None or template is None or role_key is None:
         return None, "EUT (equipo a calibrar)", []
     role = template.roles[role_key]
-    equipment = sorted(library.equipment_in_categories(role.categories), key=lambda e: e.id)
+    used = setup.used_outside(role_key)
+    equipment = sorted((e for e in library.equipment_in_categories(role.categories) if e.id not in used), key=lambda e: e.id)
     return role_key, role.display(role_key), equipment
 
 
