@@ -94,12 +94,13 @@ En los setups de cámara, el preamplificador va dentro del camino de recepción 
   La normalización no corrige el desajuste de los puertos. En el ejemplo, el cable N falla su especificación de ±0,5 dB por unas centésimas, y con el ensayo de 2 puertos pasa.
 - **Impedancia en 1 puerto (S11 → .s1p).** Genérica: carga, antena, LISN… Se mide el puerto del EUT en el plano PR1 (el terminal EUT de la LISN, al final del adaptador de la LISN) y se calcula |Z|. Desaparece lo específico de la LISN: líneas, puerto receptor y red nominal.
 - **Acoplador direccional por pares.**
-  - Una calibración (TOSM/UOSM) y una medida por cada par de puertos que elige la plantilla de ensayo. Por defecto: entrada–salida, entrada–acoplado y salida–acoplado.
+  - Puertos (desde 0.8.3): **In**, **Out**, **Coupl. Fwd** (acoplado directo) y **Coupl. Rev** (acoplado inverso; el aislado de un acoplador simple).
+  - Una calibración (TOSM/UOSM) y una medida por cada par de puertos que elige la plantilla de ensayo. Por defecto: In–Out, In–Coupl. Fwd y Out–Coupl. Fwd.
   - En cada par, el primer puerto va en PR1, el segundo en PR2 y los otros dos en las cargas de 50 Ω del setup. El operador recibe la conexión exacta de cada par.
-  - Resultados: pérdidas de inserción (IL), acoplamiento (C), aislamiento (I, de salida a acoplado o de entrada a aislado), directividad (D = I − C) y pérdidas de retorno (RL).
+  - Resultados: pérdidas de inserción (IL), acoplamiento (C), aislamiento (I, de Out a Coupl. Fwd o de In a Coupl. Rev), directividad (D = I − C) y pérdidas de retorno (RL).
   - Pasa / falla: frente a los **valores nominales del modelo**. La categoría nueva «acoplador» tiene los campos de acoplamiento nominal ± tolerancia, IL máxima, aislamiento mínimo, directividad mínima y RL mínima.
   - Ficheros: un .s2p (y CSV) por par y `<EUT>_<fecha>_acoplador.csv` con IL, C, I, D y RL, y el RL de cada puerto (desde 0.8.2).
-  - Gráfica: dos gráficos, el RL de cada puerto y el TL de cada medida (ver la sección 8).
+  - Gráfica: dos gráficos, el RL de cada puerto y el TL de cada medida, con los valores nominales (ver las secciones 8 y 9).
 
 | | |
 |---|---|
@@ -171,21 +172,100 @@ Plantillas de ensayo nuevas: `transmision_CAB-DUT-0001` y `acoplador_ACP-0001`. 
 
 Las trazas del ensayo del acoplador direccional se reparten en dos gráficos, en pérdidas (dB, positivas):
 
+(Con los nombres de puertos de 0.8.3: In, Out, Coupl. Fwd y Coupl. Rev; antes ENTRADA, SALIDA, ACOPLADO y AISLADO.)
+
 - **Pérdidas de retorno (RL) de cada puerto.** Una traza por puerto medido, sacada de una sola medida:
-  - ENTRADA y SALIDA se miden dos veces (en ENTRADA–SALIDA y en ENTRADA–ACOPLADO o SALIDA–ACOPLADO). Su RL sale siempre de la medida **ENTRADA–SALIDA**: S11 para el puerto en P1 y S22 para el de P2.
-  - ACOPLADO (y AISLADO, si se mide) sale de la primera medida que lo tiene.
-  - La leyenda dice de dónde sale cada traza, p. ej. «SALIDA (ENTRADA-SALIDA, S22)».
-- **Pérdidas de transmisión (TL) de cada medida.** Una traza por par: −|S21|, del puerto en P1 al puerto en P2. La leyenda lleva la magnitud del acoplador que da: «ENTRADA → SALIDA · IL», «ENTRADA → ACOPLADO · C», «SALIDA → ACOPLADO · I».
+  - In y Out se miden dos veces (en In–Out y en In–Coupl. Fwd o Out–Coupl. Fwd). Su RL sale siempre de la medida **In–Out**: S11 para el puerto en P1 y S22 para el de P2.
+  - Coupl. Fwd (y Coupl. Rev, si se mide) sale de la primera medida que lo tiene.
+  - La leyenda dice de dónde sale cada traza, p. ej. «Out (In-Out, S22)».
+- **Pérdidas de transmisión (TL) de cada medida.** Una traza por par: −|S21|, del puerto en P1 al puerto en P2. La leyenda lleva la magnitud del acoplador que da: «In → Out · IL», «In → Coupl. Fwd · C», «Out → Coupl. Fwd · I».
 
 Cada traza tiene su incertidumbre (la del parámetro S del que sale) y el suavizado de la plantilla (el de S11 / S22 para el RL y el de S21 para el TL). Las casillas de frecuencia logarítmica, suavizado e incertidumbre valen para los dos gráficos. Durante el ensayo, la verificación de la calibración se sigue viendo como parámetros S.
 
-Lo mismo se ve en la pestaña del ensayo y en el explorador. Las pérdidas de retorno del veredicto (RL) son la peor de ENTRADA y SALIDA, ahora tomadas de la medida ENTRADA–SALIDA; antes se tomaba la peor de las cuatro reflexiones medidas en esos puertos. El CSV del acoplador añade una columna «RL <puerto> (dB)» por puerto.
+Lo mismo se ve en la pestaña del ensayo y en el explorador. Las pérdidas de retorno del veredicto (RL) son la peor de In y Out, ahora tomadas de la medida In–Out; antes se tomaba la peor de las cuatro reflexiones medidas en esos puertos. El CSV del acoplador añade una columna «RL <puerto> (dB)» por puerto.
+
+## 9. Versión 0.8.3
+
+### Puertos del acoplador: In, Out, Coupl. Fwd, Coupl. Rev
+
+Son los nombres de la categoría «acoplador», de los pares de la plantilla de ensayo, de las medidas («In-Coupl. Fwd») y de las gráficas. Los nombres anteriores (ENTRADA, SALIDA, ACOPLADO, AISLADO) se siguen leyendo:
+
+- en una categoría con esos cuatro puertos y en los pares de una plantilla, que pasan a los nombres nuevos al cargarlos;
+- en los ensayos ya hechos, cuyas medidas se muestran con los nombres nuevos.
+
+En los nombres de fichero, los espacios y puntos se cambian por «_» (`…_In-Coupl_Fwd.s2p`).
+
+### Especificaciones y suavizado en las gráficas del acoplador
+
+- Los **valores nominales** del modelo se dibujan discontinuos, dentro del rango nominal del acoplador:
+  - en el gráfico de reflexión, el RL mínimo de In y Out;
+  - en el de transmisión, IL máxima sobre In → Out, acoplamiento nominal ± tolerancia sobre In → Coupl. Fwd y aislamiento mínimo sobre Out → Coupl. Fwd.
+  - La directividad no tiene traza propia (D = I − C): sigue en la tabla «Pasa / falla».
+- Se ven ya durante el ensayo, y el registro los guarda (`valores_nominales`: límites y rango) para dibujarlos después. Los ensayos de antes de 0.8.3 no los tienen.
+- Las casillas **Especificaciones** y **Suavizado** están siempre en las gráficas de los ensayos (también en las de parámetros S). Si no hay nada que mostrar (el modelo no tiene especificaciones, la plantilla no define suavizado), aparecen en gris y su ayuda dice por qué.
+
+### Unidades de las gráficas
+
+| Gráfica | Opciones |
+|---|---|
+| Parámetros S (todos los ensayos salvo la impedancia) | **VSWR, Magnitud (dB)** · **Magnitud (dB)** (por defecto) · **Fase (°)** |
+| Medida de impedancia en 1 puerto (algoritmo `vna_1_puerto`) | **Impedancia (Ω)** · **Impedancia (dBΩ)** · **Fase (°)** (de Z) |
+| Acoplador | VSWR, Magnitud (dB) · Magnitud (dB) · Fase (°) |
+
+- «VSWR, Magnitud (dB)»: las reflexiones (S11, S22) en VSWR en el eje izquierdo y las transmisiones (S21, S12) en dB en un segundo eje, a la derecha. Si solo hay transmisiones (ensayo de transmisión), un solo eje en dB.
+  - La incertidumbre se convierte a VSWR, por lo que la zona no es simétrica.
+  - Las especificaciones de reflexión en dB se dibujan como su VSWR.
+- En el acoplador, «VSWR, Magnitud (dB)» da el VSWR de cada puerto (y el RL mínimo como VSWR máximo) y el TL de cada medida en dB. «Fase (°)» da la fase de la reflexión de cada puerto y de la transmisión de cada medida, sin valores nominales.
+- La impedancia es otra magnitud, no otra unidad: solo aparece en la medida de impedancia, que ya no ofrece los parámetros S. No tiene zona de incertidumbre (solo hay incertidumbre de los parámetros S).
+
+### Detener un ensayo
+
+El botón **Detener** no servía mientras el ensayo esperaba al operador: la petición («Conecte…») era una ventana modal que bloqueaba el resto de la aplicación, y el ensayo pasa casi todo el tiempo esperando una. Ahora:
+
+- la petición no es modal;
+- **Detener** (botón de la ventana, cinta de opciones o el nuevo «Ensayo → Detener ensayo» del menú) cierra la petición abierta y el ensayo queda «abortado — Ensayo detenido por el operador»;
+- el ensayo, como antes, también se detiene con «Detener ensayo» de la propia petición.
+
+Además, al salir de la aplicación con un ensayo en curso ya no se esperan 10 s a que termine el hilo del ensayo.
+
+### Nuevos equipos del catálogo
+
+- **Conector NMD 2,92 mm** (familia nueva). Es el conector robusto de los puertos de prueba:
+  - el macho NMD (puerto del ZNB43) admite hembras NMD (cables de puerto) y hembras 2,92 mm normales;
+  - la hembra NMD solo se conecta a un macho NMD;
+  - para kits y conectores de DUT cuenta como 2,92 mm.
+
+  El modelo del ZNB43 (`rs_znb43`) tiene ahora sus puertos como **NMD 2,92 mm macho**, como dice su fichero de incertidumbres.
+- **Transiciones** (categoría «adaptador», con los campos nuevos «VSWR máximo» y «Forma»):
+
+  | Equipos | Modelo | Conectores | Frecuencia | VSWR máx. |
+  |---|---|---|---|---|
+  | `ADP-NMD292-01`, `-02` | Sainty-Tech 852D/362D-3767B1 | NMD 2,92 mm (h) – 2,92 mm (h) | DC – 40 GHz | 1,20 |
+  | `ADP-NMDN-01` | Pasternack PE9983 | NMD 2,92 mm (h) – N (h) | DC – 18 GHz | 1,25 |
+  | `ADP-292N-01`, `-02` | Sainty-Tech 362D/272D-6765B | 2,92 mm (h) – N (h) | DC – 18 GHz | 1,15 |
+  | `ADP-292RA-01` | Sainty-Tech 361D/362D-6767CW (ángulo recto) | 2,92 mm (m) – 2,92 mm (h) | DC – 40 GHz | 1,25 |
+  | `ADP-292BH-01` | Sainty-Tech 362D/362D-6767BY2 (pasamuros) | 2,92 mm (h) – 2,92 mm (h) | DC – 40 GHz | 1,20 |
+
+- **Cables de puerto del VNA** (categoría «cable de medida», con VSWR máximo, IL máxima y estabilidad de amplitud y fase):
+
+  | Equipo | Modelo | Conectores | Longitud | Frecuencia | Especificaciones |
+  |---|---|---|---|---|---|
+  | `CAB-PT-NMD-01` | Sainty-Tech 8536-1522-0630-L1 | NMD 2,92 mm (h) – 2,92 mm (h) | 630 mm | DC – 40 GHz | VSWR ≤ 1,30; IL ≤ 2,8 dB; ±0,05 dB; ±2,5° |
+  | `CAB-PT-NMD-02` | Sainty-Tech 8536-1521-0630-DL | NMD 2,92 mm (h) – 2,92 mm (m) | 630 mm | DC – 40 GHz | VSWR ≤ 1,30; IL ≤ 2,8 dB; ±0,05 dB; ±2,5° |
+
+  Como todo cable de medida, cada uno necesita su fichero S2P medido para entrar en un hardware setup. Por eso el inventario los marca con «Falta el fichero de parámetros S».
+- **Kit de calibración N AA180-VNACKN** (`KIT-N-02`), DC – 18 GHz, para OSM, TOSM y UOSM.
+  - Componentes: abierto, cortocircuito y carga N macho y hembra; adaptadores N (h)–N (h) y N (m)–N (m); dos adaptadores 7 mm–N (m) y dos 7 mm–N (h); llave dinamométrica y llave de gancho. Están en el campo nuevo «Componentes» del kit.
+  - Especificaciones: fase del abierto y del cortocircuito ≤ 1,5°, VSWR de la carga ≤ 1,055, VSWR de los adaptadores ≤ 1,083. Son campos nuevos de la categoría del kit.
+  - **A confirmar:** el fabricante, el nombre del kit en el VNA (de momento `AA180-VNACKN`) y su certificado de calibración. Sin certificado, la calibración del kit no tiene fecha de validez en la biblioteca.
 
 | | |
 |---|---|
-| ![RL de cada puerto y TL de cada medida en la pestaña del ensayo](capturas/v08/27d_acoplador_grafica.png) | ![Las dos gráficas en el explorador de ensayos](capturas/v08/27f_explorador_acoplador.png) |
+| ![Acoplador: RL y TL con sus valores nominales](capturas/v08/27d_acoplador_grafica.png) | ![Acoplador: VSWR de cada puerto](capturas/v08/27g_acoplador_vswr.png) |
+| ![Cable 2,92 mm: VSWR de las reflexiones y magnitud de las transmisiones en el eje derecho](capturas/v08/23c_ensayo_vswr_magnitud.png) | ![LISN: impedancia en Ω](capturas/v08/28_lisn_impedancia.png) |
+| ![Las dos gráficas del acoplador en el explorador](capturas/v08/27f_explorador_acoplador.png) | ![Cable de puerto NMD en el inventario](capturas/v08/03b_equipos_cable_nmd.png) |
 
-## 9. Ficheros del código
+## 10. Ficheros del código
 
 | Fichero | Contenido |
 |---|---|
@@ -194,10 +274,12 @@ Lo mismo se ve en la pestaña del ensayo y en el explorador. Las pérdidas de re
 | `setups/analysis.py` | Validación sobre el setup expandido; grupo «Camino» y conectores de DUT admitidos |
 | `setups/connections.py` | Normalización de transmisión (through plano o through del setup) |
 | `procedures/engine.py` | Puertos del EUT por camino, pares del acoplador, normalización, mensajes al operador con los planos, exportación de los cuatro algoritmos, caminos en el registro |
-| `procedures/coupler.py` | IL, C, I, D y RL del acoplador, RL de cada puerto (`return_loss_sources`, `port_return_losses`), TL de cada par y su pasa / falla frente a los valores nominales |
+| `procedures/coupler.py` | IL, C, I, D y RL del acoplador, RL de cada puerto (`return_loss_sources`, `port_return_losses`), TL de cada par, su pasa / falla frente a los valores nominales y los valores nominales del registro (`nominal_values_record`) |
 | `procedures/results.py` | CSV de S21 (escritura y lectura), CSV del acoplador |
 | `instruments/` | Método `normalizacion` en el VNA simulado y en el adaptador R&S; acoplador simulado |
 | `gui/setup_diagram.py`, `gui/setup_editor.py` | Diagrama con la estructura común y panel de edición de caminos |
 | `gui/procedures_view.py` | Puertos del EUT y pares del acoplador en la plantilla de ensayo |
-| `gui/plots.py` | `CouplerPlots` (RL de cada puerto y TL de cada medida) y `ResultPlots`, que elige la gráfica según el algoritmo del ensayo |
+| `gui/plots.py` | Unidades de las gráficas (`S_MODES`, `IMPEDANCE_MODES`, segundo eje), `CouplerPlots` (reflexión de cada puerto y transmisión de cada medida, con los valores nominales) y `ResultPlots`, que elige la gráfica según el algoritmo del ensayo |
+| `gui/test_window.py` | Peticiones al operador no modales (`PromptBridge`) y «Detener» que las cierra |
+| `core/connectors.py` | Familia NMD 2,92 mm y sus reglas de conexión (`RUGGEDIZED`, `interface_family`) |
 | `tests/test_paths.py`, `tests/test_engine.py`, `tests/test_gui.py` | Caminos, ensayos de transmisión y acoplador, editor |

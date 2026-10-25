@@ -1,0 +1,5 @@
+# Kit de calibración N AA180-VNACKN (sin certificado registrado: añada su calibración)
+formato: calelektra/equipo@0.3
+id: KIT-N-02
+modelo: aa180_vnackn
+estado: en_servicio

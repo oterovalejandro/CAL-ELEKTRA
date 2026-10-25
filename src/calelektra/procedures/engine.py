@@ -35,6 +35,7 @@ can be exercised without hardware.
 
 from __future__ import annotations
 
+import re
 import shutil
 import threading
 from dataclasses import dataclass, field
@@ -71,6 +72,7 @@ from calelektra.procedures.coupler import (
     coupler_summary,
     coupler_verdict,
     evaluate_coupler,
+    nominal_values_record,
     pair_name,
     port_return_losses,
 )
@@ -199,7 +201,7 @@ def eut_choices(library: Library, setup: ConfiguredSetup | None) -> tuple[str | 
 # ── preparation: everything resolved from the template, its setup, its EUT and the equipment fields ──
 @dataclass
 class PlannedMeasurement:
-    """One measurement of the EUT: «DUT», or a port pair of a directional coupler (e.g. «ENTRADA-SALIDA»)."""
+    """One measurement of the EUT: «DUT», or a port pair of a directional coupler (e.g. «In-Out»)."""
 
     name: str
     dut_ports: list[str]  # ports of the EUT on P1, P2… then the others (``dut.#1``, ``dut.#2``…)
@@ -226,6 +228,7 @@ class RunPlan:
     issues: list[Issue] = field(default_factory=list)
     expanded: ExpandedSetup | None = None  # the setup with its paths as roles (first measurement)
     coupler_limits: dict[str, CouplerLimit] = field(default_factory=dict)  # nominal values of a coupler
+    coupler_range: FrequencyRange | None = None  # where they apply: nominal range of the coupler
 
     @property
     def ok(self) -> bool:
@@ -422,8 +425,10 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
     # pass / fail: S2P specifications of the model of the EUT, or the nominal values of a coupler
     specs: list[tuple[SpecFile, Path]] = []
     limits: dict[str, CouplerLimit] = {}
+    nominal_range = None
     if dut is not None and algorithm == "vna_acoplador":
         limits = coupler_limits({key: library.field(dut, key) for key in COUPLER_FIELDS})
+        nominal_range = library.frequency_range_of(dut).range
         if not limits:
             warning(f"El modelo de «{dut.id}» no tiene valores nominales de acoplador: el ensayo no dará veredicto", "ensayo.especificacion")
     elif dut is not None:
@@ -455,7 +460,8 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
                     warning(f"Especificación «{spec.name}»: solo se evalúa en {overlap}", "ensayo.especificacion")
             specs.append((spec, path))
     return RunPlan(
-        procedure, effective, template, analysis, design, vna, dut, dut_role, frequency_plan, specs, measurements, issues, expanded, limits
+        procedure, effective, template, analysis, design, vna, dut, dut_role, frequency_plan, specs, measurements, issues, expanded, limits,
+        nominal_range,
     )
 
 
@@ -1159,8 +1165,9 @@ class ProcedureRunner:
         if not limits:
             record.verdict = "SIN_ESPECIFICACIONES"
             return "omitido", f"El modelo de «{self.plan.dut.id}» no tiene valores nominales de acoplador"
+        record.nominal_values = nominal_values_record(limits, self.plan.coupler_range)  # also drawn in the charts
         quantities = coupler_quantities(result.data)
-        entries = evaluate_coupler(result.frequencies, quantities, limits, self.library.frequency_range_of(self.plan.dut).range)
+        entries = evaluate_coupler(result.frequencies, quantities, limits, self.plan.coupler_range)
         record.spec_results = entries
         record.verdict = coupler_verdict(entries)
         for entry in entries:
@@ -1200,6 +1207,7 @@ class ProcedureRunner:
         except (KeyError, IndexError):
             stem = "{dut}_{fecha}".format(**values)
         stem = "".join(c if c.isalnum() or c in "-_." else "_" for c in stem)
+        suffix = re.sub(r"[^\w-]+", "_", suffix).strip("_")  # «In-Coupl. Fwd» → «In-Coupl_Fwd»
         return stem + (f"_{suffix}" if suffix else "")
 
     def _comments(self, extra: list[str]) -> list[str]:

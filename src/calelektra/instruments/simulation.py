@@ -89,7 +89,7 @@ def lisn_model(network: str, line_index: int = 0, z0: float = 50.0) -> OnePortMo
 
 
 def coupler_model(coupling_db: float = 20.0, directivity_db: float = 20.0, seed: int = 0) -> Callable[[np.ndarray], np.ndarray]:
-    """Directional coupler, ports ENTRADA, SALIDA, ACOPLADO, AISLADO (S has shape (points, 4, 4)).
+    """Directional coupler, ports In, Out, Coupl. Fwd, Coupl. Rev (S has shape (points, 4, 4)).
 
     Coupling ``coupling_db`` with a small ripple, main-line loss growing with
     √f, directivity around ``directivity_db`` and input/output reflections of

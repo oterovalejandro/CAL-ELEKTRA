@@ -1,0 +1,19 @@
+# Cable de puerto del VNA NMD 2,92 mm (h) – 2,92 mm (h), 630 mm, DC – 40 GHz
+# Datos del fabricante: VSWR ≤ 1,30, pérdidas de inserción ≤ 2,8 dB, estabilidad
+# de amplitud ±0,05 dB y de fase ±2,5°. Como todo cable de medida, cada unidad
+# necesita su fichero S2P medido para usarse en un hardware setup.
+formato: calelektra/modelo@0.3
+id: sainty_8536_1522_0630_l1
+categoria: cable_medida
+fabricante: Sainty-Tech
+modelo: "8536-1522-0630-L1"
+campos:
+  rango_frecuencia: [DC, 40 GHz]
+  conector_a: { familia: NMD 2.92 mm, genero: hembra }
+  conector_b: { familia: 2.92 mm, genero: hembra }
+  longitud_m: 0.63
+  estable_en_fase: true
+  vswr_max: 1.30
+  perdidas_insercion_max_db: 2.8
+  estabilidad_amplitud_db: 0.05
+  estabilidad_fase_grados: 2.5

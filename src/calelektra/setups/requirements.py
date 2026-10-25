@@ -27,7 +27,7 @@ from typing import Any
 from calelektra.catalog.fields import FieldSpec, NumberRange, display
 from calelektra.catalog.library import Library
 from calelektra.catalog.model import Equipment
-from calelektra.core.connectors import FAMILIES, GENDERS, Connector, ConnectorError, family_key
+from calelektra.core.connectors import FAMILIES, GENDERS, Connector, ConnectorError, family_key, interface_family
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.setups.model import OPERATORS, Requirement
@@ -82,7 +82,7 @@ def _attribute(value: Any, attribute: str | None, spec: FieldSpec | None) -> tup
         return value, spec.type if spec else None
     if isinstance(value, Connector):
         if attribute == "familia":
-            return value.family, "familia_conector"
+            return interface_family(value.family), "familia_conector"  # an NMD port is of its standard interface (kits…)
         if attribute == "genero":
             return value.gender, "genero"
     if isinstance(value, FrequencyRange):

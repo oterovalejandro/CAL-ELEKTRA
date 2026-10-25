@@ -16,3 +16,7 @@ campos:
   conector_b: { etiqueta: Conector extremo B, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
   longitud_m: { etiqueta: Longitud, tipo: numero, unidad: m, nivel: ambos, grupo: Mecánica }
   estable_en_fase: { etiqueta: Estable en fase, tipo: booleano, nivel: modelo, por_defecto: true, grupo: Mecánica }
+  vswr_max: { etiqueta: VSWR máximo, tipo: numero, nivel: modelo, grupo: RF }
+  perdidas_insercion_max_db: { etiqueta: Pérdidas de inserción máximas, tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  estabilidad_amplitud_db: { etiqueta: Estabilidad de amplitud máxima (±), tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  estabilidad_fase_grados: { etiqueta: Estabilidad de fase máxima (±), tipo: numero, unidad: °, nivel: modelo, grupo: RF }

@@ -1,0 +1,31 @@
+# Kit de calibración N 50 Ω AA180-VNACKN, DC – 18 GHz: abierto, cortocircuito y
+# carga macho y hembra, adaptadores N (h) – N (h) y N (m) – N (m) (through
+# desconocido de la UOSM) y adaptadores 7 mm – N.
+formato: calelektra/modelo@0.3
+id: aa180_vnackn
+categoria: kit_calibracion
+fabricante: Genérico            # A CONFIRMAR: fabricante del kit
+modelo: AA180-VNACKN
+campos:
+  rango_frecuencia: [DC, 18 GHz]
+  familia_conector: N
+  generos_disponibles: [macho, hembra]
+  metodos: [OSM, TOSM, UOSM]
+  nombre_kit_vna: AA180-VNACKN        # A CONFIRMAR: nombre con el que se cargue el kit en el VNA
+  componentes:
+    - Abierto N (m)
+    - Abierto N (h)
+    - Cortocircuito N (m)
+    - Cortocircuito N (h)
+    - Carga N (m)
+    - Carga N (h)
+    - Adaptador N (h) – N (h)
+    - Adaptador N (m) – N (m)
+    - 2 adaptadores 7 mm – N (m)
+    - 2 adaptadores 7 mm – N (h)
+    - Llave dinamométrica N
+    - Llave de gancho
+  desviacion_fase_abierto_grados: 1.5
+  desviacion_fase_corto_grados: 1.5
+  vswr_carga_max: 1.055
+  vswr_adaptadores_max: 1.083

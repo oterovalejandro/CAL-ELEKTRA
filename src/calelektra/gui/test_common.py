@@ -15,13 +15,19 @@ from calelektra.catalog.model import Equipment, SpecFile
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import format_frequency
 from calelektra.gui import style
+from calelektra.gui.plots import CouplerPlots, SParameterPlot
 from calelektra.instruments.factory import is_simulated
 from calelektra.procedures.ambient import AmbientError
+from calelektra.procedures.coupler import nominal_values_from_record
 from calelektra.procedures.engine import RunPlan
 from calelektra.procedures.model import ALGORITHMS, TRACES, SweepSettings
 from calelektra.procedures.package import save_test_package
 from calelektra.procedures.record import TestRecord
-from calelektra.procedures.record_uncertainty import conditions_loaded, is_pending, load_ambient_conditions
+from calelektra.procedures.record_uncertainty import (
+    conditions_loaded,
+    is_pending,
+    load_ambient_conditions,
+)
 from calelektra.procedures.results import read_csv_columns, read_results_csv_s21
 from calelektra.procedures.specs import VERDICTS, SpecCurve, spec_curves
 from calelektra.setups.paths import describe_path_record
@@ -367,6 +373,22 @@ def record_spec_curves(record: TestRecord) -> list[SpecCurve]:
             continue
         curves += spec_curves(spec, record.folder / spec.file)
     return curves
+
+
+def show_specifications(plot: SParameterPlot | CouplerPlots, record: TestRecord) -> None:
+    """Specifications of a test on its chart: the S2P specifications of the model of the EUT or the nominal values of a coupler."""
+    if isinstance(plot, CouplerPlots):
+        plot.set_nominal_values(*nominal_values_from_record(record.nominal_values))
+    else:
+        plot.set_limits(record_spec_curves(record))
+
+
+def show_plan_specifications(plot: SParameterPlot | CouplerPlots, plan: RunPlan) -> None:
+    """The same before the test is made, from what the run plan resolved."""
+    if isinstance(plot, CouplerPlots):
+        plot.set_nominal_values(plan.coupler_limits, plan.coupler_range)
+    else:
+        plot.set_limits([curve for spec, path in plan.specs for curve in spec_curves(spec, path)])
 
 
 def record_smoothing(record: TestRecord) -> dict[str, float]:

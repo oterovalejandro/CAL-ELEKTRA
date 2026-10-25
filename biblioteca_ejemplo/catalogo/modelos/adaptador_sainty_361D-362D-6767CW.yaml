@@ -1,0 +1,14 @@
+# Transición 2,92 mm (m) – 2,92 mm (h) en ángulo recto (R/A), DC – 40 GHz, VSWR ≤ 1,25
+formato: calelektra/modelo@0.3
+id: sainty_361d_362d_6767cw
+categoria: adaptador
+fabricante: Sainty-Tech
+modelo: "361D/362D-6767CW"
+variante: ángulo recto
+campos:
+  rango_frecuencia: [DC, 40 GHz]
+  tipo: coaxial
+  conector_a: { familia: 2.92 mm, genero: macho }
+  conector_b: { familia: 2.92 mm, genero: hembra }
+  vswr_max: 1.25
+  forma: angulo_recto

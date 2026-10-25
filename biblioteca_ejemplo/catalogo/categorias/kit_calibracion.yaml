@@ -16,6 +16,11 @@ campos:
     por_defecto: [macho, hembra]
     grupo: RF
   metodos: { etiqueta: Métodos admitidos, tipo: multiopcion, opciones: [OSM, TOSM, UOSM, TRL], nivel: modelo, obligatorio: true, grupo: Calibración }
+  componentes: { etiqueta: Componentes, tipo: lista, nivel: modelo, grupo: General }
+  desviacion_fase_abierto_grados: { etiqueta: Desviación de fase del abierto (máx.), tipo: numero, unidad: °, nivel: modelo, grupo: Especificaciones }
+  desviacion_fase_corto_grados: { etiqueta: Desviación de fase del cortocircuito (máx.), tipo: numero, unidad: °, nivel: modelo, grupo: Especificaciones }
+  vswr_carga_max: { etiqueta: VSWR máximo de la carga, tipo: numero, nivel: modelo, grupo: Especificaciones }
+  vswr_adaptadores_max: { etiqueta: VSWR máximo de los adaptadores, tipo: numero, nivel: modelo, grupo: Especificaciones }
   nombre_kit_vna:
     etiqueta: Nombre del kit en el VNA
     tipo: texto

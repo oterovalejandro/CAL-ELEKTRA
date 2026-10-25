@@ -10,7 +10,7 @@ Ejemplos de lo que cubre:
 
 ## Estado
 
-**Versión 0.8.2** — funcional con el VNA simulado:
+**Versión 0.8.3** — funcional con el VNA simulado:
 
 - **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**.
 - **Hardware setups con una estructura común**: el VNA a la izquierda, una línea que se divide en sus puertos (P1, P2…) y, de cada puerto, un **camino** (cables de medida, adaptadores, paths, preamplificadores…, en orden) que lleva el plano de referencia hasta el puerto del DUT. El conector del final de cada camino dice **qué conectores de DUT se pueden calibrar** con el setup. Cada setup tiene sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** de cada unión y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM; OSM en 1 puerto; normalización de transmisión). Ver [`docs/09_caminos_y_nuevas_plantillas.md`](docs/09_caminos_y_nuevas_plantillas.md).
@@ -20,9 +20,10 @@ Ejemplos de lo que cubre:
   - Camino RF de 2 puertos, **reflexión y transmisión** (S → .s2p);
   - Camino RF de 2 puertos, **transmisión** (S21 → .csv, con normalización);
   - **medida de impedancia** en 1 puerto (S11 → .s1p);
-  - **acoplador direccional** de 4 puertos (un .s2p por par de puertos, con los otros dos en 50 Ω; pasa / falla frente a sus valores nominales; gráficas del RL de cada puerto y del TL de cada medida).
+  - **acoplador direccional** de 4 puertos (un .s2p por par de puertos, con los otros dos en 50 Ω; puertos In, Out, Coupl. Fwd y Coupl. Rev; pasa / falla frente a sus valores nominales; gráficas del RL de cada puerto y del TL de cada medida con esos valores).
 
   Las otras dos son **SAC — NSA** y **SAC — S_VSWR**: caminos que terminan en las antenas, todavía sin algoritmo de ensayo.
+- **Gráficas de los ensayos** en **VSWR con la magnitud (dB) de las transmisiones** en un segundo eje, en magnitud (dB) o en fase; la medida de impedancia, en **Ω, dBΩ o fase de Z**. Las especificaciones (o los valores nominales del acoplador) se dibujan sobre las trazas, y el ensayo se puede **detener** también mientras espera al operador.
 - **VNA simulado** realista (errores sistemáticos, calibración OSM/TOSM/UOSM, CAL/CAI) y **adaptador del R&S ZNB43** sobre los comandos del driver RsZnx, con barrido segmentado para las listas (pendiente de probar con el equipo).
 - **Incertidumbre de cada traza** (magnitud en dB y fase en °, k = 2) con el **fichero de incertidumbres de cada unidad de VNA** (ZNB43 nº 101683 y E5061B nº MY49408336) y el algoritmo de cálculo del laboratorio, con resultados idénticos a los del script original. Las gráficas la muestran como una **zona sombreada** alrededor de cada traza, y el ensayo la guarda en su registro y en un CSV. Ver [`docs/07_incertidumbres.md`](docs/07_incertidumbres.md).
 - **Condiciones ambientales de la sonda TPH**: al terminar un ensayo la incertidumbre queda **pendiente** (calculada sin la componente de temperatura) hasta que se carga el **.xlsx exportado de la sonda**; entonces se recalcula con la temperatura del ensayo. **«Guardar ensayo…»** reúne en un .zip el hardware setup y la plantilla tal como se lanzaron, las horas de inicio y fin, las condiciones ambientales, las medidas en Touchstone sin suavizado, los CSV, la incertidumbre y un resumen. Ver [`docs/08_condiciones_ambientales_y_paquete.md`](docs/08_condiciones_ambientales_y_paquete.md).
@@ -95,4 +96,4 @@ tests/                pruebas con pytest
 6. [Depuración del control del VNA sin interfaz gráfica — versión 0.5.1](docs/06_depuracion_vna.md)
 7. [Incertidumbre de las medidas con VNA y zona sombreada en las gráficas — versión 0.6](docs/07_incertidumbres.md)
 8. [Condiciones ambientales de la sonda TPH, incertidumbre pendiente y paquete del ensayo — versión 0.7](docs/08_condiciones_ambientales_y_paquete.md)
-9. [Hardware setups con un camino por puerto del VNA y nuevas plantillas (transmisión, impedancia, acoplador) — versión 0.8](docs/09_caminos_y_nuevas_plantillas.md)
+9. [Hardware setups con un camino por puerto del VNA y nuevas plantillas (transmisión, impedancia, acoplador) — versiones 0.8 a 0.8.3](docs/09_caminos_y_nuevas_plantillas.md)

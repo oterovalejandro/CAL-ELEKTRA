@@ -11,7 +11,7 @@ variante: 2 puertos
 campos:
   rango_frecuencia: [100 kHz, 43.5 GHz]
   num_puertos: 2
-  conector_puertos: { familia: 2.92 mm, genero: macho }   # 2,92 mm NMD macho (fichero de incertidumbres del nº 101683)
+  conector_puertos: { familia: NMD 2.92 mm, genero: macho }   # 2,92 mm NMD macho (fichero de incertidumbres del nº 101683)
   impedancia_ref_ohm: 50
   potencia_salida_dbm: [-40, 0]                             # A CONFIRMAR
   ifbw: [1 Hz, 10 MHz]

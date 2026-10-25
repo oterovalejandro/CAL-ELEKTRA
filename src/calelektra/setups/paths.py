@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from calelektra.core.connectors import Connector, mating_issue
+from calelektra.core.connectors import Connector, interface_family, mating_issue
 from calelektra.core.issues import Issue, Severity
 from calelektra.setups.model import Connection, ConfiguredSetup, ConnectionState, PathDefinition, Role, SetupTemplate
 
@@ -66,7 +66,7 @@ def admitted_dut_connector(end: Connector | None) -> Connector | None:
     """Connector of a DUT port that mates directly with the end of a path."""
     if end is None:
         return None
-    return Connector(end.family, end.mating_gender())
+    return Connector(interface_family(end.family), end.mating_gender())  # a VNA port with NMD: a standard DUT connector
 
 
 def _mates(a: Connector | None, b: Connector | None) -> bool:

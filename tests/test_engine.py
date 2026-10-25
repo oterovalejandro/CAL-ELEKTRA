@@ -6,13 +6,17 @@ import yaml
 
 from calelektra.core.touchstone import read_touchstone
 from calelektra.instruments.dummy_vna import DummyVna
+from calelektra.catalog.model import Category
 from calelektra.procedures.coupler import (
     coupler_quantities,
+    current_pair_name,
+    nominal_values_from_record,
     pair_transmission_losses,
     port_return_losses,
     return_loss_sources,
     transmission_symbol,
 )
+from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, RunListener, prepare_run, suitable_setups
 from calelektra.procedures.results import read_csv_columns
 
@@ -147,7 +151,7 @@ def test_record_keeps_the_paths_of_the_setup(library):
     assert record.setup["caminos"] == {"P1": ["CAB-PT-292-01"], "P2": ["CAB-PT-292-02"]}
     assert record.setup["conectores_dut_admitidos"] == "PR1: 2,92 mm (K) hembra; PR2: 2,92 mm (K) macho"
     first, second = record.paths
-    assert first["conector_puerto_vna"] == "2,92 mm (K) macho" and first["conector_plano"] == "2,92 mm (K) macho"
+    assert first["conector_puerto_vna"] == "NMD 2,92 mm macho" and first["conector_plano"] == "2,92 mm (K) macho"
     [element] = first["elementos"]
     assert element["id"] == "CAB-PT-292-01" and element["lado_vna"] == "A" and element["lado_dut"] == "B"
     assert element["datos_s"] == "CAB-PT-292-01.s2p" and second["conector_dut_admitido"] == "2,92 mm (K) macho"
@@ -157,7 +161,7 @@ def test_record_keeps_the_paths_of_the_setup(library):
     assert snapshot["formato"] == "calelektra/hardware_setup_ensayo@0.4" and snapshot["setup"]["caminos"]["P1"] == ["CAB-PT-292-01"]
     assert snapshot["caminos"][1]["elementos"][0]["id"] == "CAB-PT-292-02"
     data = read_touchstone(record.folder / record.measurements[0]["fichero"])
-    assert any(line.startswith("Camino P1: P1 (2,92 mm (K) macho) → CAB-PT-292-01 (A→B) → PR1") for line in data.comments)
+    assert any(line.startswith("Camino P1: P1 (NMD 2,92 mm macho) → CAB-PT-292-01 (A→B) → PR1") for line in data.comments)
 
 
 def test_eut_ports_on_each_path_can_be_chosen(library):
@@ -194,14 +198,15 @@ def test_directional_coupler_by_port_pairs(library):
     result, operator, listener = run(library, "acoplador_ACP-0001")
     record = result.record
     assert record.status == "completado" and record.verdict == "PASA"
-    assert listener.names[-3:] == ["ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"]
+    assert listener.names[-3:] == ["In-Out", "In-Coupl. Fwd", "Out-Coupl. Fwd"]
     prompts = [r for r in operator.requests if r.step == "medida"]
-    assert [p.title for p in prompts] == ["Par ENTRADA – SALIDA (1/3)", "Par ENTRADA – ACOPLADO (2/3)", "Par SALIDA – ACOPLADO (3/3)"]
-    assert "ACOPLADO (N 50 Ω hembra) en «LOAD-N-01»" in prompts[0].message and "SALIDA (N 50 Ω hembra) en PR2" in prompts[0].message
+    assert [p.title for p in prompts] == ["Par In – Out (1/3)", "Par In – Coupl. Fwd (2/3)", "Par Out – Coupl. Fwd (3/3)"]
+    assert "Coupl. Fwd (N 50 Ω hembra) en «LOAD-N-01»" in prompts[0].message and "Out (N 50 Ω hembra) en PR2" in prompts[0].message
     assert [m["puertos_eut"] for m in record.measurements] == [
-        {"P1": "ENTRADA", "P2": "SALIDA"}, {"P1": "ENTRADA", "P2": "ACOPLADO"}, {"P1": "SALIDA", "P2": "ACOPLADO"},
+        {"P1": "In", "P2": "Out"}, {"P1": "In", "P2": "Coupl. Fwd"}, {"P1": "Out", "P2": "Coupl. Fwd"},
     ]
-    assert record.measurements[0]["puertos_en_carga"] == ["ACOPLADO", "AISLADO"]
+    assert record.measurements[0]["puertos_en_carga"] == ["Coupl. Fwd", "Coupl. Rev"]
+    assert any(name.endswith("_In-Coupl_Fwd.s2p") for name in record.files)  # file names without spaces
     assert sum(name.endswith(".s2p") for name in record.files) == 3
     entries = {entry["nombre"]: entry for entry in record.spec_results}
     assert set(entries) == {"Pérdidas de inserción", "Acoplamiento", "Aislamiento", "Directividad", "Pérdidas de retorno"}
@@ -211,38 +216,52 @@ def test_directional_coupler_by_port_pairs(library):
     header, _ = read_csv_columns(record.folder / next(f for f in record.files if f.endswith("_acoplador.csv")))
     assert header[1:] == [
         "Pérdidas de inserción IL (dB)", "Acoplamiento C (dB)", "Aislamiento I (dB)", "Directividad D (dB)", "Pérdidas de retorno RL (dB)",
-        "RL ENTRADA (dB)", "RL SALIDA (dB)", "RL ACOPLADO (dB)",
+        "RL In (dB)", "RL Out (dB)", "RL Coupl. Fwd (dB)",
     ]
-    assert {m["medida"] for m in record.uncertainty["medidas"]} == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
+    assert {m["medida"] for m in record.uncertainty["medidas"]} == {"In-Out", "In-Coupl. Fwd", "Out-Coupl. Fwd"}
+    # the nominal values used are kept, to draw them on the charts
+    limits, nominal_range = nominal_values_from_record(record.nominal_values)
+    assert limits["acoplamiento"].value == 20 and limits["acoplamiento"].tolerance == 1 and nominal_range is not None
 
 
 def test_return_loss_of_each_coupler_port_comes_from_one_pair():
-    names = ["ENTRADA-ACOPLADO", "SALIDA-ACOPLADO", "SALIDA-ENTRADA", "ACOPLADO-AISLADO"]
-    # ENTRADA and SALIDA are in two pairs each: their RL comes from the pair between them, whatever its order
+    names = ["In-Coupl. Fwd", "Out-Coupl. Fwd", "Out-In", "Coupl. Fwd-Coupl. Rev"]
+    # In and Out are in two pairs each: their RL comes from the pair between them, whatever its order
     assert return_loss_sources(names) == {
-        "ENTRADA": ("SALIDA-ENTRADA", 1), "SALIDA": ("SALIDA-ENTRADA", 0), "ACOPLADO": ("ENTRADA-ACOPLADO", 1), "AISLADO": ("ACOPLADO-AISLADO", 1),
+        "In": ("Out-In", 1), "Out": ("Out-In", 0), "Coupl. Fwd": ("In-Coupl. Fwd", 1), "Coupl. Rev": ("Coupl. Fwd-Coupl. Rev", 1),
     }
-    assert return_loss_sources(["ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"])["ENTRADA"] == ("ENTRADA-ACOPLADO", 0)  # without that pair
+    assert return_loss_sources(["In-Coupl. Fwd", "Out-Coupl. Fwd"])["In"] == ("In-Coupl. Fwd", 0)  # without that pair
     f = np.linspace(1e9, 2e9, 3)
     data = {name: np.zeros((len(f), 2, 2), dtype=complex) for name in names}
-    data["SALIDA-ENTRADA"][:, 0, 0], data["SALIDA-ENTRADA"][:, 1, 1] = 0.1, 0.01  # RL 20 dB at SALIDA, 40 dB at ENTRADA
-    data["ENTRADA-ACOPLADO"][:, 0, 0] = 0.5  # the other measurement of ENTRADA does not count
-    data["SALIDA-ENTRADA"][:, 1, 0] = 0.9
+    data["Out-In"][:, 0, 0], data["Out-In"][:, 1, 1] = 0.1, 0.01  # RL 20 dB at Out, 40 dB at In
+    data["In-Coupl. Fwd"][:, 0, 0] = 0.5  # the other measurement of In does not count
+    data["Out-In"][:, 1, 0] = 0.9
     losses = port_return_losses(data)
-    assert np.allclose(losses["ENTRADA"], 40) and np.allclose(losses["SALIDA"], 20)
+    assert np.allclose(losses["In"], 40) and np.allclose(losses["Out"], 20)
     quantities = {q.symbol: q.values for q in coupler_quantities(data)}
-    assert np.allclose(quantities["RL"], 20)  # the worst of ENTRADA and SALIDA
-    assert np.allclose(pair_transmission_losses(data)["SALIDA-ENTRADA"], -20 * np.log10(0.9))
-    assert transmission_symbol("SALIDA-ENTRADA") == "IL" and transmission_symbol("ACOPLADO-AISLADO") is None
+    assert np.allclose(quantities["RL"], 20)  # the worst of In and Out
+    assert np.allclose(pair_transmission_losses(data)["Out-In"], -20 * np.log10(0.9))
+    assert transmission_symbol("Out-In") == "IL" and transmission_symbol("Coupl. Fwd-Coupl. Rev") is None
+    assert current_pair_name("ENTRADA-ACOPLADO") == "In-Coupl. Fwd" and current_pair_name("In-Out") == "In-Out"  # records before 0.8.3
+
+
+def test_coupler_ports_with_their_names_before_0_8_3(library):
+    category = library.categories["acoplador"].to_yaml_dict()
+    old_names = {"In": "ENTRADA", "Out": "SALIDA", "Coupl. Fwd": "ACOPLADO", "Coupl. Rev": "AISLADO"}
+    category["puertos"] = [{**port, "nombre": old_names[port["nombre"]]} for port in category["puertos"]]
+    assert [port.name for port in Category.model_validate(category).ports] == ["In", "Out", "Coupl. Fwd", "Coupl. Rev"]
+    template = library.procedures["acoplador_ACP-0001"].to_yaml_dict()
+    template["pares"] = [["ENTRADA", "SALIDA"], ["ENTRADA", "AISLADO"]]
+    assert ProcedureTemplate.model_validate(template).measured_pairs() == [("In", "Out"), ("In", "Coupl. Rev")]
 
 
 def test_coupler_pairs_are_checked(library):
-    template = template_with(library, "acoplador_ACP-0001", pairs=[("ENTRADA", "ENTRADA"), ("SALIDA", "OTRO")])
+    template = template_with(library, "acoplador_ACP-0001", pairs=[("In", "In"), ("Out", "OTRO")])
     plan = prepare_run(library, template, TODAY)
     assert not plan.ok and sum("no válido" in i.message for i in plan.issues) == 2
     library.models["carga_n_50"].values["conector"] = {"familia": "N", "genero": "hembra"}  # loads that do not mate the ports
     plan = prepare_run(library, library.procedures["acoplador_ACP-0001"], TODAY)
-    assert any(i.message.startswith("Par ENTRADA – ACOPLADO: ") and "mismo género" in i.message for i in plan.issues)
+    assert any(i.message.startswith("Par In – Coupl. Fwd: ") and "mismo género" in i.message for i in plan.issues)
 
 
 def test_each_launch_is_a_new_record_in_the_chosen_folder(library):

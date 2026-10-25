@@ -28,9 +28,9 @@ def test_expansion_turns_the_paths_into_roles_connections_and_planes(library):
 
 def test_empty_paths_leave_the_planes_on_the_vna_ports(library):
     [p1, p2] = resolve_paths(library.resolved_template("camino_rf_2p_s"), library.setups["cable_vna_292"], library)
-    assert p1.elements == [] and p1.end_endpoint == "vna.P1" and p1.end_connector.label() == "2,92 mm (K) macho"
-    assert p2.dut_connector.label() == "2,92 mm (K) hembra"
-    assert p1.describe() == "P1 (2,92 mm (K) macho) → PR1: 2,92 mm (K) macho"
+    assert p1.elements == [] and p1.end_endpoint == "vna.P1" and p1.end_connector.label() == "NMD 2,92 mm macho"
+    assert p2.dut_connector.label() == "2,92 mm (K) hembra"  # the ports of the VNA are NMD: they take standard 2,92 mm females
+    assert p1.describe() == "P1 (NMD 2,92 mm macho) → PR1: NMD 2,92 mm macho"
 
 
 def test_orientation_follows_the_connectors_or_the_setup(library):

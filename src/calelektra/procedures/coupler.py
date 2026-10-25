@@ -1,19 +1,20 @@
 """Directional coupler: quantities from the measured port pairs and pass / fail against its nominal values.
 
-Ports ENTRADA, SALIDA, ACOPLADO and AISLADO. Each measured pair (port on P1,
-port on P2) gives a 2 × 2 S matrix with the other two ports terminated in
-50 Ω. From the pairs, in dB and as positive losses:
+Ports In, Out, Coupl. Fwd (coupled forward) and Coupl. Rev (coupled reverse;
+the isolated port of a single coupler). Each measured pair (port on P1, port
+on P2) gives a 2 × 2 S matrix with the other two ports terminated in 50 Ω.
+From the pairs, in dB and as positive losses:
 
-* pérdidas de inserción  IL = −|S(SALIDA ← ENTRADA)|
-* acoplamiento           C  = −|S(ACOPLADO ← ENTRADA)|
-* aislamiento            I  = −|S(ACOPLADO ← SALIDA)| (or −|S(AISLADO ← ENTRADA)| if that pair is measured instead)
+* pérdidas de inserción  IL = −|S(Out ← In)|
+* acoplamiento           C  = −|S(Coupl. Fwd ← In)|
+* aislamiento            I  = −|S(Coupl. Fwd ← Out)| (or −|S(Coupl. Rev ← In)| if that pair is measured instead)
 * directividad           D  = I − C
-* pérdidas de retorno    RL = the worst of the return losses of ENTRADA and SALIDA
+* pérdidas de retorno    RL = the worst of the return losses of In and Out
 
-The return loss of each port comes from one measurement: ENTRADA and SALIDA
-from the ENTRADA–SALIDA pair (each of them is measured in two pairs), the
-other ports from the first pair that measures them. The transmission loss
-(TL) of each pair is −|S21|: from its port on P1 to its port on P2.
+The return loss of each port comes from one measurement: In and Out from the
+In–Out pair (each of them is measured in two pairs), the other ports from
+the first pair that measures them. The transmission loss (TL) of each pair
+is −|S21|: from its port on P1 to its port on P2.
 
 The nominal values come from the fields of the model of the coupler
 (``acoplamiento_nominal_db`` ± ``tolerancia_acoplamiento_db``,
@@ -29,13 +30,25 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from calelektra.catalog.model import LEGACY_COUPLER_PORTS
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import format_frequency
+from calelektra.procedures.model import COUPLER_PORTS
 from calelektra.procedures.results import db
+
+IN, OUT, FWD, REV = COUPLER_PORTS
 
 
 def pair_name(first: str, second: str) -> str:
     return f"{first}-{second}"
+
+
+def current_pair_name(name: str) -> str:
+    """Name of a pair with the current names of the ports (records before 0.8.3: «ENTRADA-SALIDA» → «In-Out»)."""
+    first, second = pair_ports(name)
+    if first in LEGACY_COUPLER_PORTS and second in LEGACY_COUPLER_PORTS:
+        return pair_name(LEGACY_COUPLER_PORTS[first], LEGACY_COUPLER_PORTS[second])
+    return name
 
 
 @dataclass
@@ -63,16 +76,14 @@ def pair_ports(name: str) -> tuple[str, str]:
 def return_loss_sources(names: list[str]) -> dict[str, tuple[str, int]]:
     """Port → (pair, 0 or 1: its position in the pair) whose reflection gives the return loss of the port.
 
-    ENTRADA and SALIDA come from the ENTRADA–SALIDA pair when it is measured; every other port (and
-    ENTRADA or SALIDA without that pair) from the first measured pair that has it.
+    In and Out come from the In–Out pair when it is measured; every other port (and In or Out
+    without that pair) from the first measured pair that has it.
     """
-    from calelektra.procedures.model import COUPLER_PORTS
-
-    through = next((name for name in names if set(pair_ports(name)) == {"ENTRADA", "SALIDA"}), None)
+    through = next((name for name in names if set(pair_ports(name)) == {IN, OUT}), None)
     sources: dict[str, tuple[str, int]] = {}
     for port in COUPLER_PORTS:
         candidates = [name for name in names if port in pair_ports(name)]
-        if port in ("ENTRADA", "SALIDA") and through is not None:
+        if port in (IN, OUT) and through is not None:
             candidates.insert(0, through)
         if candidates:
             sources[port] = (candidates[0], pair_ports(candidates[0]).index(port))
@@ -88,10 +99,10 @@ def port_return_losses(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
 
 
 TRANSMISSION_SYMBOLS = {
-    frozenset({"ENTRADA", "SALIDA"}): "IL",
-    frozenset({"ENTRADA", "ACOPLADO"}): "C",
-    frozenset({"SALIDA", "ACOPLADO"}): "I",
-    frozenset({"ENTRADA", "AISLADO"}): "I",
+    frozenset({IN, OUT}): "IL",
+    frozenset({IN, FWD}): "C",
+    frozenset({OUT, FWD}): "I",
+    frozenset({IN, REV}): "I",
 }
 
 
@@ -111,14 +122,14 @@ def coupler_quantities(data: dict[str, np.ndarray]) -> list[CouplerQuantity]:
     def loss(trace: np.ndarray | None) -> np.ndarray | None:
         return None if trace is None else -db(trace)
 
-    insertion = loss(_transmission(data, "ENTRADA", "SALIDA"))
-    coupling = loss(_transmission(data, "ENTRADA", "ACOPLADO"))
-    isolation = loss(_transmission(data, "SALIDA", "ACOPLADO"))
+    insertion = loss(_transmission(data, IN, OUT))
+    coupling = loss(_transmission(data, IN, FWD))
+    isolation = loss(_transmission(data, OUT, FWD))
     if isolation is None:
-        isolation = loss(_transmission(data, "ENTRADA", "AISLADO"))
+        isolation = loss(_transmission(data, IN, REV))
     directivity = isolation - coupling if isolation is not None and coupling is not None else None
     ports = port_return_losses(data)
-    reflections = [ports[port] for port in ("ENTRADA", "SALIDA") if port in ports]
+    reflections = [ports[port] for port in (IN, OUT) if port in ports]
     return_loss = np.min(reflections, axis=0) if reflections else None
     return [
         CouplerQuantity("perdidas_insercion", "Pérdidas de inserción", "IL", insertion),
@@ -165,6 +176,36 @@ def coupler_limits(fields: dict[str, float | None]) -> dict[str, CouplerLimit]:
     if fields.get("perdidas_retorno_min_db") is not None:
         limits["perdidas_retorno"] = CouplerLimit("perdidas_retorno", "minimo", float(fields["perdidas_retorno_min_db"]))
     return limits
+
+
+def nominal_values_record(limits: dict[str, CouplerLimit], nominal_range: FrequencyRange | None) -> dict:
+    """Nominal values used for the pass / fail, as kept in the test record (``valores_nominales``)."""
+    data: dict = {}
+    if nominal_range is not None:
+        data["rango_hz"] = [nominal_range.start, nominal_range.stop]
+    data["limites"] = [
+        {"magnitud": limit.key, "criterio": limit.criterion, "valor": limit.value}
+        | ({"tolerancia": limit.tolerance} if limit.tolerance is not None else {})
+        for limit in limits.values()
+    ]
+    return data
+
+
+def nominal_values_from_record(data: dict) -> tuple[dict[str, CouplerLimit], FrequencyRange | None]:
+    """Limits and nominal range kept in a test record (none in records before 0.8.3)."""
+    limits = {}
+    for item in data.get("limites", []):
+        try:
+            limit = CouplerLimit(str(item["magnitud"]), str(item["criterio"]), float(item["valor"]), item.get("tolerancia"))
+        except (KeyError, TypeError, ValueError):
+            continue
+        limits[limit.key] = limit
+    span = data.get("rango_hz")
+    try:
+        nominal_range = FrequencyRange(float(span[0]), float(span[1])) if span else None
+    except (TypeError, ValueError, IndexError):
+        nominal_range = None
+    return limits, nominal_range
 
 
 def _state(passed: bool | None) -> str:

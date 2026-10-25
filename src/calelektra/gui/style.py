@@ -134,6 +134,7 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QPlainTextEdit, QText
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QPlainTextEdit:focus { border-color: #2b7bb9; }
 QLineEdit:read-only { background: #f5f7fa; }
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled { color: #a3adba; background: #f5f7fa; border-color: #dde3ea; }
+QCheckBox:disabled { color: #a3adba; }
 QGroupBox { font-weight: 600; margin-top: 12px; border: 1px solid #dde3ea; border-radius: 6px; padding-top: 6px; background: #ffffff; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #1f3a5f; }
 QProgressBar { border: 1px solid #c8d1dc; border-radius: 5px; background: #ffffff; text-align: center; height: 14px; }

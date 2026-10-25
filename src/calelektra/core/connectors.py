@@ -20,6 +20,7 @@ FAMILIES: dict[str, str] = {
     "N75": "N 75 Ω",
     "3.5 mm": "3,5 mm",
     "2.92 mm": "2,92 mm (K)",
+    "NMD 2.92 mm": "NMD 2,92 mm",
     "2.4 mm": "2,4 mm",
     "1.85 mm": "1,85 mm (V)",
     "1.0 mm": "1,0 mm",
@@ -36,6 +37,10 @@ GENDERS: dict[str, str] = {"macho": "macho", "hembra": "hembra", "sin_genero": "
 
 # Families that mate mechanically although they are different (with care).
 MECHANICAL_GROUPS = [frozenset({"3.5 mm", "2.92 mm", "SMA"}), frozenset({"2.4 mm", "1.85 mm"})]
+# Ruggedized (NMD) test-port connectors and the standard interface inside them: the NMD male of a VNA
+# port takes NMD females (test cables) and the standard females of its interface; an NMD female only
+# fits an NMD male.
+RUGGEDIZED = {"NMD 2.92 mm": "2.92 mm"}
 SEXLESS = frozenset({"PC-7"})
 NOT_COAXIAL = frozenset({"terminales"})
 
@@ -49,6 +54,8 @@ ZNX_CONNECTOR = {
     ("3.5 mm", "macho"): "PC35MALE",
     ("2.92 mm", "hembra"): "PC292FEMALE",
     ("2.92 mm", "macho"): "PC292MALE",
+    ("NMD 2.92 mm", "hembra"): "PC292FEMALE",
+    ("NMD 2.92 mm", "macho"): "PC292MALE",
     ("2.4 mm", "hembra"): "PC24FEMALE",
     ("2.4 mm", "macho"): "PC24MALE",
     ("1.85 mm", "hembra"): "PC185FEMALE",
@@ -64,7 +71,7 @@ ZNX_CONNECTOR = {
     ("PC-7", "sin_genero"): "PC7",
 }
 # Cal-kit connector selector of R&S ZNx analyzers (SENS:CORR:CKIT:<conn>:SEL)
-ZNX_KIT_CONNECTOR = {"N": "N50", "N75": "N75", "PC-7": "PC7", "3.5 mm": "PC35", "2.92 mm": "PC292", "SMA": "SMA"}
+ZNX_KIT_CONNECTOR = {"N": "N50", "N75": "N75", "PC-7": "PC7", "3.5 mm": "PC35", "2.92 mm": "PC292", "NMD 2.92 mm": "PC292", "SMA": "SMA"}
 
 _ALIASES = {
     "n": "N",
@@ -82,6 +89,10 @@ _ALIASES = {
     "2,92 mm": "2.92 mm",
     "k": "2.92 mm",
     "pc292": "2.92 mm",
+    "nmd 2.92": "NMD 2.92 mm",
+    "nmd 2,92": "NMD 2.92 mm",
+    "nmd 2,92 mm": "NMD 2.92 mm",
+    "nmd2.92mm": "NMD 2.92 mm",
     "2.4": "2.4 mm",
     "2,4 mm": "2.4 mm",
     "1.85": "1.85 mm",
@@ -109,6 +120,11 @@ _GENDER_ALIASES = {
 
 class ConnectorError(ValueError):
     pass
+
+
+def interface_family(family: str) -> str:
+    """The standard interface of a family (that of an NMD connector; the family itself otherwise)."""
+    return RUGGEDIZED.get(family, family)
 
 
 def family_key(text: str) -> str:
@@ -194,6 +210,11 @@ def mating_issue(a: Connector, b: Connector) -> tuple[Severity, str] | None:
     """``None`` if both connectors mate correctly; otherwise severity and reason."""
     if not a.coaxial or not b.coaxial:
         return None if a.family == b.family else (Severity.INFO, "conexión no coaxial: no se comprueba")
+    if (a.family in RUGGEDIZED) != (b.family in RUGGEDIZED):  # an NMD connector with a standard one
+        nmd, other = (a, b) if a.family in RUGGEDIZED else (b, a)
+        if nmd.gender == "hembra":
+            return Severity.ERROR, f"{nmd.label()} solo se conecta a un {FAMILIES[nmd.family]} macho (puerto de prueba del VNA)"
+        return mating_issue(Connector(RUGGEDIZED[nmd.family], nmd.gender), other)
     if a.family != b.family:
         if any(a.family in group and b.family in group for group in MECHANICAL_GROUPS):
             same_gender = a.gender == b.gender

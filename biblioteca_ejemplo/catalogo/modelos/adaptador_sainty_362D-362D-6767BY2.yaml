@@ -1,0 +1,14 @@
+# Transición 2,92 mm (h) – 2,92 mm (h) pasamuros (bulkhead), DC – 40 GHz, VSWR ≤ 1,20
+formato: calelektra/modelo@0.3
+id: sainty_362d_362d_6767by2
+categoria: adaptador
+fabricante: Sainty-Tech
+modelo: "362D/362D-6767BY2"
+variante: pasamuros
+campos:
+  rango_frecuencia: [DC, 40 GHz]
+  tipo: coaxial
+  conector_a: { familia: 2.92 mm, genero: hembra }
+  conector_b: { familia: 2.92 mm, genero: hembra }
+  vswr_max: 1.2
+  forma: pasamuros

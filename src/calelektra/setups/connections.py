@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 
 from calelektra.catalog.library import Library
 from calelektra.catalog.model import Equipment
-from calelektra.core.connectors import FAMILIES, GENDERS, MECHANICAL_GROUPS, Connector, mating_issue
+from calelektra.core.connectors import FAMILIES, GENDERS, MECHANICAL_GROUPS, Connector, interface_family, mating_issue
 from calelektra.core.issues import Severity
 from calelektra.setups.model import ConfiguredSetup, Segment, SetupTemplate
 
@@ -378,8 +378,8 @@ def design_calibration(
         connector = plane.connector
         if connector is None or not connector.coaxial:
             continue
-        if design.kit_family != connector.family:
-            if design.kit_family and _mechanically_compatible(design.kit_family, connector.family):
+        if interface_family(design.kit_family or "") != interface_family(connector.family):
+            if design.kit_family and _mechanically_compatible(interface_family(design.kit_family), interface_family(connector.family)):
                 add((Severity.WARNING, f"Kit «{kit.id}» de {FAMILIES[design.kit_family]} en el plano {plane.name} ({connector.label()}): compatible mecánicamente"))
             else:
                 kit_family = FAMILIES.get(design.kit_family or "", "?")

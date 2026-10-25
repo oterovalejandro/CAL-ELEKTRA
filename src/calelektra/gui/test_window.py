@@ -16,6 +16,7 @@ like the real measurement waits for the operator.
 from __future__ import annotations
 
 import html
+import threading
 from datetime import date, datetime
 from pathlib import Path
 
@@ -57,18 +58,28 @@ from calelektra.gui.test_common import (
     plan_html,
     record_coverage_factor,
     record_datasets,
-    uncertainty_rows,
-    record_uncertainty,
     record_smoothing,
-    record_spec_curves,
+    record_uncertainty,
     save_package,
     setup_rows,
     setup_state,
+    show_plan_specifications,
+    show_specifications,
+    uncertainty_rows,
     verdict_chip,
 )
 from calelektra.gui.test_folders import TestFolderTree
 from calelektra.instruments.factory import is_simulated
-from calelektra.procedures.engine import STEPS, AutoOperator, ProcedureRunner, PromptRequest, RunListener, RunPlan, RunResult, prepare_run
+from calelektra.procedures.engine import (
+    STEPS,
+    AutoOperator,
+    ProcedureRunner,
+    PromptRequest,
+    RunListener,
+    RunPlan,
+    RunResult,
+    prepare_run,
+)
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import TestRecord
 from calelektra.procedures.specs import VERDICTS
@@ -252,7 +263,7 @@ class PromptDialog(QDialog):
     def __init__(self, prompt: PromptRequest, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle(prompt.title)
-        self.setModal(True)
+        self.setModal(False)  # «Detener» of the test window stays usable while the operator is asked
         self.setMinimumWidth(560)
         layout = QVBoxLayout(self)
         title = QLabel(prompt.title)
@@ -288,7 +299,11 @@ class PromptDialog(QDialog):
 
 
 class PromptBridge(QObject):
-    """Lives in the GUI thread; the worker emits ``requested`` and blocks until answered."""
+    """Lives in the GUI thread; the worker asks with ``ask`` and waits until the operator answers.
+
+    The dialog is not modal: the test can be stopped from the window (or the
+    menu) while it is open, and ``cancel`` closes it.
+    """
 
     requested = Signal(object)
 
@@ -296,11 +311,43 @@ class PromptBridge(QObject):
         super().__init__()
         self.parent_widget = parent_widget
         self.answer = False
-        self.requested.connect(self._show, Qt.ConnectionType.BlockingQueuedConnection)
+        self.dialog: PromptDialog | None = None
+        self._answered = threading.Event()
+        self._cancelled = threading.Event()
+        self.requested.connect(self._show)  # queued: emitted from the worker thread
+
+    def ask(self, prompt: PromptRequest) -> bool:
+        """From the worker thread: show the request and wait for the answer (``False`` if the test is stopped)."""
+        if self._cancelled.is_set():
+            return False
+        self._answered.clear()
+        self.requested.emit(prompt)
+        while not self._answered.wait(0.1):
+            if self._cancelled.is_set():
+                return False
+        return self.answer
+
+    def cancel(self) -> None:
+        """The test is stopped: close the request on screen (answer «no»)."""
+        self._cancelled.set()
+        if self.dialog is not None:
+            self.dialog.reject()
 
     @Slot(object)
     def _show(self, prompt: PromptRequest) -> None:
-        self.answer = PromptDialog(prompt, self.parent_widget).exec() == QDialog.DialogCode.Accepted
+        if self._cancelled.is_set():
+            self._finish(False)
+            return
+        dialog = PromptDialog(prompt, self.parent_widget)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.finished.connect(lambda result: self._finish(result == QDialog.DialogCode.Accepted))
+        self.dialog = dialog
+        dialog.show()
+
+    def _finish(self, accepted: bool) -> None:
+        self.answer = accepted
+        self.dialog = None
+        self._answered.set()
 
 
 class GuiOperator:
@@ -308,8 +355,7 @@ class GuiOperator:
         self.bridge = bridge
 
     def request(self, prompt: PromptRequest) -> bool:
-        self.bridge.requested.emit(prompt)  # blocks the worker thread until the dialog closes
-        return self.bridge.answer
+        return self.bridge.ask(prompt)  # the worker thread waits until the dialog closes
 
 
 class RunWorker(QObject):
@@ -393,6 +439,7 @@ class TestWindow(QWidget):
         self.thread: QThread | None = None
         self.worker: RunWorker | None = None
         self.runner: ProcedureRunner | None = None
+        self.bridge: PromptBridge | None = None
         self.running = False
         self.plan: RunPlan | None = None
         layout = QVBoxLayout(self)
@@ -630,7 +677,7 @@ class TestWindow(QWidget):
             self.plot.set_data(label, frequencies_hz, s, log_x=is_logarithmic(record))
         for label, bands in record_uncertainty(record).items():
             self.plot.set_uncertainty(label, bands, record_coverage_factor(record))
-        self.plot.set_limits(record_spec_curves(record))
+        show_specifications(self.plot, record)
         self.plot.set_smoothing(record_smoothing(record))
         self._fill_results(record)
         self._fill_specs(record)
@@ -699,6 +746,8 @@ class TestWindow(QWidget):
         self.plots.clear()
         self.plot = self.plots.for_algorithm(self.procedure.algorithm)
         self.plot.set_smoothing(self.procedure.sweep.smoothing(self.procedure.traces))
+        if self.plan is not None:
+            show_plan_specifications(self.plot, self.plan)  # the specifications while measuring
         self.results.setRowCount(0)
         self.spec_table.setRowCount(0)
         self.log_view.clear()
@@ -727,7 +776,7 @@ class TestWindow(QWidget):
         self.worker.uncertainty.connect(self._uncertainty)
         self.worker.progress.connect(self._progress)
         self.worker.finished.connect(self._finished)
-        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.thread.quit, Qt.ConnectionType.DirectConnection)  # thread-safe; not through the GUI queue, which a wait() blocks
         self.running = True
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -741,7 +790,11 @@ class TestWindow(QWidget):
     def stop(self) -> None:
         if self.runner is not None and self.running:
             self.runner.stop()
+            if self.bridge is not None:
+                self.bridge.cancel()  # a request to the operator on screen
             self.badge.set_state("Deteniendo…", style.WARNING)
+            self.stop_button.setEnabled(False)
+            self._sync_actions()
 
     def wait(self, timeout_ms: int = 30_000) -> None:
         if self.thread is not None:
@@ -824,7 +877,7 @@ class TestWindow(QWidget):
                 self.plot.set_data(data_name, result.frequencies, s, log_x=log_x)
             for data_name, traces in result.uncertainty.items():
                 self.plot.set_uncertainty(data_name, traces, record_coverage_factor(record))
-            self.plot.set_limits(record_spec_curves(record))
+            show_specifications(self.plot, record)
             self.plot.set_smoothing(record_smoothing(record))
         if record.spec_results:
             self.tabs.setCurrentWidget(self.spec_table if record.verdict == "FALLA" else self.plots)

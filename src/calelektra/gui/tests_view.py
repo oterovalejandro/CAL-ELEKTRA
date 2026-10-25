@@ -40,10 +40,10 @@ from calelektra.gui.test_common import (
     record_coverage_factor,
     record_datasets,
     record_smoothing,
-    record_spec_curves,
     record_uncertainty,
     save_package,
     setup_rows,
+    show_specifications,
     uncertainty_rows,
     verdict_chip,
 )
@@ -160,7 +160,7 @@ class TestDetail(QWidget):
         if self.plot.datasets:
             for label, bands in record_uncertainty(record).items():
                 self.plot.set_uncertainty(label, bands, record_coverage_factor(record))
-            self.plot.set_limits(record_spec_curves(record))
+            show_specifications(self.plot, record)
             self.plot.set_smoothing(record_smoothing(record))
         self.plot_card.setVisible(bool(self.plot.datasets))
         self.files_card.setVisible(bool(record.files))

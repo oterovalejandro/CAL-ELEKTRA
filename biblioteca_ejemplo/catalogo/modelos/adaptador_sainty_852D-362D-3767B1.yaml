@@ -1,0 +1,13 @@
+# Transición NMD 2,92 mm (h) – 2,92 mm (h), DC – 40 GHz, VSWR ≤ 1,20 (adaptador del puerto NMD del VNA)
+formato: calelektra/modelo@0.3
+id: sainty_852d_362d_3767b1
+categoria: adaptador
+fabricante: Sainty-Tech
+modelo: "852D/362D-3767B1"
+campos:
+  rango_frecuencia: [DC, 40 GHz]
+  tipo: coaxial
+  conector_a: { familia: NMD 2.92 mm, genero: hembra }
+  conector_b: { familia: 2.92 mm, genero: hembra }
+  vswr_max: 1.2
+  forma: recto

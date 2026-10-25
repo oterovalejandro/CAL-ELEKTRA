@@ -42,6 +42,10 @@ class CatalogItem(BaseModel):
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
+# ports of a directional coupler before 0.8.3 (read and renamed: In, Out, Coupl. Fwd, Coupl. Rev)
+LEGACY_COUPLER_PORTS = {"ENTRADA": "In", "SALIDA": "Out", "ACOPLADO": "Coupl. Fwd", "AISLADO": "Coupl. Rev"}
+
+
 class PortDef(BaseModel):
     """A port of the equipment and the field that holds its connector."""
 
@@ -80,7 +84,10 @@ class Category(CatalogItem):
     @classmethod
     def _ports(cls, value: Any) -> Any:
         if isinstance(value, list):
-            return [{"nombre": item} if isinstance(item, str) else item for item in value]
+            value = [{"nombre": item} if isinstance(item, str) else item for item in value]
+            names = {item.get("nombre") for item in value if isinstance(item, dict)}
+            if names == set(LEGACY_COUPLER_PORTS):  # a directional coupler with the names of its ports before 0.8.3
+                value = [{**item, "nombre": LEGACY_COUPLER_PORTS[item["nombre"]]} for item in value]
         return value
 
     @property

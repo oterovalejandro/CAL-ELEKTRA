@@ -19,7 +19,7 @@ from calelektra.core.frequency import FrequencyRange
 from calelektra.gui import test_window as test_window_module
 from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
 from calelektra.gui.main_window import SECTIONS, MainWindow
-from calelektra.gui.plots import SParameterDialog, VnaCheckDialog
+from calelektra.gui.plots import ResultPlots, SParameterDialog, SParameterPlot, VnaCheckDialog
 from calelektra.gui.setup_editor import SetupEditor
 from calelektra.gui.test_window import LaunchTestDialog, TestWindow
 from calelektra.procedures.engine import ProcedureRunner
@@ -86,12 +86,12 @@ def test_open_every_setup(window, qapp):
     # every setup: VNA on the left, its ports, the path of each port, the planes, then what hangs from them
     x = {key: node.pos().x() for key, node in nsa.diagram.nodes.items()}
     assert x["vna"] < x["puerto:P1"] == x["puerto:P2"] < x["P1-1"] < x["plano:PR1"] == x["plano:PR2"] < x["antena_tx"]
-    assert nsa.diagram.nodes["puerto:P2"].spec.lines == ["2,92 mm (K) macho", "Camino RX"]
+    assert nsa.diagram.nodes["puerto:P2"].spec.lines == ["NMD 2,92 mm macho", "Camino RX"]
     cable = window.open_setup("cable_vna_292")
     assert cable.state_combo.currentText() == "medida"
     assert {"vna", "puerto:P1", "puerto:P2", "plano:PR1", "plano:PR2", "dut"} <= set(cable.diagram.nodes)
     assert cable.diagram.nodes["dut"].spec.lines == ["lo define la plantilla de ensayo"]
-    assert cable.diagram.nodes["plano:PR1"].spec.lines == ["2,92 mm (K) macho", "DUT: 2,92 mm (K) hembra"]
+    assert cable.diagram.nodes["plano:PR1"].spec.lines == ["NMD 2,92 mm macho", "DUT: 2,92 mm (K) hembra"]
     assert cable.calibration_panel.planes.rowCount() == 2
     assert "UOSM" in cable.bottom_tabs.tabText(cable.bottom_tabs.indexOf(cable.calibration_panel))
     assert cable.bottom_tabs.tabText(0) == "Frecuencias (800 puntos)" and "paso 50 MHz" in cable.frequency_summary.text()
@@ -325,13 +325,13 @@ def test_template_editor_for_coupler_pairs_and_eut_ports(window, qapp):
     view.reload(select="acoplador_ACP-0001")
     editor = view.editor
     assert editor.algorithm.currentData() == "vna_acoplador" and editor.setup.currentData() == "acoplador_N_18G"
-    assert editor.pair_values() == [("ENTRADA", "SALIDA"), ("ENTRADA", "ACOPLADO"), ("SALIDA", "ACOPLADO")]
+    assert editor.pair_values() == [("In", "Out"), ("In", "Coupl. Fwd"), ("Out", "Coupl. Fwd")]
     assert editor.pairs.isVisibleTo(editor) and not editor.ports_row.isVisibleTo(editor)
     assert "Valores nominales del acoplador" in editor.check_summary.text() and editor.plan.ok
-    aislado = next(row for row in range(editor.pairs.count()) if editor.pairs.item(row).data(Qt.ItemDataRole.UserRole) == ("ENTRADA", "AISLADO"))
+    aislado = next(row for row in range(editor.pairs.count()) if editor.pairs.item(row).data(Qt.ItemDataRole.UserRole) == ("In", "Coupl. Rev"))
     editor.pairs.item(aislado).setCheckState(Qt.CheckState.Checked)
     template = editor.build()
-    assert ("ENTRADA", "AISLADO") in template.measured_pairs() and len(template.measured_pairs()) == 4
+    assert ("In", "Coupl. Rev") in template.measured_pairs() and len(template.measured_pairs()) == 4
     view._set_dirty(False)  # discard the change
 
     view.reload(select="cable_CAB-DUT-0003")
@@ -393,10 +393,11 @@ def test_test_with_operator_dialogs(window, qapp, monkeypatch):
 
     def answer(dialog):
         shown.append(dialog.windowTitle())
-        return QDialog.DialogCode.Accepted
+        assert not dialog.isModal()  # the test window can still stop the test
+        dialog.done(QDialog.DialogCode.Accepted)
 
     library = window.library
-    monkeypatch.setattr(test_window_module.PromptDialog, "exec", answer)
+    monkeypatch.setattr(test_window_module.PromptDialog, "show", answer)
     test = window._add_test_window(
         TestWindow(library, library.procedures["lisn_LISN-0001"], library.tests_folder, "LISN 1", "prueba", today=E5061B_VALID_DAY)
     )
@@ -408,12 +409,72 @@ def test_test_with_operator_dialogs(window, qapp, monkeypatch):
     assert len(shown) == 3 + 1 + 1  # OSM standards, match check, the EUT terminal
     assert "Abierto" in shown[0]
 
-    monkeypatch.setattr(test_window_module.PromptDialog, "exec", lambda dialog: QDialog.DialogCode.Rejected)
+    monkeypatch.setattr(test_window_module.PromptDialog, "show", lambda dialog: dialog.done(QDialog.DialogCode.Rejected))
     test.start()  # «Repetir»: the template again, a new test in the same folder
     wait_for(lambda: not test.running)
     assert test.record.status == "abortado" and test.record.folder != first.folder
     assert test.record.title == "LISN 1 (repetición)"
     assert len(library.tests()) == 2
+
+
+def test_units_of_the_charts(qapp):
+    f = np.linspace(1e9, 3e9, 5)
+    s = np.zeros((5, 2, 2), dtype=complex)
+    s[:, 0, 0], s[:, 1, 1], s[:, 1, 0], s[:, 0, 1] = 0.1, 0.2j, 0.5, 0.5
+    plots = ResultPlots()
+    plot = plots.for_algorithm("vna_2_puertos")
+    assert [plot.mode.itemText(i) for i in range(plot.mode.count())] == ["VSWR, Magnitud (dB)", "Magnitud (dB)", "Fase (°)"]
+    assert plot.mode.currentData() == "db"
+    plot.set_data("DUT", f, s)
+    plot.set_uncertainty("DUT", {p: (np.full(5, 0.5), np.full(5, 2.0)) for p in ("S11", "S21", "S12", "S22")})
+    plot.mode.setCurrentIndex(plot.mode.findData("vswr_db"))  # VSWR of the reflections, dB of the transmissions on the right axis
+    item = plot.plot.getPlotItem()
+    assert item.getAxis("right").isVisible() and item.getAxis("left").labelText == "VSWR"
+    left = {c.opts["name"]: c.yData for c in item.listDataItems()}
+    right = {c.opts["name"]: c.yData for c in plot.right.addedItems if isinstance(c, pg.PlotDataItem)}
+    assert set(left) == {"S11", "S22"} and set(right) == {"S21", "S12"}
+    assert np.allclose(left["S11"], 1.1 / 0.9) and np.allclose(right["S21"], 20 * np.log10(0.5))
+    assert [i for i in plot.right.addedItems if isinstance(i, pg.FillBetweenItem)]  # uncertainty also on the second axis
+    plot.set_data("DUT", f, np.where(np.eye(2, dtype=bool), np.nan, s))  # only transmissions: one axis in dB
+    assert not item.getAxis("right").isVisible() and item.getAxis("left").labelText == "Magnitud (dB)"
+    assert not plot.mode.findData("z") >= 0  # the impedance is not a unit of the S-parameters
+
+    impedance_plots = ResultPlots()
+    impedance = impedance_plots.for_algorithm("vna_1_puerto")  # the 1-port impedance measurement
+    assert [impedance.mode.itemText(i) for i in range(impedance.mode.count())] == ["Impedancia (Ω)", "Impedancia (dBΩ)", "Fase (°)"]
+    gamma = np.full(5, 1 / 3 + 0j)  # Z = 100 Ω
+    impedance.set_data("DUT", f, gamma)
+    impedance.set_uncertainty("DUT", {"S11": (np.full(5, 0.5), np.full(5, 2.0))})
+    curves = impedance.plot.getPlotItem().listDataItems()
+    assert np.allclose(curves[0].yData, 100) and not impedance.uncertainty_box.isEnabled()
+    impedance.mode.setCurrentIndex(impedance.mode.findData("z_db"))
+    assert np.allclose(impedance.plot.getPlotItem().listDataItems()[0].yData, 40)
+    impedance.mode.setCurrentIndex(impedance.mode.findData("z_fase"))
+    assert np.allclose(impedance.plot.getPlotItem().listDataItems()[0].yData, 0)
+    assert not [i for i in impedance.plot.getPlotItem().items if isinstance(i, pg.FillBetweenItem)]
+    # the boxes of a test chart are always there; usable when the test has smoothing or specifications
+    assert impedance.smooth_box.isVisibleTo(impedance) and not impedance.smooth_box.isEnabled()
+    assert impedance.show_limits.isVisibleTo(impedance) and not impedance.show_limits.isEnabled()
+    other = SParameterPlot()
+    assert not other.smooth_box.isVisibleTo(other) and not other.show_limits.isVisibleTo(other)  # other charts: when they apply
+
+
+def test_stop_while_the_operator_is_asked(window, qapp, monkeypatch):
+    library = window.library
+    open_dialogs = []
+    monkeypatch.setattr(test_window_module.PromptDialog, "show", lambda dialog: open_dialogs.append(dialog))  # nobody answers
+    test = window._add_test_window(
+        TestWindow(library, library.procedures["lisn_LISN-0001"], library.tests_folder, "LISN 2", "prueba", today=E5061B_VALID_DAY)
+    )
+    test.start()
+    wait_for(lambda: bool(open_dialogs))
+    assert test.running and test.action_stop.isEnabled()
+    window.workspace.setCurrentWidget(test)
+    window.stop_test_action.trigger()  # menu «Ensayo → Detener ensayo», same as the button of the window
+    wait_for(lambda: not test.running)
+    assert test.record.status == "abortado" and test.record.message == "Ensayo detenido por el operador"
+    assert len(open_dialogs) == 1 and test.bridge.dialog is None and not test.action_stop.isEnabled()
+    assert test.start_button.isEnabled() and test.start_button.text() == "Repetir ensayo"
 
 
 def test_tests_explorer_and_finished_test(window, qapp):
@@ -579,7 +640,7 @@ def test_transmission_and_coupler_tests_in_the_window(window, qapp):
     labels = [transmission.plot.trace_boxes.itemAt(i).widget().text() for i in range(transmission.plot.trace_boxes.count())]
     assert labels == ["S21"]  # only the measured trace
     rows = {transmission.results.item(r, 0).text(): transmission.results.item(r, 1).text() for r in range(transmission.results.rowCount())}
-    assert rows["Camino P1"].startswith("P1 (2,92 mm (K) macho) → CAB-PT-N-01 (A→B) → PR1: N 50 Ω hembra")
+    assert rows["Camino P1"].startswith("P1 (NMD 2,92 mm macho) → CAB-PT-N-01 (A→B) → PR1: N 50 Ω hembra")
     assert rows["Calibración"] == "normalización de transmisión · through ADP-NN-01" and rows["Medida"].endswith("_S21.csv (A en P1, B en P2)")
 
     coupler = window._add_test_window(
@@ -587,34 +648,56 @@ def test_transmission_and_coupler_tests_in_the_window(window, qapp):
     )
     coupler.start()
     wait_for(lambda: not coupler.running)
-    assert coupler.record.verdict == "PASA" and set(coupler.plot.datasets) == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
+    pairs = {"In-Out", "In-Coupl. Fwd", "Out-Coupl. Fwd"}
+    assert coupler.record.verdict == "PASA" and set(coupler.plot.datasets) == pairs
     assert set(coupler.plot.uncertainty) == set(coupler.plot.datasets)
     assert coupler.spec_table.rowCount() == 5 and coupler.tabs.tabText(1) == "Pasa / falla — PASA"
-    # two charts: the RL of each port (ENTRADA and SALIDA from the ENTRADA–SALIDA pair) and the TL of each pair
+    # two charts: the reflection of each port (In and Out from the In–Out pair) and the transmission of each pair
     plots = coupler.plot
     assert plots is coupler.plots.coupler and coupler.plots.currentWidget() is plots
-    assert plots.return_loss.labels() == [
-        "ENTRADA (ENTRADA-SALIDA, S11)", "SALIDA (ENTRADA-SALIDA, S22)", "ACOPLADO (ENTRADA-ACOPLADO, S22)",
-    ]
-    assert plots.transmission.labels() == ["ENTRADA → SALIDA · IL", "ENTRADA → ACOPLADO · C", "SALIDA → ACOPLADO · I"]
-    plots.smooth_box.setChecked(False)
-    _, s = plots.datasets["ENTRADA-SALIDA"]
-    rl = {trace.label.split(" ")[0]: trace for trace in plots.return_loss_traces()}
-    assert np.allclose(rl["SALIDA"].losses, -20 * np.log10(np.abs(s[:, 1, 1])))
-    assert np.allclose(rl["SALIDA"].uncertainty, plots.uncertainty["ENTRADA-SALIDA"]["S22"][0])
-    _, s = plots.datasets["SALIDA-ACOPLADO"]
-    assert np.allclose(plots.transmission_traces()[2].losses, -20 * np.log10(np.abs(s[:, 1, 0])))
-    for chart in (plots.return_loss, plots.transmission):
+    assert [plots.mode.itemText(i) for i in range(plots.mode.count())] == ["VSWR, Magnitud (dB)", "Magnitud (dB)", "Fase (°)"]
+    assert plots.reflection.labels() == ["In (In-Out, S11)", "Out (In-Out, S22)", "Coupl. Fwd (In-Coupl. Fwd, S22)"]
+    assert plots.transmission.labels() == ["In → Out · IL", "In → Coupl. Fwd · C", "Out → Coupl. Fwd · I"]
+    assert "Pérdidas de retorno" in plots.reflection.heading.text()
+    # the boxes of the specifications and the smoothing are there, also without smoothing in the template
+    assert plots.show_limits.isVisibleTo(plots) and plots.show_limits.isEnabled()
+    assert plots.smooth_box.isVisibleTo(plots) and not plots.smooth_box.isEnabled()
+    _, s = plots.datasets["In-Out"]
+    rl = {trace.label.split(" (")[0]: trace for trace in plots.reflection_traces()}
+    assert np.allclose(rl["Out"].values, -20 * np.log10(np.abs(s[:, 1, 1])))
+    assert np.allclose(rl["Out"].band[1] - rl["Out"].values, plots.uncertainty["In-Out"]["S22"][0])
+    _, s = plots.datasets["Out-Coupl. Fwd"]
+    assert np.allclose(plots.transmission_traces()[2].values, -20 * np.log10(np.abs(s[:, 1, 0])))
+    for chart in (plots.reflection, plots.transmission):
         assert [item for item in chart.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)]
-    plots.return_loss.trace_boxes.itemAt(1).widget().setChecked(False)
-    assert len(plots.return_loss.plot.getPlotItem().listDataItems()) == 2
+    # nominal values of the model: RL ≥ 14 dB, IL ≤ 1.2 dB, C 20 ± 1 dB, I ≥ 32 dB
+    reflection_lines, transmission_lines = plots.nominal_lines()
+    assert [line.label for line in reflection_lines] == ["Espec. RL ≥ 14 dB (In, Out)"] and np.allclose(reflection_lines[0].values, 14)
+    labels = [line.label for line in transmission_lines if line.label]
+    assert labels == ["Espec. IL ≤ 1.2 dB", "Espec. C 20 ± 1 dB", "Espec. I ≥ 32 dB"]
+    assert len(transmission_lines) == 4 and {tuple(line.values) for line in transmission_lines[1:3]} == {(21, 21), (19, 19)}
+    names = [item.opts.get("name") for item in plots.transmission.plot.getPlotItem().listDataItems()]
+    assert "Espec. C 20 ± 1 dB" in names
+    plots.mode.setCurrentIndex(plots.mode.findData("vswr_db"))  # VSWR of each port, TL of each pair
+    assert "VSWR" in plots.reflection.heading.text() and "TL" in plots.transmission.heading.text()
+    gamma = np.abs(plots.datasets["In-Out"][1][:, 0, 0])
+    assert np.allclose(plots.reflection_traces()[0].values, (1 + gamma) / (1 - gamma))
+    assert plots.nominal_lines()[0][0].label == "Espec. VSWR ≤ 1.5 (In, Out)"
+    plots.mode.setCurrentIndex(plots.mode.findData("fase"))
+    assert plots.nominal_lines() == ([], []) and not plots.show_limits.isEnabled()
+    plots.mode.setCurrentIndex(plots.mode.findData("db"))
+    plots.show_limits.setChecked(False)
+    assert plots.nominal_lines() == ([], [])
+    plots.show_limits.setChecked(True)
+    plots.reflection.trace_boxes.itemAt(1).widget().setChecked(False)
+    assert len([i for i in plots.reflection.plot.getPlotItem().listDataItems() if not (i.opts.get("name") or "").startswith("Espec")]) == 2
     window.show_section("ensayos")
     window.tests_view.show_test(coupler.record.folder)
     process(qapp)
     detail = window.tests_view.detail
-    assert set(detail.plot.datasets) == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
-    assert detail.plot is detail.plots.coupler and len(detail.plot.transmission.labels()) == 3
-    assert "Caminos y medidas" in detail.info.text() and "Medida ENTRADA-ACOPLADO" in detail.info.text()
+    assert set(detail.plot.datasets) == pairs
+    assert detail.plot is detail.plots.coupler and len(detail.plot.transmission.labels()) == 3 and detail.plot.nominal
+    assert "Caminos y medidas" in detail.info.text() and "Medida In-Coupl. Fwd" in detail.info.text()
     window.tests_view.show_test(transmission.record.folder)
     process(qapp)
     assert detail.plots.currentWidget() is detail.plot is detail.plots.s_parameters and list(detail.plot.datasets) == ["DUT"]

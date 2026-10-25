@@ -1,0 +1,13 @@
+# Transición 2,92 mm (h) – N (h), DC – 18 GHz, VSWR ≤ 1,15
+formato: calelektra/modelo@0.3
+id: sainty_362d_272d_6765b
+categoria: adaptador
+fabricante: Sainty-Tech
+modelo: "362D/272D-6765B"
+campos:
+  rango_frecuencia: [DC, 18 GHz]
+  tipo: coaxial
+  conector_a: { familia: 2.92 mm, genero: hembra }
+  conector_b: { familia: N, genero: hembra }
+  vswr_max: 1.15
+  forma: recto

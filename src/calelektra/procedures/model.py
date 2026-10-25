@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_serializer, field_validator, model_validator
 
+from calelektra.catalog.model import LEGACY_COUPLER_PORTS
 from calelektra.core.units import format_frequency, parse_frequency
 
 ALGORITHMS = {
@@ -43,8 +44,8 @@ TRACES = {
     "vna_acoplador": ("S11", "S21", "S12", "S22"),
 }
 PLANES_NEEDED = {"vna_2_puertos": 2, "vna_transmision": 2, "vna_1_puerto": 1, "vna_acoplador": 2}
-COUPLER_PORTS = ("ENTRADA", "SALIDA", "ACOPLADO", "AISLADO")
-DEFAULT_COUPLER_PAIRS = (("ENTRADA", "SALIDA"), ("ENTRADA", "ACOPLADO"), ("SALIDA", "ACOPLADO"))
+COUPLER_PORTS = ("In", "Out", "Coupl. Fwd", "Coupl. Rev")  # directional coupler: input, output, coupled forward and reverse
+DEFAULT_COUPLER_PAIRS = (("In", "Out"), ("In", "Coupl. Fwd"), ("Out", "Coupl. Fwd"))
 # keys of earlier formats: the frequencies are now given by the hardware setup and
 # the specifications by the model of the EUT
 OBSOLETE_SWEEP_KEYS = ("modo", "tipo", "mode", "inicio", "fin", "definicion", "puntos", "paso", "fichero_lista")
@@ -172,7 +173,7 @@ class ProcedureTemplate(BaseModel):
     eut_id: str | None = Field(default=None, alias="eut")  # equipment to calibrate; its model gives the specifications
     # ports of the EUT on P1, P2… (empty: the order of its category, e.g. A, B of a cable)
     eut_ports: list[str] = Field(default_factory=list, alias="puertos_eut")
-    # directional coupler: port pairs measured, (port on P1, port on P2); empty: entrada–salida, entrada–acoplado, salida–acoplado
+    # directional coupler: port pairs measured, (port on P1, port on P2); empty: In–Out, In–Coupl. Fwd, Out–Coupl. Fwd
     pairs: list[tuple[str, str]] = Field(default_factory=list, alias="pares")
     sweep: SweepSettings = Field(default_factory=SweepSettings, alias="barrido")
     calibration: CalibrationSettings = Field(default_factory=CalibrationSettings, alias="calibracion")
@@ -194,6 +195,14 @@ class ProcedureTemplate(BaseModel):
     @classmethod
     def _version_as_text(cls, value: Any) -> str:
         return str(value)
+
+    @field_validator("pairs", mode="before")
+    @classmethod
+    def _current_port_names(cls, value: Any) -> Any:
+        """Pairs written with the names of the ports before 0.8.3 (ENTRADA, SALIDA…)."""
+        if isinstance(value, list):
+            return [[LEGACY_COUPLER_PORTS.get(port, port) for port in pair] if isinstance(pair, (list, tuple)) else pair for pair in value]
+        return value
 
     @property
     def source_path(self) -> Path | None:

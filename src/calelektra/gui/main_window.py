@@ -27,13 +27,13 @@ from calelektra import __version__
 from calelektra.catalog.library import Library, LibraryError
 from calelektra.gui import style
 from calelektra.gui.catalog_view import CatalogView
+from calelektra.gui.equipment_dialogs import ModelDialog
 from calelektra.gui.home_view import HomeView
 from calelektra.gui.icons import icon
 from calelektra.gui.inventory_view import InventoryView
 from calelektra.gui.procedures_view import ProceduresView
 from calelektra.gui.setup_editor import SetupEditor
 from calelektra.gui.setups_view import SetupsView
-from calelektra.gui.equipment_dialogs import ModelDialog
 from calelektra.gui.test_window import LaunchTestDialog, TestWindow
 from calelektra.gui.tests_view import TestsView
 from calelektra.instruments.factory import is_simulated
@@ -190,10 +190,27 @@ class MainWindow(QMainWindow):
         launch.setShortcut(QKeySequence("Ctrl+R"))
         launch.triggered.connect(lambda: self.launch_test())
         test_menu.addAction(launch)
+        self.stop_test_action = QAction(icon("detener", style.ERROR.name()), "Detener ensayo", self)
+        self.stop_test_action.triggered.connect(self.stop_test)
+        test_menu.addAction(self.stop_test_action)
+        test_menu.aboutToShow.connect(lambda: self.stop_test_action.setEnabled(self._test_to_stop() is not None))
         help_menu = self.menuBar().addMenu("A&yuda")
         about = QAction("Acerca de CAL-ELEKTRA", self)
         about.triggered.connect(self._about)
         help_menu.addAction(about)
+
+    def _test_to_stop(self) -> TestWindow | None:
+        """The test running in the current tab or, if that one is not running, the only test running."""
+        current = self.workspace.currentWidget()
+        if isinstance(current, TestWindow) and current.running:
+            return current
+        running = [window for window in self._documents(TestWindow) if window.running]
+        return running[0] if len(running) == 1 else None
+
+    def stop_test(self) -> None:
+        window = self._test_to_stop()
+        if window is not None:
+            window.stop()
 
     def _build_status_bar(self) -> None:
         self.status_library = QLabel()
