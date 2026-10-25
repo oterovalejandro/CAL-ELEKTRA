@@ -80,6 +80,7 @@ def main() -> None:
         (library.tests_folder / "2026" / "LISN", "LISN-0001 verificación anual", "lisn_LISN-0001", date(2026, 7, 15)),
         (client, "Pérdidas cable N nº 1234", "transmision_CAB-DUT-0001", None),
         (client, "Acoplador nº 9001", "acoplador_ACP-0001", None),
+        (client, "Cable 2,92 mm nº 4001 (por fórmula)", "cable_CAB-DUT-0004", None),
     ):
         result = ProcedureRunner(
             library, library.procedures[template], AutoOperator(), operator_name="Demo", seed=1, folder=folder, name=name, today=today,
@@ -162,6 +163,17 @@ def main() -> None:
     scroll.verticalScrollBar().setValue(0)
     window.procedures_view.reload(select="acoplador_ACP-0001")
     grab(window, out / "07b_plantilla_acoplador.png")
+    window.procedures_view.reload(select="cable_CAB-DUT-0004")
+    editor = window.procedures_view.editor
+    scroll.ensureWidgetVisible(editor.cable_box)
+    grab(window, out / "07c_plantilla_cable_formula.png")
+    scroll.verticalScrollBar().setValue(0)
+    model_dialog = ModelDialog(library, library.models["cable_coaxial_292_hh_k"], parent=window)
+    model_dialog.show()
+    model_scroll = model_dialog.fields_holder.parentWidget().parentWidget()
+    model_scroll.verticalScrollBar().setValue(model_scroll.verticalScrollBar().maximum())
+    grab(model_dialog, out / "05c_modelo_cable_formula.png")
+    model_dialog.close()
 
     dialog = LaunchTestDialog(library, "cable_CAB-DUT-0002", client, parent=window)
     dialog.show()
@@ -230,6 +242,15 @@ def main() -> None:
     window.show_section("ensayos")
     window.tests_view.show_test(coupler.folder)
     grab(window, out / "27f_explorador_acoplador.png")
+    formula = next(r for r in library.tests() if r.template_id == "cable_CAB-DUT-0004")
+    formula_window = window._add_test_window(TestWindow(library, record=formula))
+    formula_window.tabs.setCurrentIndex(0)
+    grab(window, out / "27h_cable_formula_grafica.png")
+    formula_window.plot.mode.setCurrentIndex(formula_window.plot.mode.findData("vswr_db"))
+    grab(window, out / "27i_cable_formula_vswr.png")
+    formula_window.plot.mode.setCurrentIndex(formula_window.plot.mode.findData("db"))
+    formula_window.tabs.setCurrentIndex(1)
+    grab(window, out / "27j_cable_formula_pasa_falla.png")
     transmission_record = next(r for r in library.tests() if r.template_id == "transmision_CAB-DUT-0001")
     transmission_window = window._add_test_window(TestWindow(library, record=transmission_record))
     transmission_window.tabs.setCurrentIndex(3)

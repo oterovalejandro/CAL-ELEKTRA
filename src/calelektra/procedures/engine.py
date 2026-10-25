@@ -65,6 +65,7 @@ from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import driver_description, open_vna
 from calelektra.instruments.simulation import pair_model, simulated_dut, unknown_through_model
 from calelektra.catalog.model import SpecFile
+from calelektra.procedures.cable_specs import CABLE_FIELDS, CableSpecification, cable_specification
 from calelektra.procedures.coupler import (
     CouplerLimit,
     coupler_limits,
@@ -78,7 +79,7 @@ from calelektra.procedures.coupler import (
 )
 from calelektra.procedures.model import ALGORITHMS, COUPLER_PORTS, PLANES_NEEDED, ProcedureTemplate
 from calelektra.procedures.record import SETUP_SNAPSHOT, TEMPLATE_SNAPSHOT, StepRecord, TestRecord
-from calelektra.procedures.specs import VERDICTS, SpecResult, evaluate_spec, verdict
+from calelektra.procedures.specs import VERDICTS, SpecResult, entries_verdict, evaluate_spec
 from calelektra.setups.analysis import SetupAnalysis, analyze_setup
 from calelektra.setups.connections import CalibrationDesign, PlaneInfo, check_connections, design_calibration, method_name
 from calelektra.setups.frequencies import FrequencyPlan
@@ -230,6 +231,7 @@ class RunPlan:
     expanded: ExpandedSetup | None = None  # the setup with its paths as roles (first measurement)
     coupler_limits: dict[str, CouplerLimit] = field(default_factory=dict)  # nominal values of a coupler
     coupler_range: FrequencyRange | None = None  # where they apply: nominal range of the coupler
+    cable_spec: CableSpecification | None = None  # cable by formula: K1, K2 and the VSWR of its connectors
 
     @property
     def ok(self) -> bool:
@@ -460,9 +462,30 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
                 elif not data.frequency_range.contains(frequency_plan.range):
                     warning(f"Especificación «{spec.name}»: solo se evalúa en {overlap}", "ensayo.especificacion")
             specs.append((spec, path))
+    cable_spec = None
+    if dut is not None and algorithm in ("vna_2_puertos", "vna_transmision"):
+        tolerances = procedure.cable_tolerances
+        cable_spec = cable_specification(
+            {key: library.field(dut, key) for key in CABLE_FIELDS},
+            tolerances.insertion_loss_db,
+            tolerances.vswr_pct,
+            library.frequency_range_of(dut).range,
+        )
+        if cable_spec is not None:
+            for problem in cable_spec.problems:
+                warning(f"Especificación por fórmula de «{dut.id}»: {problem}", "ensayo.especificacion")
+            if not (cable_spec.has_attenuation or cable_spec.has_return_loss):
+                cable_spec = None
+            elif not tolerances.given:
+                warning(
+                    "La plantilla no fija las tolerancias del cable: los límites son los valores nominales (A(f) y el VSWR del cable)",
+                    "ensayo.especificacion",
+                )
+            if cable_spec is not None and algorithm == "vna_transmision" and cable_spec.has_return_loss:
+                warning("Especificación por fórmula: solo se evalúan las pérdidas de inserción (el ensayo de transmisión solo mide S21)", "ensayo.especificacion")
     return RunPlan(
         procedure, effective, template, analysis, design, vna, dut, dut_role, frequency_plan, specs, measurements, issues, expanded, limits,
-        nominal_range,
+        nominal_range, cable_spec,
     )
 
 
@@ -1133,7 +1156,8 @@ class ProcedureRunner:
         if self.procedure.algorithm == "vna_acoplador":
             return self._evaluate_coupler()
         specs = self.plan.specs
-        if not specs:
+        cable = self.plan.cable_spec
+        if not specs and cable is None:
             record.verdict = "SIN_ESPECIFICACIONES"
             model = self.library.model_of(self.plan.dut) if self.plan.dut else None
             return "omitido", f"El modelo del EUT{f' «{model.id}»' if model else ''} no tiene especificaciones S"
@@ -1152,11 +1176,20 @@ class ProcedureRunner:
                     entry["medida"] = dataset
                 record.spec_results.append(entry)
                 self._log(f"Especificación «{spec.name}»{f' ({dataset})' if several else ''}: {entry['resultado']}", "info" if evaluation.passed else "aviso")
-        record.verdict = verdict([r for _, r in result.spec_results])
-        detail = "; ".join(
-            f"{r.spec.name}{f' ({d})' if several else ''}: {'PASA' if r.passed else ('FALLA' if r.passed is False else 'no evaluado')}"
-            for d, r in result.spec_results
-        )
+        if cable is not None:
+            record.cable_specification = cable.to_record()  # what was used, also drawn in the charts
+            for dataset, s in result.data.items():
+                for entry in cable.evaluate(result.frequencies, s, self.procedure.traces):
+                    if several:
+                        entry["medida"] = dataset
+                    record.spec_results.append(entry)
+                    self._log(f"{entry['nombre']}{f' ({dataset})' if several else ''}: {entry['resultado']}", "info" if entry["resultado"] == "PASA" else "aviso")
+        record.verdict = entries_verdict(record.spec_results)
+        def outcome(entry: dict) -> str:
+            name = f"{entry['nombre']} ({entry['medida']})" if several and entry.get("medida") else entry["nombre"]
+            return f"{name}: {entry['resultado'] if entry['resultado'] in ('PASA', 'FALLA') else 'no evaluado'}"
+
+        detail = "; ".join(outcome(entry) for entry in record.spec_results)
         return ("ok" if record.verdict == "PASA" else "aviso"), f"{VERDICTS[record.verdict].upper()} — {detail}"
 
     def _evaluate_coupler(self) -> tuple[str, str]:

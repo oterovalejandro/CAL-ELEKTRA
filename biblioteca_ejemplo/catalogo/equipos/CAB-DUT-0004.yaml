@@ -1,0 +1,10 @@
+# EUT de ejemplo con la especificación por fórmula de su modelo (K1, K2 y VSWR
+# de los conectores); su longitud da la atenuación nominal.
+formato: calelektra/equipo@0.3
+id: CAB-DUT-0004
+modelo: cable_coaxial_292_hh_k
+estado: en_servicio
+numero_serie: CLIENTE-4001
+descripcion: Cable de cliente a calibrar (especificación por fórmula)
+campos:
+  longitud_m: 1.5

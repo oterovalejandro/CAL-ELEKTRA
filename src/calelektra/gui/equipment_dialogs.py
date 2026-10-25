@@ -458,7 +458,9 @@ class ModelDialog(QDialog):
         self.specs_card = style.Card("Especificaciones S (pasa / falla)", icon_name="veredicto")
         specs_note = QLabel(
             "Ficheros S2P/S1P con los valores de especificación del modelo. Al calibrar una unidad de este modelo "
-            "(EUT de una plantilla de ensayo), la medida se compara con ellos. Se copian en «catalogo/especificaciones»."
+            "(EUT de una plantilla de ensayo), la medida se compara con ellos. Se copian en «catalogo/especificaciones». "
+            "Un cable también se puede especificar por fórmula (grupo «Especificación por fórmula»: K1, K2 y VSWR de los "
+            "conectores); las tolerancias las fija la plantilla de ensayo."
         )
         specs_note.setObjectName("pageSubtitle")
         specs_note.setWordWrap(True)

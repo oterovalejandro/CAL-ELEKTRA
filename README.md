@@ -10,9 +10,9 @@ Ejemplos de lo que cubre:
 
 ## Estado
 
-**Versión 0.8.4** — funcional con el VNA simulado:
+**Versión 0.9.0** — funcional con el VNA simulado:
 
-- **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**.
+- **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**; los cables también se pueden especificar **por fórmula** (atenuación K1·√f + K2·f y VSWR de los conectores, con las tolerancias de la plantilla de ensayo).
 - **Hardware setups con una estructura común**: el VNA a la izquierda, una línea que se divide en sus puertos (P1, P2…) y, de cada puerto, un **camino** (cables de medida, adaptadores, paths, preamplificadores…, en orden) que lleva el plano de referencia hasta el puerto del DUT. El conector del final de cada camino dice **qué conectores de DUT se pueden calibrar** con el setup. Cada setup tiene sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** de cada unión y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM; OSM en 1 puerto; normalización de transmisión). Ver [`docs/09_caminos_y_nuevas_plantillas.md`](docs/09_caminos_y_nuevas_plantillas.md).
 - **Plantillas de ensayo** (las *test templates* de ELEKTRA): **llaman a un hardware setup**, que se ve como diagrama, y **definen el EUT**; además potencia, **IFBW y promedios** (todas las trazas o por traza), **suavizado de la visualización**, calibración, verificación y exportación, con comprobación continua.
 - **Ensayos**: registros de las plantillas lanzadas en una **carpeta** elegida por el usuario (explorador con carpetas externas). Cada ensayo guarda la plantilla tal como se lanzó, el setup y sus frecuencias, el EUT, las copias de las especificaciones, los resultados (.s2p/.s1p y CSV, sin suavizar), el **veredicto** con márgenes por parámetro y la trazabilidad (equipos, certificados, datos S, kit, calibración).
@@ -98,3 +98,4 @@ tests/                pruebas con pytest
 8. [Condiciones ambientales de la sonda TPH, incertidumbre pendiente y paquete del ensayo — versión 0.7](docs/08_condiciones_ambientales_y_paquete.md)
 9. [Hardware setups con un camino por puerto del VNA y nuevas plantillas (transmisión, impedancia, acoplador) — versiones 0.8 a 0.8.3](docs/09_caminos_y_nuevas_plantillas.md)
 10. [Algoritmos y fórmulas del cálculo de incertidumbres (parámetros S, temperatura, gráficas e impedancia) — versión 0.8.4](docs/10_algoritmos_de_incertidumbre.md)
+11. [Especificación de cables por fórmula: K1, K2, VSWR de los conectores y tolerancias de la plantilla — versión 0.9](docs/11_especificacion_de_cables_por_formula.md)

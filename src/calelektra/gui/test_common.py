@@ -18,6 +18,7 @@ from calelektra.gui import style
 from calelektra.gui.plots import CouplerPlots, SParameterPlot
 from calelektra.instruments.factory import is_simulated
 from calelektra.procedures.ambient import AmbientError
+from calelektra.procedures.cable_specs import CableSpecification
 from calelektra.procedures.coupler import nominal_values_from_record
 from calelektra.procedures.engine import RunPlan
 from calelektra.procedures.model import ALGORITHMS, TRACES, SweepSettings
@@ -105,9 +106,18 @@ def plan_html(library: Library, plan: RunPlan) -> str:
     if plan.coupler_limits:
         limits = "; ".join(f"{key.replace('_', ' ')} {limit.describe()}" for key, limit in plan.coupler_limits.items())
         lines.append(f"<b>Valores nominales del acoplador</b> (pasa / falla): {html.escape(limits)}")
-    elif plan.specs:
-        specs = "; ".join(f"{spec.name} ({spec.describe()})" for spec, _ in plan.specs)
-        lines.append(f"<b>Especificaciones</b> (del modelo del EUT): {html.escape(specs)}")
+    elif plan.specs or plan.cable_spec is not None:
+        if plan.specs:
+            specs = "; ".join(f"{spec.name} ({spec.describe()})" for spec, _ in plan.specs)
+            lines.append(f"<b>Especificaciones</b> (del modelo del EUT): {html.escape(specs)}")
+        cable = plan.cable_spec
+        if cable is not None:
+            parts = []
+            if cable.has_attenuation:
+                parts.append(cable.insertion_loss_criterion())
+            if cable.has_return_loss and "S11" in procedure.traces:
+                parts.append(cable.return_loss_criterion())
+            lines.append(f"<b>Especificación por fórmula</b> (modelo del EUT y tolerancias de la plantilla): {html.escape('; '.join(parts))}")
     elif plan.dut is not None and procedure.algorithm == "vna_acoplador":
         lines.append("<b>Valores nominales:</b> el modelo del acoplador no tiene (sin veredicto pasa / falla)")
     elif plan.dut is not None:
@@ -367,6 +377,9 @@ def record_coverage_factor(record: TestRecord) -> float:
 def record_spec_curves(record: TestRecord) -> list[SpecCurve]:
     """Curves of the specification files used by a test (its own copies)."""
     curves: list[SpecCurve] = []
+    cable = CableSpecification.from_record(record.cable_specification)
+    if cable is not None:
+        curves += cable.curves(TRACES.get(record.algorithm or "", TRACES["vna_2_puertos"]))
     if record.folder is None:
         return curves
     for item in record.specifications:
@@ -391,7 +404,10 @@ def show_plan_specifications(plot: SParameterPlot | CouplerPlots, plan: RunPlan)
     if isinstance(plot, CouplerPlots):
         plot.set_nominal_values(plan.coupler_limits, plan.coupler_range)
     else:
-        plot.set_limits([curve for spec, path in plan.specs for curve in spec_curves(spec, path)])
+        curves = [curve for spec, path in plan.specs for curve in spec_curves(spec, path)]
+        if plan.cable_spec is not None:
+            curves += plan.cable_spec.curves(plan.procedure.traces)
+        plot.set_limits(curves)
 
 
 def record_smoothing(record: TestRecord) -> dict[str, float]:

@@ -405,7 +405,7 @@ class SpecEditor(QWidget):
         self.add_button.clicked.connect(self._add)
         self.view_button.clicked.connect(self._view)
         self.remove_button.clicked.connect(self._remove)
-        self.empty = QLabel("Sin especificaciones: no hay veredicto pasa / falla.")
+        self.empty = QLabel("Sin ficheros de especificación.")
         self.empty.setObjectName("pageSubtitle")
         self.add_button.setVisible(not read_only)
         self.remove_button.setVisible(not read_only)

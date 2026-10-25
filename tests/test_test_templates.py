@@ -218,7 +218,7 @@ def test_test_folders_and_external_roots(library, tmp_path):
 
 
 def test_setups_and_equipment_used_by_templates_are_protected(library):
-    assert library.templates_using(setup_id="cable_vna_292") == ["cable_CAB-DUT-0002"]
+    assert library.templates_using(setup_id="cable_vna_292") == ["cable_CAB-DUT-0002", "cable_CAB-DUT-0004"]
     assert library.templates_using(equipment_id="LISN-0001") == ["lisn_LISN-0001"]
     with pytest.raises(LibraryError, match="plantillas de ensayo"):
         library.delete_setup("cable_vna_292")

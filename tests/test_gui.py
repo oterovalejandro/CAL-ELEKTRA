@@ -770,3 +770,31 @@ def test_open_test_windows_follow_the_edits_of_the_library(window, qapp):
     launch.start()
     wait_for(lambda: not launch.running)
     assert launch.record.template["version"] == "2.0"
+
+
+def test_cable_specification_by_formula_in_the_editor_and_the_test(window, qapp):
+    library = window.library
+    window.show_section("procedimientos")
+    view = window.procedures_view
+    view.reload(select="cable_CAB-DUT-0004")
+    editor = view.editor
+    assert editor.cable_box.isVisibleTo(editor) and "0.26·√f + 0.00091·f" in editor.cable_info.text()
+    assert "cable 1.324" in editor.cable_info.text()
+    assert editor.cable_tolerance_values() == {"perdidas_insercion_db": 0.5, "vswr_pct": 10.0}
+    editor.vswr_tolerance.setValue(editor.vswr_tolerance.minimum())  # «— (sin tolerancia)»
+    assert editor.build().cable_tolerances.vswr_pct is None and editor.build().cable_tolerances.insertion_loss_db == 0.5
+    view._set_dirty(False)
+    view.reload(select="cable_CAB-DUT-0002")
+    assert "no tiene especificación por fórmula" in editor.cable_info.text() and not editor.cable_tolerance_values()
+
+    test = window._add_test_window(
+        TestWindow(library, library.procedures["cable_CAB-DUT-0004"], library.tests_folder, "Cable por fórmula", "prueba", automatic=True)
+    )
+    assert "Especificación por fórmula" in test.plan_label.text() and "VSWR ≤ 1.457" in test.plan_label.text()
+    test.start()
+    assert {curve.parameter for curve in test.plot.limits} == {"S11", "S21", "S12", "S22"}  # drawn while measuring
+    wait_for(lambda: not test.running)
+    assert test.record.verdict == "PASA" and test.spec_table.rowCount() == 4  # 2 limits × 2 parameters
+    limits = {curve.parameter: curve for curve in test.plot.limits}  # from the record
+    assert np.allclose(limits["S11"].values, -test.record.cable_specification["rl_min_db"])
+    assert limits["S21"].values[-1] == pytest.approx(-(4.3504 + 0.5), abs=1e-3)

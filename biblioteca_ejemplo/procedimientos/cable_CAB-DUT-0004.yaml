@@ -1,0 +1,39 @@
+# Plantilla de ensayo: calibración del cable 2,92 mm CAB-DUT-0004 con la
+# especificación POR FÓRMULA de su modelo:
+#   - pérdidas de inserción máximas = atenuación nominal A(f) del cable
+#     (K1·√f + K2·f por su longitud) + 0,5 dB;
+#   - VSWR máximo = VSWR del cable (suma lineal de las reflexiones de sus dos
+#     conectores) + 10 %.
+# Mismo hardware setup que el cable CAB-DUT-0002 (solo VNA).
+formato: calelektra/procedimiento@0.3
+id: cable_CAB-DUT-0004
+nombre: Calibración cable 2,92 mm CAB-DUT-0004 (CLIENTE-4001), especificación por fórmula
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración de los dos puertos del VNA, verificación, medida de los cuatro
+  parámetros S del cable y pasa / falla frente a la atenuación nominal de su
+  modelo (K1, K2) y al VSWR de sus conectores, con las tolerancias de esta
+  plantilla.
+algoritmo: vna_2_puertos
+hardware_setup: cable_vna_292
+eut: CAB-DUT-0004
+barrido:
+  potencia_dbm: -10
+  ifbw: 1 kHz
+  promedios: 1
+  suavizado_pct: 0
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1
+  s11_max_db: -30
+tolerancias_cable:
+  perdidas_insercion_db: 0.5   # IL máx. = A(f) + 0,5 dB
+  vswr_pct: 10                 # VSWR máx. = VSWR del cable · 1,10
+exportacion:
+  formato: RI
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

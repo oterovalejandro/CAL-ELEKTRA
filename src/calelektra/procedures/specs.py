@@ -193,6 +193,16 @@ def evaluate_spec(spec: SpecFile, path: Path, frequencies: np.ndarray, measured:
     return result
 
 
+def entries_verdict(entries: list[dict]) -> str:
+    """The verdict of the evaluations kept in the record (``evaluacion``), like :func:`verdict`."""
+    states = [entry.get("resultado") for entry in entries]
+    if not states:
+        return "SIN_ESPECIFICACIONES"
+    if "FALLA" in states:
+        return "FALLA"
+    return "PASA" if all(state == "PASA" for state in states) else "NO_EVALUADO"
+
+
 def verdict(results: list[SpecResult]) -> str:
     if not results:
         return "SIN_ESPECIFICACIONES"

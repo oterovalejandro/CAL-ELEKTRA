@@ -152,6 +152,20 @@ class UncertaintySettings(_Section):
     temperature_stability: bool = Field(default=True, alias="estabilidad_temperatura")
 
 
+class CableTolerances(_Section):
+    """Tolerances of the specification of a cable by formula (K1, K2 and the VSWR of its connectors, ``procedures/cable_specs.py``).
+
+    Without them the limits are the nominal values.
+    """
+
+    insertion_loss_db: float | None = Field(default=None, alias="perdidas_insercion_db", ge=0)  # IL_max = A(f) + t
+    vswr_pct: float | None = Field(default=None, alias="vswr_pct", ge=0)  # VSWR_max = VSWR_cable · (1 + t/100)
+
+    @property
+    def given(self) -> bool:
+        return self.insertion_loss_db is not None or self.vswr_pct is not None
+
+
 class ExportSettings(_Section):
     data_format: Literal["RI", "MA", "DB"] = Field(default="RI", alias="formato")
     frequency_unit: Literal["HZ", "KHZ", "MHZ", "GHZ"] = Field(default="HZ", alias="unidad_frecuencia")
@@ -179,6 +193,7 @@ class ProcedureTemplate(BaseModel):
     calibration: CalibrationSettings = Field(default_factory=CalibrationSettings, alias="calibracion")
     verification: VerificationSettings = Field(default_factory=VerificationSettings, alias="verificacion")
     uncertainty: UncertaintySettings = Field(default_factory=UncertaintySettings, alias="incertidumbre")
+    cable_tolerances: CableTolerances = Field(default_factory=CableTolerances, alias="tolerancias_cable")  # cable by formula
     export: ExportSettings = Field(default_factory=ExportSettings, alias="exportacion")
     options: dict[str, Any] = Field(default_factory=dict, alias="opciones")
 
@@ -222,4 +237,7 @@ class ProcedureTemplate(BaseModel):
         return [tuple(pair) for pair in self.pairs] or list(DEFAULT_COUPLER_PAIRS)  # type: ignore[misc]
 
     def to_yaml_dict(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True, exclude_none=True, mode="json")
+        data = self.model_dump(by_alias=True, exclude_none=True, mode="json")
+        if not data.get("tolerancias_cable"):
+            data.pop("tolerancias_cable", None)
+        return data

@@ -21,3 +21,28 @@ campos:
     nivel: modelo
     grupo: RF
     descripcion: Dato del fabricante; solo lo usa la simulación cuando no hay datos S.
+  # especificación por fórmula (otra forma de dar el pasa / falla, además de los ficheros S2P):
+  # A = K1·√f + K2·f por la longitud de referencia; las tolerancias las da la plantilla de ensayo
+  k1_atenuacion:
+    etiqueta: K1 (término en √f)
+    tipo: numero
+    unidad: dB
+    nivel: modelo
+    grupo: Especificación por fórmula
+    descripcion: "Atenuación nominal A = K1·√f + K2·f, en dB por la longitud de referencia, con f en la unidad indicada."
+  k2_atenuacion: { etiqueta: K2 (término en f), tipo: numero, unidad: dB, nivel: modelo, grupo: Especificación por fórmula }
+  unidad_frecuencia_k: { etiqueta: Unidad de f en K1 y K2, tipo: opcion, opciones: [Hz, kHz, MHz, GHz], nivel: modelo, grupo: Especificación por fórmula }
+  longitud_normalizacion_k:
+    etiqueta: K1 y K2 por cada
+    tipo: opcion
+    opciones: [1 m, 100 m, 1 ft, 100 ft, 1 in]
+    nivel: modelo
+    grupo: Especificación por fórmula
+    descripcion: Longitud a la que están normalizados K1 y K2 (la del cable es su campo «Longitud»).
+  vswr_conector_a: { etiqueta: VSWR del conector A, tipo: numero, nivel: modelo, grupo: Especificación por fórmula }
+  vswr_conector_b:
+    etiqueta: VSWR del conector B
+    tipo: numero
+    nivel: modelo
+    grupo: Especificación por fórmula
+    descripcion: Si no se indica, el del conector A. VSWR del cable = suma lineal de las reflexiones de los dos conectores.

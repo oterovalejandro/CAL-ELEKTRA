@@ -10,6 +10,7 @@ the record of that measurement.
 
 from __future__ import annotations
 
+import html
 import re
 
 import yaml
@@ -42,6 +43,7 @@ from calelektra.gui.icons import icon
 from calelektra.gui.setup_diagram import SetupDiagramView
 from calelektra.gui.template_widgets import SpecEditor, TraceEditor
 from calelektra.gui.test_common import equipment_text, plan_html, setup_state
+from calelektra.procedures.cable_specs import CABLE_FIELDS, cable_specification
 from calelektra.procedures.engine import eut_choices, prepare_run, suitable_setups
 from calelektra.procedures.model import (
     ALGORITHMS,
@@ -155,6 +157,40 @@ class ProcedureEditor(QWidget):
         eut_card.body.addWidget(specs_title)
         eut_card.body.addWidget(self.specs)
         eut_card.body.addWidget(self.edit_specs, 0, Qt.AlignmentFlag.AlignLeft)
+        # cable by formula: K1, K2 and the VSWR of the connectors come from the model; the tolerances from the template
+        self.cable_box = QWidget()
+        cable_layout = QVBoxLayout(self.cable_box)
+        cable_layout.setContentsMargins(0, 6, 0, 0)
+        cable_title = QLabel("Especificación por fórmula (cables): tolerancias")
+        cable_title.setObjectName("cardTitle")
+        self.cable_info = QLabel()
+        self.cable_info.setObjectName("pageSubtitle")
+        self.cable_info.setWordWrap(True)
+        cable_form = QFormLayout()
+        self.il_tolerance = QDoubleSpinBox()
+        self.il_tolerance.setRange(-0.01, 100.0)
+        self.il_tolerance.setDecimals(2)
+        self.il_tolerance.setSingleStep(0.1)
+        self.il_tolerance.setSuffix(" dB")
+        self.il_tolerance.setSpecialValueText("— (sin tolerancia)")
+        self.il_tolerance.setToolTip("Pérdidas de inserción máximas = atenuación nominal A(f) del modelo + esta tolerancia")
+        self.vswr_tolerance = QDoubleSpinBox()
+        self.vswr_tolerance.setRange(-0.1, 1000.0)
+        self.vswr_tolerance.setDecimals(1)
+        self.vswr_tolerance.setSuffix(" %")
+        self.vswr_tolerance.setSpecialValueText("— (sin tolerancia)")
+        self.vswr_tolerance.setToolTip("VSWR máximo = VSWR del cable (suma lineal de las reflexiones de sus conectores) · (1 + tolerancia)")
+        for spin in (self.il_tolerance, self.vswr_tolerance):  # the minimum (special text): no tolerance
+            spin.setValue(spin.minimum())
+            spin.valueChanged.connect(self._edited)
+        cable_form.addRow("Pérdidas de inserción: + ", self.il_tolerance)
+        self.vswr_tolerance_label = QLabel("VSWR: + ")
+        cable_form.addRow(self.vswr_tolerance_label, self.vswr_tolerance)
+        cable_layout.addWidget(cable_title)
+        cable_layout.addWidget(self.cable_info)
+        cable_layout.addLayout(cable_form)
+        self.cable_form = cable_form
+        eut_card.body.addWidget(self.cable_box)
 
         measurement = style.Card("Medida: potencia y trazas", icon_name="ajustes")
         power_form = QFormLayout()
@@ -389,10 +425,16 @@ class ProcedureEditor(QWidget):
         model = self.library.model_of(equipment) if equipment else None
         self._update_ports()
         coupler = self.algorithm.currentData() == "vna_acoplador"
-        self.specs_title.setText(
-            "Valores nominales del modelo del acoplador (pasa / falla)" if coupler else "Especificaciones S del modelo del EUT (pasa / falla)"
-        )
-        self.specs.setVisible(not coupler)
+        formula_only = model is not None and not model.s_specifications and self._has_cable_formula(equipment)
+        if coupler:
+            title = "Valores nominales del modelo del acoplador (pasa / falla)"
+        elif formula_only:
+            title = "Especificaciones del modelo del EUT (pasa / falla): por fórmula, sin ficheros S2P"
+        else:
+            title = "Especificaciones S del modelo del EUT (pasa / falla)"
+        self.specs_title.setText(title)
+        self.specs.setVisible(not coupler and not formula_only)  # a cable specified by formula only: no S2P files
+        self._show_cable_formula(equipment)
         self.specs.set_traces(TRACES[self.algorithm.currentData()])
         self.specs.load(model.s_specifications if model else [])
         self.edit_specs.setEnabled(model is not None)
@@ -405,6 +447,33 @@ class ProcedureEditor(QWidget):
         else:
             self.eut_info.setText("Su modelo da las especificaciones S del pasa / falla.")
         self._edited()
+
+    def _show_cable_formula(self, equipment) -> None:
+        """Tolerances of the specification by formula: for the S-parameter and transmission tests."""
+        algorithm = self.algorithm.currentData()
+        self.cable_box.setVisible(algorithm in ("vna_2_puertos", "vna_transmision"))
+        self.cable_form.setRowVisible(self.vswr_tolerance, algorithm == "vna_2_puertos")
+        spec = None
+        if equipment is not None:
+            spec = cable_specification({key: self.library.field(equipment, key) for key in CABLE_FIELDS}, None, None, None)
+        if spec is None:
+            self.cable_info.setText("El modelo del EUT no tiene especificación por fórmula (K1, K2 y VSWR de los conectores): no se aplican.")
+            return
+        parts = []
+        if spec.has_attenuation:
+            parts.append(f"Atenuación nominal {spec.formula_text()}")
+        if spec.has_return_loss:
+            vswr = spec.connector_vswr
+            parts.append(f"VSWR de los conectores {vswr[0]:g} y {vswr[1]:g} → cable {spec.cable_vswr:.3f}")
+        parts += spec.problems
+        self.cable_info.setText(html.escape(" · ".join(parts)))
+
+    def _has_cable_formula(self, equipment) -> bool:
+        return equipment is not None and cable_specification({key: self.library.field(equipment, key) for key in CABLE_FIELDS}, None, None, None) is not None
+
+    def cable_tolerance_values(self) -> dict[str, float]:
+        values = {"perdidas_insercion_db": self.il_tolerance, "vswr_pct": self.vswr_tolerance}
+        return {key: spin.value() for key, spin in values.items() if spin.value() > spin.minimum()}
 
     def _eut_spec_path(self, reference: str):
         equipment = self._current_eut()
@@ -498,6 +567,9 @@ class ProcedureEditor(QWidget):
         self.coverage.setValue(uncertainty.coverage_factor)
         self.trace_noise.setChecked(uncertainty.trace_noise)
         self.temperature_stability.setChecked(uncertainty.temperature_stability)
+        tolerances = procedure.cable_tolerances
+        self.il_tolerance.setValue(self.il_tolerance.minimum() if tolerances.insertion_loss_db is None else tolerances.insertion_loss_db)
+        self.vswr_tolerance.setValue(self.vswr_tolerance.minimum() if tolerances.vswr_pct is None else tolerances.vswr_pct)
         for widget in (self.coverage, self.trace_noise, self.temperature_stability):
             widget.setEnabled(uncertainty.active)
         export = procedure.export
@@ -550,6 +622,7 @@ class ProcedureEditor(QWidget):
                 "ruido_traza": self.trace_noise.isChecked(),
                 "estabilidad_temperatura": self.temperature_stability.isChecked(),
             },
+            "tolerancias_cable": self.cable_tolerance_values() if self.algorithm.currentData() in ("vna_2_puertos", "vna_transmision") else {},
             "exportacion": {
                 "formato": self.data_format.currentData(),
                 "unidad_frecuencia": self.unit.currentText(),

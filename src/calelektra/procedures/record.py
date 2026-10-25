@@ -72,6 +72,7 @@ class TestRecord(BaseModel):
     specifications: list[dict[str, Any]] = Field(default_factory=list, alias="especificaciones")  # of the EUT model, as used
     spec_results: list[dict[str, Any]] = Field(default_factory=list, alias="evaluacion")  # pass / fail per specification
     nominal_values: dict[str, Any] = Field(default_factory=dict, alias="valores_nominales")  # of a coupler, as used
+    cable_specification: dict[str, Any] = Field(default_factory=dict, alias="especificacion_cable")  # cable by formula, as used
     conditions: dict[str, Any] = Field(default_factory=dict, alias="condiciones")  # ambient temperature…
     uncertainty: dict[str, Any] = Field(default_factory=dict, alias="incertidumbre")  # file, k and summary per trace
     results: dict[str, Any] = Field(default_factory=dict, alias="resultados")
