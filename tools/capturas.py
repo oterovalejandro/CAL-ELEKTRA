@@ -67,6 +67,9 @@ def main() -> None:
     app = QApplication(sys.argv)
     apply_theme(app)
     library = Library.load(work)
+    kit = library.equipment["KIT-N-01"]  # «caduca pronto» in the example: keep it so whatever the date
+    kit.calibration.due = date.today() + timedelta(days=20)
+    library.save_equipment(kit)
     client = library.tests_folder / "2026" / "Cliente ACME"
     lisn = None
     records = []

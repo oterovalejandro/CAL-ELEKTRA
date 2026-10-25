@@ -130,6 +130,7 @@ def test_required_range_edit(window, qapp):
 
 
 def test_new_setup_save_and_reload(window, qapp, library_copy):
+    renew_calibration(window.library, "KIT-N-01")  # the example kit expires on 2026-11-05; the editor checks today
     setup = ConfiguredSetup(id="nuevo_cable", name="Nuevo cable", template="camino_rf_2p_s", required_range=FrequencyRange(10e6, 18e9))
     editor = window.open_new_setup(setup)
     editor.setup.assignments.update({"vna": "VNA-01", "kit_cal": "KIT-N-01", "dut": "CAB-DUT-0001"})
@@ -163,6 +164,7 @@ def test_new_setup_save_and_reload(window, qapp, library_copy):
 
 
 def test_path_panel_orders_the_equipment(window, qapp):
+    renew_calibration(window.library, "KIT-N-01")
     editor = window.open_setup("acoplador_N_18G")
     editor._role_clicked("P1-2")  # the adapter: its path is shown with it selected
     panel = editor.role_panel
@@ -316,6 +318,7 @@ def test_new_template_from_a_setup(window, qapp):
 
 
 def test_template_editor_for_coupler_pairs_and_eut_ports(window, qapp):
+    renew_calibration(window.library, "KIT-N-01")
     view = window.procedures_view
     window.show_section("procedimientos")
     view.reload(select="acoplador_ACP-0001")
@@ -567,6 +570,7 @@ def test_vna_dialog_keeps_its_uncertainty_file(window, qapp):
 
 def test_transmission_and_coupler_tests_in_the_window(window, qapp):
     library = window.library
+    renew_calibration(library, "KIT-N-01")
     transmission = window._add_test_window(
         TestWindow(library, library.procedures["transmision_CAB-DUT-0001"], library.tests_folder, "Pérdidas", "prueba", automatic=True)
     )
