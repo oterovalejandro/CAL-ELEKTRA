@@ -37,9 +37,8 @@ GENDERS: dict[str, str] = {"macho": "macho", "hembra": "hembra", "sin_genero": "
 
 # Families that mate mechanically although they are different (with care).
 MECHANICAL_GROUPS = [frozenset({"3.5 mm", "2.92 mm", "SMA"}), frozenset({"2.4 mm", "1.85 mm"})]
-# Ruggedized (NMD) test-port connectors and the standard interface inside them: the NMD male of a VNA
-# port takes NMD females (test cables) and the standard females of its interface; an NMD female only
-# fits an NMD male.
+# Ruggedized (NMD) test-port connectors and their standard interface: they mate, calibrate and admit DUTs
+# with the same rules as that interface (an NMD 2,92 mm is a 2,92 mm); the family only names the connector.
 RUGGEDIZED = {"NMD 2.92 mm": "2.92 mm"}
 SEXLESS = frozenset({"PC-7"})
 NOT_COAXIAL = frozenset({"terminales"})
@@ -210,11 +209,7 @@ def mating_issue(a: Connector, b: Connector) -> tuple[Severity, str] | None:
     """``None`` if both connectors mate correctly; otherwise severity and reason."""
     if not a.coaxial or not b.coaxial:
         return None if a.family == b.family else (Severity.INFO, "conexión no coaxial: no se comprueba")
-    if (a.family in RUGGEDIZED) != (b.family in RUGGEDIZED):  # an NMD connector with a standard one
-        nmd, other = (a, b) if a.family in RUGGEDIZED else (b, a)
-        if nmd.gender == "hembra":
-            return Severity.ERROR, f"{nmd.label()} solo se conecta a un {FAMILIES[nmd.family]} macho (puerto de prueba del VNA)"
-        return mating_issue(Connector(RUGGEDIZED[nmd.family], nmd.gender), other)
+    a, b = Connector(interface_family(a.family), a.gender), Connector(interface_family(b.family), b.gender)  # NMD: its interface
     if a.family != b.family:
         if any(a.family in group and b.family in group for group in MECHANICAL_GROUPS):
             same_gender = a.gender == b.gender

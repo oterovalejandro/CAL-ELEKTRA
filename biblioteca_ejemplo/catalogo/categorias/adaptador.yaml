@@ -12,4 +12,3 @@ campos:
   conector_a: { etiqueta: Conector extremo A, tipo: conector, nivel: modelo, obligatorio: true, grupo: Conectores }
   conector_b: { etiqueta: Conector extremo B, tipo: conector, nivel: modelo, obligatorio: true, grupo: Conectores }
   vswr_max: { etiqueta: VSWR máximo, tipo: numero, nivel: modelo, grupo: RF }
-  forma: { etiqueta: Forma, tipo: opcion, opciones: [recto, angulo_recto, pasamuros], nivel: modelo, grupo: Mecánica }

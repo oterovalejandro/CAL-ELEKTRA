@@ -230,13 +230,10 @@ Además, al salir de la aplicación con un ensayo en curso ya no se esperan 10 s
 
 ### Nuevos equipos del catálogo
 
-- **Conector NMD 2,92 mm** (familia nueva). Es el conector robusto de los puertos de prueba:
-  - el macho NMD (puerto del ZNB43) admite hembras NMD (cables de puerto) y hembras 2,92 mm normales;
-  - la hembra NMD solo se conecta a un macho NMD;
-  - para kits y conectores de DUT cuenta como 2,92 mm.
+- **Conector NMD 2,92 mm** (familia nueva). Es el conector robusto de los puertos de prueba. No añade ninguna limitación: se conecta, se calibra y admite DUT con las mismas reglas que un 2,92 mm. La familia solo sirve para nombrar el conector.
 
   El modelo del ZNB43 (`rs_znb43`) tiene ahora sus puertos como **NMD 2,92 mm macho**, como dice su fichero de incertidumbres.
-- **Transiciones** (categoría «adaptador», con los campos nuevos «VSWR máximo» y «Forma»):
+- **Transiciones** (categoría «adaptador», con el campo nuevo «VSWR máximo»; el ángulo recto y el pasamuros van en el nombre del modelo):
 
   | Equipos | Modelo | Conectores | Frecuencia | VSWR máx. |
   |---|---|---|---|---|

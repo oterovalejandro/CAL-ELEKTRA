@@ -11,4 +11,3 @@ campos:
   conector_a: { familia: 2.92 mm, genero: macho }
   conector_b: { familia: 2.92 mm, genero: hembra }
   vswr_max: 1.25
-  forma: angulo_recto

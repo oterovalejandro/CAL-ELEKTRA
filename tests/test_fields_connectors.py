@@ -76,10 +76,11 @@ def test_connector_parsing_and_mating():
 def test_nmd_test_port_connectors():
     port, cable_end = Connector("NMD 2.92 mm", "macho"), Connector.parse("NMD2.92mm (f)")
     assert cable_end == Connector("NMD 2.92 mm", "hembra") and port.label() == "NMD 2,92 mm macho"
-    assert mating_issue(port, cable_end) is None  # test cable on the VNA port
-    assert mating_issue(port, Connector("2.92 mm", "hembra")) is None  # the NMD male also takes standard females
+    # NMD 2,92 mm follows the rules of 2,92 mm: no other limitation
+    assert mating_issue(port, cable_end) is None and mating_issue(port, Connector("2.92 mm", "hembra")) is None
+    assert mating_issue(cable_end, Connector("2.92 mm", "macho")) is None
     assert mating_issue(port, Connector("3.5 mm", "hembra"))[0] is Severity.WARNING
-    assert mating_issue(cable_end, Connector("2.92 mm", "macho"))[0] is Severity.ERROR  # the NMD female only fits an NMD male
+    assert mating_issue(cable_end, Connector("NMD 2.92 mm", "hembra"))[0] is Severity.ERROR  # same gender
     assert port.znx_name() == "PC292MALE" and cable_end.znx_name() == "PC292FEMALE"
 
 
@@ -93,7 +94,8 @@ def test_transitions_cables_and_kit_of_the_catalogue(library):
     assert summary("ADP-NMDN-01") == ("Pasternack PE9983", "NMD 2,92 mm hembra – N 50 Ω hembra", "DC – 18 GHz", 1.25)
     assert summary("ADP-292N-01") == ("Sainty-Tech 362D/272D-6765B", "2,92 mm (K) hembra – N 50 Ω hembra", "DC – 18 GHz", 1.15)
     assert summary("ADP-292RA-01")[:2] == ("Sainty-Tech 361D/362D-6767CW (ángulo recto)", "2,92 mm (K) macho – 2,92 mm (K) hembra")
-    assert library.field(library.equipment["ADP-292BH-01"], "forma") == "pasamuros"
+    assert library.model_of(library.equipment["ADP-292BH-01"]).display_name == "Sainty-Tech 362D/362D-6767BY2 (pasamuros)"
+    assert library.field(library.equipment["ADP-292BH-01"], "forma") is None  # the shape is in the name, not a field
     cable = library.equipment["CAB-PT-NMD-02"]
     assert summary("CAB-PT-NMD-02")[1:] == ("NMD 2,92 mm hembra – 2,92 mm (K) macho", "DC – 40 GHz", 1.3)
     assert library.field(cable, "longitud_m") == 0.63 and library.field(cable, "perdidas_insercion_max_db") == 2.8
