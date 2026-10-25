@@ -27,6 +27,7 @@ from calelektra.procedures.record import (
 )
 from calelektra.procedures.record_uncertainty import conditions_loaded, is_pending
 from calelektra.procedures.specs import VERDICTS
+from calelektra.uncertainty.impedance import impedance_text
 from calelektra.setups.paths import describe_path_record
 
 SUMMARY_FILE = "resumen_ensayo.txt"
@@ -117,6 +118,8 @@ def summary_text(record: TestRecord) -> str:
                 if deg:
                     text += f", {deg['min']:g} – {deg['max']:g}°"
                 lines.append(text)
+            if measurement.get("impedancia"):
+                lines.append(f"  {measurement.get('medida')} Z: {impedance_text(measurement['impedancia'])}")
     else:
         lines.append("  No calculada")
     lines += ["", "Ficheros (trazas tal como se midieron, sin suavizado)"]

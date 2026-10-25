@@ -20,7 +20,7 @@ from calelektra.procedures.ambient import (
     write_tph_workbook,
 )
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner
-from calelektra.procedures.package import SUMMARY_FILE, save_test_package
+from calelektra.procedures.package import SUMMARY_FILE, save_test_package, summary_text
 from calelektra.procedures.record import SETUP_SNAPSHOT, TEMPLATE_SNAPSHOT
 from calelektra.procedures.record_uncertainty import is_pending, load_ambient_conditions
 from calelektra.procedures.results import db
@@ -143,6 +143,10 @@ def test_lisn_recalculation_checks_the_calibration_on_the_day_of_the_test(librar
     assert record.uncertainty["estado"] == "completa" and record.uncertainty.get("avisos") == warnings
     [entry] = record.uncertainty["medidas"]  # the EUT terminal (generic impedance in 1 port)
     assert entry["fichero_resultado"].endswith(".s1p") and (record.folder / entry["fichero"]).is_file()
+    assert entry["impedancia"]["U_ohm"]["max"] > 0  # the uncertainty of Z is calculated again too
+    header = (record.folder / entry["fichero"]).read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "U+ |Z| (Ω, k=2)" in header
+    assert "DUT Z: U |Z|" in summary_text(record)
 
 
 def test_package_keeps_all_the_information_of_the_test(library, tmp_path):

@@ -56,6 +56,7 @@ from calelektra.procedures.coupler import (
 from calelektra.procedures.model import COUPLER_PORTS
 from calelektra.procedures.processing import smooth
 from calelektra.procedures.specs import SpecCurve
+from calelektra.uncertainty.impedance import Z0, impedance_uncertainty
 from calelektra.uncertainty.traces import TraceUncertainty
 
 TRACE_COLORS = {"S11": "#2b7bb9", "S21": "#c0392b", "S12": "#d98a00", "S22": "#2e8b57"}
@@ -67,8 +68,7 @@ SPEC_COLOR = "#34495e"  # a nominal value that applies to several traces
 # units of the charts of S-parameters: VSWR of the reflections with the magnitude of the transmissions (second
 # axis), magnitude or phase. The impedance is another quantity: only in the chart of the 1-port impedance measurement.
 S_MODES = {"vswr_db": "VSWR, Magnitud (dB)", "db": "Magnitud (dB)", "fase": "Fase (°)"}
-IMPEDANCE_MODES = {"z": "Impedancia (Ω)", "z_db": "Impedancia (dBΩ)", "z_fase": "Fase (°)"}
-BAND_MODES = ("vswr_db", "db", "fase")  # the uncertainty is of the S-parameters: none for the impedance
+IMPEDANCE_MODES = {"z": "Impedancia (Ω)", "z_db": "Impedancia (dBΩ)", "z_fase": "Fase (°)"}  # its uncertainty: uncertainty/impedance.py
 
 BAND_ALPHA = 60  # opacity (0–255) of the uncertainty band of a trace
 
@@ -276,7 +276,7 @@ class SParameterPlot(QWidget):
 
     def _sync_boxes(self, mode: str) -> None:
         """«Especificaciones», «Suavizado» and «Incertidumbre»: shown, and usable, when they apply."""
-        impedance = mode not in BAND_MODES
+        impedance = mode in IMPEDANCE_MODES
         limits = bool(self.limits) and not impedance
         self.show_limits.setVisible(bool(self.limits) or self.result)
         self.show_limits.setEnabled(limits)
@@ -294,11 +294,11 @@ class SParameterPlot(QWidget):
             else "La plantilla de ensayo no define suavizado (ajustes de trazas)"
         )
         self.uncertainty_box.setVisible(bool(self.uncertainty))
-        self.uncertainty_box.setEnabled(not impedance)
         self.uncertainty_box.setToolTip(
             "Zona sombreada: valor ± incertidumbre expandida de cada punto, calculada con el fichero de incertidumbres del VNA"
             if not impedance
-            else "La incertidumbre es de los parámetros S: no hay incertidumbre de la impedancia"
+            else "Zona sombreada: incertidumbre expandida de Z, calculada a partir de la de S11 (Z0 = 50 Ω); "
+            "cerca del abierto o del cortocircuito no es simétrica"
         )
 
     def redraw(self) -> None:
@@ -313,7 +313,7 @@ class SParameterPlot(QWidget):
         mode = self.mode.currentData()
         self._sync_boxes(mode)
         traces = self._traces()
-        if mode not in BAND_MODES:
+        if mode in IMPEDANCE_MODES:
             traces = [trace for trace in traces if _is_reflection(trace[2])]  # the impedance seen at a port
         reflections = any(_is_reflection(trace[2]) for trace in traces)
         transmissions = any(not _is_reflection(trace[2]) for trace in traces)
@@ -340,7 +340,7 @@ class SParameterPlot(QWidget):
         log_x = self.log_x.isChecked() and all(f[0] > 0 for f, _ in self.datasets.values())
         self.plot.setLogMode(x=log_x, y=False)
         smoothing = self.smoothing if self.smooth_box.isChecked() else {}
-        bands = self.uncertainty_box.isChecked() and mode in BAND_MODES
+        bands = self.uncertainty_box.isChecked()
         for label, dataset, parameter, f, values, color in traces:
             if parameter in smoothing:
                 values = smooth(values, smoothing[parameter])
@@ -357,7 +357,7 @@ class SParameterPlot(QWidget):
             x = np.maximum(f, 1e-3)
             second = split and not reflection
             if band is not None:
-                add_band(self.right if second else self.plot, np.log10(x) if log_x else x, y, *band, color, wrap=mode == "fase")
+                add_band(self.right if second else self.plot, np.log10(x) if log_x else x, y, *band, color, wrap=mode in ("fase", "z_fase"))
             style = TRACE_STYLES.get(parameter, Qt.PenStyle.SolidLine) if len(self.datasets) > 1 else Qt.PenStyle.SolidLine
             self._curve(second, x, y, pg.mkPen(color, width=2, style=style), label, log_x)
         self._draw_limits(mode, log_x, split)
@@ -381,13 +381,17 @@ class SParameterPlot(QWidget):
         if mode == "fase":
             y = np.degrees(np.angle(values))
             return y, ((y - u[1], y + u[1]) if u is not None else None)
+        found = impedance_uncertainty(values, u[0], u[1], "dB", Z0) if u is not None else None  # from that of S11
         with np.errstate(divide="ignore", invalid="ignore"):
-            z = gamma_to_impedance(values)
+            z = gamma_to_impedance(values, Z0)
             if mode == "z":
-                return np.abs(z), None
+                y = np.abs(z)
+                return y, ((y - found.magnitude_minus, y + found.magnitude_plus) if found else None)
             if mode == "z_db":
-                return 20 * np.log10(np.abs(z)), None
-            return np.degrees(np.angle(z)), None
+                y = 20 * np.log10(np.abs(z))
+                return y, ((y - found.magnitude_db_minus, y + found.magnitude_db_plus) if found else None)
+            y = np.degrees(np.angle(z))
+            return y, ((y - found.phase_minus, y + found.phase_plus) if found else None)
 
     def _curve(self, second: bool, x: np.ndarray, y: np.ndarray, pen, name: str | None, log_x: bool) -> None:
         if not second:

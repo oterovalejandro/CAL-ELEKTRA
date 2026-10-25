@@ -65,7 +65,7 @@ Los ensayos sin incertidumbre muestran **CONDICIONES PENDIENTES** hasta que se c
 
 **Transmisión del ZNB43.** El algoritmo no cambia: la tabla del fichero de incertidumbres llega hasta 0 dB y los puntos con S21 por encima de 0 dB siguen sin incertidumbre. Cuando se amplíe el YAML del VNA, el cálculo lo usará sin tocar el código.
 
-**Impedancia |Z|.** No se calcula su incertidumbre: solo parámetros S.
+**Impedancia |Z|.** Desde 0.8.4 su incertidumbre se calcula a partir de la de S11 y se recalcula con ella al cargar las condiciones ([`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md)).
 
 ## 3. En la interfaz
 

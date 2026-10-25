@@ -24,6 +24,7 @@ from calelektra.gui.setup_editor import SetupEditor
 from calelektra.gui.test_window import LaunchTestDialog, TestWindow
 from calelektra.procedures.engine import ProcedureRunner
 from calelektra.setups.model import ConfiguredSetup
+from calelektra.uncertainty.impedance import impedance_uncertainty
 from conftest import E5061B_VALID_DAY, renew_calibration, tph_workbook
 
 
@@ -446,12 +447,16 @@ def test_units_of_the_charts(qapp):
     impedance.set_data("DUT", f, gamma)
     impedance.set_uncertainty("DUT", {"S11": (np.full(5, 0.5), np.full(5, 2.0))})
     curves = impedance.plot.getPlotItem().listDataItems()
-    assert np.allclose(curves[0].yData, 100) and not impedance.uncertainty_box.isEnabled()
+    assert np.allclose(curves[0].yData, 100) and impedance.uncertainty_box.isEnabled()
+    # the band of Z comes from that of S11 (uncertainty/impedance.py)
+    expected = impedance_uncertainty(gamma, np.full(5, 0.5), np.full(5, 2.0), "dB")
+    fills = [i for i in impedance.plot.getPlotItem().items if isinstance(i, pg.FillBetweenItem)]
+    assert fills and np.allclose(fills[0].curves[0].yData, 100 + expected.magnitude_plus)
     impedance.mode.setCurrentIndex(impedance.mode.findData("z_db"))
     assert np.allclose(impedance.plot.getPlotItem().listDataItems()[0].yData, 40)
     impedance.mode.setCurrentIndex(impedance.mode.findData("z_fase"))
     assert np.allclose(impedance.plot.getPlotItem().listDataItems()[0].yData, 0)
-    assert not [i for i in impedance.plot.getPlotItem().items if isinstance(i, pg.FillBetweenItem)]
+    assert [i for i in impedance.plot.getPlotItem().items if isinstance(i, pg.FillBetweenItem)]
     # the boxes of a test chart are always there; usable when the test has smoothing or specifications
     assert impedance.smooth_box.isVisibleTo(impedance) and not impedance.smooth_box.isEnabled()
     assert impedance.show_limits.isVisibleTo(impedance) and not impedance.show_limits.isEnabled()

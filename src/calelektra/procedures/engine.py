@@ -95,6 +95,7 @@ from calelektra.procedures.results import (
     write_uncertainty_csv,
 )
 from calelektra.uncertainty.engine import UncertaintyCalculationError
+from calelektra.uncertainty.impedance import ImpedanceUncertainty
 from calelektra.uncertainty.traces import TraceUncertainty
 
 STEPS: dict[str, str] = {
@@ -473,6 +474,7 @@ class RunResult:
     files: list[Path] = field(default_factory=list)
     spec_results: list[tuple[str, SpecResult]] = field(default_factory=list)  # (data set, result)
     uncertainty: dict[str, dict[str, TraceUncertainty]] = field(default_factory=dict)  # data set → trace → U
+    impedance: dict[str, ImpedanceUncertainty] = field(default_factory=dict)  # data set → U of Z (impedance measurement)
 
     @property
     def status(self) -> str:
@@ -1110,6 +1112,7 @@ class ProcedureRunner:
             measured,
             calibration_method=record.calibration.get("metodo"),
         )
+        result.impedance = run.impedance
         serial = f" nº {engine.serial_number}" if engine.serial_number else ""
         record.uncertainty = {
             "fichero": self._keep_file(path, "incertidumbres"),
@@ -1285,10 +1288,11 @@ class ProcedureRunner:
             comments = ([f"Puerto del EUT: {port}"] if port else []) + self._uncertainty_comment(path)
             write_touchstone(path, Touchstone(1, f, s, comments=self._comments(comments)), export.data_format, export.frequency_unit)
             files.append(path)
+            impedance = result.impedance.get("DUT")
             if export.csv:
-                files.append(write_results_csv_1p(path.with_suffix(".csv"), f, s[:, 0, 0], uncertainty, self._k))
+                files.append(write_results_csv_1p(path.with_suffix(".csv"), f, s[:, 0, 0], uncertainty, self._k, impedance))
             if uncertainty:
-                files.append(self._write_uncertainty("DUT", path, f, uncertainty))
+                files.append(self._write_uncertainty("DUT", path, f, uncertainty, impedance))
             measurements.append(self._measurement_entry("DUT", path, "touchstone"))
             summary = self._summary_1p(f, s[:, 0, 0])
         log_path = folder / "registro.txt"
@@ -1323,10 +1327,12 @@ class ProcedureRunner:
             return []
         return [f"Incertidumbre expandida (k={self._k:g}) de cada punto: {uncertainty_csv_path(result_path).name}"]
 
-    def _write_uncertainty(self, dataset: str, result_path: Path, f: np.ndarray, uncertainty: dict[str, TraceUncertainty]) -> Path:
+    def _write_uncertainty(
+        self, dataset: str, result_path: Path, f: np.ndarray, uncertainty: dict[str, TraceUncertainty], impedance: ImpedanceUncertainty | None = None
+    ) -> Path:
         """Uncertainty CSV of a measurement; the record keeps both file names."""
         assert self.result is not None
-        path = write_uncertainty_csv(uncertainty_csv_path(result_path), f, uncertainty, self._k)
+        path = write_uncertainty_csv(uncertainty_csv_path(result_path), f, uncertainty, self._k, impedance)
         for entry in self.result.record.uncertainty.get("medidas", []):
             if entry.get("medida") == dataset:
                 entry["fichero_resultado"] = result_path.name

@@ -15,7 +15,9 @@ from calelektra.core.issues import Severity
 from calelektra.gui.plots import band_segments
 from calelektra.gui.test_common import read_uncertainty_csv, record_uncertainty
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, prepare_run
+from calelektra.procedures.results import read_csv_columns
 from calelektra.uncertainty import UncertaintyEngine, trace_uncertainty
+from calelektra.uncertainty.impedance import impedance_uncertainty
 from conftest import E5061B_VALID_DAY, EXAMPLE_LIBRARY, TODAY
 
 FILES = EXAMPLE_LIBRARY / "catalogo" / "incertidumbres"
@@ -147,6 +149,22 @@ def test_expired_e5061b_blocks_the_lisn_test_and_its_file_gives_the_uncertainty(
     assert record.status == "completado"
     assert record.uncertainty["vna"].startswith("VNA-BF-01 — Keysight E5061B nº MY49408336")
     assert set(result.uncertainty) == {"DUT"} and set(record_uncertainty(record)) == {"DUT"}
+    # the impedance: its uncertainty from that of S11 (Z0 = 50 Ω), in the record and in both CSV files
+    impedance = result.impedance["DUT"]
+    [entry] = record.uncertainty["medidas"]
+    summary = entry["impedancia"]
+    assert summary["z0_ohm"] == 50.0 and summary["puntos"] == len(result.frequencies)
+    assert 0.3 < summary["U_ohm"]["max"] < 2 and summary["U_grados"]["max"] < 10
+    gamma = result.data["DUT"][:, 0, 0]
+    trace = result.uncertainty["DUT"]["S11"]
+    expected = impedance_uncertainty(gamma, trace.magnitude_db, trace.phase_deg, "dB")
+    assert np.allclose(impedance.magnitude_plus, expected.magnitude_plus, equal_nan=True)
+    header, columns = read_csv_columns(record.folder / entry["fichero"])
+    assert "U+ |Z| (Ω, k=2)" in header and "U− ∠Z (°, k=2)" in header and "Z: cota exacta (1 = sí)" in header
+    assert np.allclose(columns[header.index("U+ |Z| (Ω, k=2)")], impedance.magnitude_plus, rtol=1e-6, equal_nan=True)
+    results_csv = record.folder / entry["fichero_resultado"].replace(".s1p", ".csv")
+    assert "U+ |Z| (Ω, k=2)" in read_csv_columns(results_csv)[0]
+    assert "|Z|" in next(step.detail for step in record.steps if step.key == "incertidumbre")
 
 
 def test_band_segments_break_at_gaps_and_phase_jumps():

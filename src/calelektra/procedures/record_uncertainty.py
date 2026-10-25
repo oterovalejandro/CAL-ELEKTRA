@@ -35,6 +35,7 @@ from calelektra.procedures.results import (
     write_uncertainty_csv,
 )
 from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
+from calelektra.uncertainty.impedance import Z0, ImpedanceUncertainty, impedance_uncertainty
 from calelektra.uncertainty.traces import (
     TraceUncertainty,
     UncertaintyOptions,
@@ -62,6 +63,7 @@ class UncertaintyRun:
     status: str  # step status: ok | aviso
     detail: str
     problems: list[str] = field(default_factory=list)
+    impedance: dict[str, ImpedanceUncertainty] = field(default_factory=dict)  # measurement → U of Z (impedance measurement)
 
 
 def conditions_loaded(record_or_conditions: TestRecord | dict) -> bool:
@@ -100,6 +102,8 @@ def compute_uncertainty(
 
     Only the traces of the template are calculated (S21 in the transmission test). With a transmission
     normalization the result carries a warning: the uncertainty file assumes a full 2-port calibration.
+    The 1-port impedance measurement also gets the uncertainty of Z, from that of S11
+    (``uncertainty/impedance.py``, Z0 = 50 Ω).
     """
     settings = template.uncertainty
     temperature = temperature_of(conditions)
@@ -132,6 +136,7 @@ def compute_uncertainty(
     if warnings or notes:
         entry["avisos"] = warnings + notes
     traces: dict[str, dict[str, TraceUncertainty]] = {}
+    impedance: dict[str, ImpedanceUncertainty] = {}
     measurements = []
     problems: list[str] = list(warnings) + notes
     missing = 0
@@ -141,7 +146,12 @@ def compute_uncertainty(
         )
         if on_measurement is not None:
             on_measurement(name, traces[name])
-        measurements.append({"medida": name, "trazas": {p: t.summary() for p, t in traces[name].items()}})
+        measurement: dict[str, Any] = {"medida": name, "trazas": {p: t.summary() for p, t in traces[name].items()}}
+        reflection = traces[name].get("S11")
+        if template.algorithm == "vna_1_puerto" and reflection is not None:
+            impedance[name] = impedance_uncertainty(s[:, 0, 0], reflection.magnitude_db, reflection.phase_deg, "dB", Z0)
+            measurement["impedancia"] = impedance[name].summary()
+        measurements.append(measurement)
         for trace in traces[name].values():
             missing += trace.missing
             problems += [f"{name}: {problem}" if len(data) > 1 else problem for problem in trace.problems]
@@ -153,6 +163,11 @@ def compute_uncertainty(
         deg = _largest([t.phase_deg for t in found])
         if db is not None:
             largest.append(f"{parameter} {db:.3g} dB" + (f" / {deg:.3g}°" if deg is not None else ""))
+    for found in impedance.values():
+        ohm = _largest([np.fmax(found.magnitude_plus, found.magnitude_minus)])
+        deg = _largest([np.fmax(found.phase_plus, found.phase_minus)])
+        if ohm is not None:
+            largest.append(f"|Z| {ohm:.3g} Ω" + (f" / {deg:.3g}°" if deg is not None else ""))
     detail = f"U (k={settings.coverage_factor:g}) máx.: " + ("; ".join(largest) or "ningún punto")
     if state == PENDING:
         detail += " — PROVISIONAL, sin la componente de temperatura: pendiente de las condiciones ambientales"
@@ -160,12 +175,15 @@ def compute_uncertainty(
         detail += f" — con las condiciones ambientales ({temperature[0]:g} – {temperature[1]:g} °C)"
     if missing:
         detail += f" — {missing} punto(s) sin incertidumbre (fuera de los rangos del fichero)"
+    exact = sum(int(found.exact.sum()) for found in impedance.values())
+    if exact:
+        detail += f" — Z: {exact} punto(s) con cota exacta, no simétrica (fuera de la aproximación lineal)"
     if warnings:
         detail += " — VNA fuera de calibración según el fichero"
     if notes:
         detail += " — calibración por normalización de transmisión"
     status = "aviso" if state == PENDING or missing or warnings or notes else "ok"
-    return UncertaintyRun(entry, traces, status, detail, problems)
+    return UncertaintyRun(entry, traces, status, detail, problems, impedance)
 
 
 def designation_of(entry: dict) -> str:
@@ -214,7 +232,8 @@ def recalculate_uncertainty(record: TestRecord) -> str:
     for item, new in zip(entry["medidas"], run.entry["medidas"]):
         path, f, s = measurements[item["medida"]]
         traces = run.traces[item["medida"]]
-        write_uncertainty_csv(uncertainty_csv_path(path), f, traces, k)
+        impedance = run.impedance.get(item["medida"])
+        write_uncertainty_csv(uncertainty_csv_path(path), f, traces, k, impedance)
         results_csv = path.with_suffix(".csv")
         if path.suffix.lower() == ".csv":
             write_results_csv_s21(path, f, s[:, 1, 0], traces, k)
@@ -222,7 +241,7 @@ def recalculate_uncertainty(record: TestRecord) -> str:
             if s.shape[1] == 2:
                 write_results_csv_2p(results_csv, f, s, traces, k)
             else:
-                write_results_csv_1p(results_csv, f, s[:, 0, 0], traces, k)
+                write_results_csv_1p(results_csv, f, s[:, 0, 0], traces, k, impedance)
         new["fichero_resultado"], new["fichero"] = item["fichero_resultado"], item.get("fichero", uncertainty_csv_path(path).name)
     record.uncertainty = {**run.entry, **{key: entry[key] for key in ("fichero", "vna", "equipo_vna") if key in entry}}
     for step in record.steps:

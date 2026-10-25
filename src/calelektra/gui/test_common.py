@@ -31,6 +31,7 @@ from calelektra.procedures.record_uncertainty import (
 from calelektra.procedures.results import read_csv_columns, read_results_csv_s21
 from calelektra.procedures.specs import VERDICTS, SpecCurve, spec_curves
 from calelektra.setups.paths import describe_path_record
+from calelektra.uncertainty.impedance import impedance_text
 from calelektra.uncertainty.engine import UncertaintyCalculationError
 
 SETTINGS = ("CAL-ELEKTRA", "CAL-ELEKTRA")
@@ -281,6 +282,8 @@ def uncertainty_rows(record: TestRecord) -> list[tuple[str, str]]:
             rows.append((f"{prefix} · {parameter} (U, k={k:g})", text))
             for problem in trace.get("problemas", []):
                 rows.append((f"{prefix} · {parameter} · fuera de rango", str(problem)))
+        if entry.get("impedancia"):
+            rows.append((f"{prefix} · Z (U, k={k:g})", impedance_text(entry["impedancia"])))
     return rows
 
 

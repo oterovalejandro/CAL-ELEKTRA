@@ -68,7 +68,7 @@ En las gráficas de la ventana del ensayo y del explorador de ensayos, cada traz
 
 - La zona se corta donde un punto no tiene incertidumbre y en los saltos de ±180° de la fase.
 - Si la plantilla suaviza la visualización, la zona se dibuja alrededor de la traza suavizada.
-- En la vista de impedancia |Z| no hay zona: falta la propagación a Z (`calc_Z_from_S` de `math_utils`), que no está entre los ficheros recibidos. **Decisión (0.7):** de momento no se implementa; solo parámetros S.
+- En la vista de impedancia |Z| no había zona: faltaba la propagación a Z (`calc_Z_from_S` de `math_utils`), que no estaba entre los ficheros recibidos. **Desde 0.8.4** se calcula a partir de la incertidumbre de S11: ver [`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md).
 
 | | |
 |---|---|

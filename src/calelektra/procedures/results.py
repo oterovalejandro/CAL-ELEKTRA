@@ -1,7 +1,9 @@
 """CSV files of the results of a test: the traces as measured (no smoothing) and their uncertainty.
 
 They are written at the end of the run and again when the uncertainty is
-recalculated with the ambient conditions of the test. The transmission test
+recalculated with the ambient conditions of the test. The 1-port impedance
+measurement adds the uncertainty of Z, above and below the value (they differ
+where the bounds are exact, ``uncertainty/impedance.py``). The transmission test
 (S21 → .csv) has no Touchstone file: its CSV is the result and is read back
 to recalculate the uncertainty.
 """
@@ -13,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from calelektra.core.networks import gamma_to_impedance
+from calelektra.uncertainty.impedance import ImpedanceUncertainty
 from calelektra.uncertainty.traces import TraceUncertainty
 
 TWO_PORT = (("S11", (0, 0)), ("S21", (1, 0)), ("S12", (0, 1)), ("S22", (1, 1)))
@@ -47,14 +50,41 @@ def uncertainty_columns(uncertainty: dict[str, TraceUncertainty] | None, name: s
     return [f"U {name} (dB, k={k:g})", f"U {name} (°, k={k:g})"], [trace.magnitude_db, trace.phase_deg]
 
 
-def write_uncertainty_csv(path: Path, frequencies: np.ndarray, uncertainty: dict[str, TraceUncertainty], k: float) -> Path:
-    """Expanded uncertainty of every point and trace (the charts read it back)."""
+def impedance_columns(impedance: ImpedanceUncertainty | None, k: float) -> tuple[list[str], list[np.ndarray]]:
+    if impedance is None:
+        return [], []
+    names = [
+        f"U+ |Z| (Ω, k={k:g})",
+        f"U− |Z| (Ω, k={k:g})",
+        f"U+ |Z| (dBΩ, k={k:g})",
+        f"U− |Z| (dBΩ, k={k:g})",
+        f"U+ ∠Z (°, k={k:g})",
+        f"U− ∠Z (°, k={k:g})",
+        "Z: cota exacta (1 = sí)",
+    ]
+    values = [
+        impedance.magnitude_plus,
+        impedance.magnitude_minus,
+        impedance.magnitude_db_plus,
+        impedance.magnitude_db_minus,
+        impedance.phase_plus,
+        impedance.phase_minus,
+        impedance.exact.astype(float),
+    ]
+    return names, values
+
+
+def write_uncertainty_csv(
+    path: Path, frequencies: np.ndarray, uncertainty: dict[str, TraceUncertainty], k: float, impedance: ImpedanceUncertainty | None = None
+) -> Path:
+    """Expanded uncertainty of every point and trace (the charts read it back), and that of Z in the impedance measurement."""
     header, columns = ["Frecuencia (Hz)"], [frequencies]
     for name in uncertainty:
         names, values = uncertainty_columns(uncertainty, name, k)
         header += names
         columns += values
-    write_csv(path, header, columns)
+    names, values = impedance_columns(impedance, k)
+    write_csv(path, header + names, columns + values)
     return path
 
 
@@ -71,11 +101,14 @@ def write_results_csv_2p(path: Path, f: np.ndarray, s: np.ndarray, uncertainty: 
     return path
 
 
-def write_results_csv_1p(path: Path, f: np.ndarray, gamma: np.ndarray, uncertainty: dict[str, TraceUncertainty] | None, k: float) -> Path:
+def write_results_csv_1p(
+    path: Path, f: np.ndarray, gamma: np.ndarray, uncertainty: dict[str, TraceUncertainty] | None, k: float, impedance: ImpedanceUncertainty | None = None
+) -> Path:
     z = gamma_to_impedance(gamma)
     names, values = uncertainty_columns(uncertainty, "S11", k)
-    header = ["Frecuencia (Hz)", "S11 (dB)", "S11 (°)", *names, "|Z| (Ω)", "fase Z (°)"]
-    columns = [f, db(gamma), np.degrees(np.angle(gamma)), *values, np.abs(z), np.degrees(np.angle(z))]
+    z_names, z_values = impedance_columns(impedance, k)
+    header = ["Frecuencia (Hz)", "S11 (dB)", "S11 (°)", *names, "|Z| (Ω)", "fase Z (°)", *z_names]
+    columns = [f, db(gamma), np.degrees(np.angle(gamma)), *values, np.abs(z), np.degrees(np.angle(z)), *z_values]
     write_csv(path, header, columns)
     return path
 
