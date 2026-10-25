@@ -1,0 +1,28 @@
+# Plantilla de ensayo: transmisión (S21 → CSV) del cable N CAB-DUT-0001 con el
+# hardware setup «Camino RF — 2 puertos — Transmisión» (transmision_N_18G):
+# normalización con el through N macho – N macho y medida de S21. El modelo del
+# cable da su especificación de atenuación (solo S21).
+formato: calelektra/procedimiento@0.3
+id: transmision_CAB-DUT-0001
+nombre: Pérdidas del cable N CAB-DUT-0001 (S21 → CSV)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Normalización de transmisión entre los planos de referencia, verificación con
+  el through, medida de S21 del cable y exportación a CSV con su incertidumbre.
+algoritmo: vna_transmision
+hardware_setup: transmision_N_18G
+eut: CAB-DUT-0001
+barrido:
+  potencia_dbm: -10
+  ifbw: 1 kHz
+  promedios: 2
+  suavizado_pct: 0
+calibracion:
+  metodo: automatico        # normalización de transmisión
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.05   # |S21| del through normalizado
+exportacion:
+  nombre_fichero: "{dut}_{fecha}_S21"
+  csv: true

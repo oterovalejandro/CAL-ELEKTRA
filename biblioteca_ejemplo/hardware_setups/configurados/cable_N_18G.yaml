@@ -1,15 +1,17 @@
-# Setup del grupo de cables N: cables de medida N, kit N y la lista de frecuencias
-# de calibración del laboratorio. El cable a calibrar (EUT) lo define la plantilla de ensayo.
-formato: calelektra/setup@0.3
+# Cables N hasta 18 GHz: cables de medida 2,92 mm – N hembra en los dos caminos,
+# kit N y la lista de frecuencias de calibración del laboratorio. Admite DUT con
+# conectores N macho en los dos extremos.
+formato: calelektra/setup@0.4
 id: cable_N_18G
 nombre: Cables N hasta 18 GHz (lista de frecuencias)
-plantilla: componente_2p
+plantilla: camino_rf_2p_s
 rango_requerido: [30 MHz, 18 GHz]
 frecuencias:
   modo: lista
   fichero_lista: ../listas/puntos_cable_N.csv   # puntos de calibración del laboratorio
+caminos:
+  P1: [CAB-PT-N-01]
+  P2: [CAB-PT-N-02]
 asignaciones:
   vna: VNA-01
-  cable_p1: CAB-PT-N-01
-  cable_p2: CAB-PT-N-02
   kit_cal: KIT-N-01

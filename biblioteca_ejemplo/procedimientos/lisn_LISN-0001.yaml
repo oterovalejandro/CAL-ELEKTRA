@@ -1,19 +1,21 @@
-# Plantilla de ensayo: impedancia de la LISN LISN-0001 en el terminal EUT con
-# VNA de 1 puerto (CISPR 16-1-2). El setup «lisn_impedancia_VNA-BF» da las
-# frecuencias (9 kHz – 30 MHz, logarítmico, 201 puntos). Mide cada línea del
-# campo «Líneas» de la LISN y compara con su «Red nominal».
+# Plantilla de ensayo: impedancia en el terminal EUT de la LISN LISN-0001 con el
+# hardware setup «Medida de impedancia — Reflexión en 1 puerto»
+# (lisn_impedancia_VNA-BF: VNA de baja frecuencia; camino P1 = cable de medida N
+# + adaptador N – terminales de la LISN). El setup da las frecuencias
+# (9 kHz – 30 MHz, logarítmico, 201 puntos).
 formato: calelektra/procedimiento@0.3
 id: lisn_LISN-0001
-nombre: Impedancia de la LISN LISN-0001 (1 puerto) → .s1p por línea
+nombre: Impedancia de la LISN LISN-0001 (terminal EUT) → .s1p
 version: "1.0"
 estado: borrador
 descripcion: >
-  Calibración OSM en el extremo del cable de medida, medida de la reflexión
-  en el terminal EUT de cada línea, impedancia y desviación respecto a la red
-  nominal. Exporta un .s1p y un CSV por línea.
+  Calibración OSM en el plano de referencia (terminales del adaptador),
+  medida de la reflexión en el terminal EUT, impedancia y exportación a .s1p
+  y CSV.
 algoritmo: vna_1_puerto
 hardware_setup: lisn_impedancia_VNA-BF
 eut: LISN-0001
+puertos_eut: [EUT]
 barrido:
   potencia_dbm: -10
   ifbw: 100 Hz
@@ -29,7 +31,3 @@ exportacion:
   unidad_frecuencia: HZ
   nombre_fichero: "{dut}_{fecha}"
   csv: true
-opciones:
-  lineas: todas                 # o una lista, p. ej. [L1, N]
-  tolerancia_z_pct: 20          # A CONFIRMAR con la norma / el procedimiento del laboratorio
-  tolerancia_fase_grados: 11.5  # A CONFIRMAR con la norma / el procedimiento del laboratorio

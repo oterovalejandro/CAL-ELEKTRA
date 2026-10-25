@@ -2,10 +2,12 @@
 
 import numpy as np
 import pytest
+import yaml
 
 from calelektra.core.touchstone import read_touchstone
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, RunListener, prepare_run, suitable_setups
+from calelektra.procedures.results import read_csv_columns
 
 from conftest import E5061B_VALID_DAY, TODAY
 
@@ -116,17 +118,103 @@ def test_frequency_list_of_the_setup_and_tolerance_spec(library):
     assert len(data.frequencies) == 268 and data.frequencies[0] == pytest.approx(30e6)
 
 
-def test_lisn_impedance_per_line(library):
-    result, _, listener = run(library, "lisn_LISN-0001", today=E5061B_VALID_DAY)
+def test_impedance_in_one_port_at_the_end_of_the_path(library):
+    result, operator, listener = run(library, "lisn_LISN-0001", today=E5061B_VALID_DAY)
     record = result.record
     assert record.status == "completado" and record.verdict == "SIN_ESPECIFICACIONES"
-    assert record.calibration["metodo"] == "OSM"
+    assert record.calibration["metodo"] == "OSM" and record.calibration["planos"] == {"PR1": "Terminales / bornas (no coaxial)"}
     assert record.sweep["modo"] == "logaritmico" and record.sweep["puntos"] == 201
     assert record.sweep["inicio"] == "9 kHz" and record.sweep["fin"] == "30 MHz"
-    assert set(record.results["lineas"]) == {"L1", "N"}
-    assert all(record.results["dentro_de_tolerancia"].values())
-    assert sum(name.endswith(".s1p") for name in record.files) == 2
-    assert listener.names == ["L1", "N"]
+    assert set(record.results) == {"perdidas_retorno_min_db", "z_min_ohm", "z_max_ohm"}  # generic: no LISN lines or nominal network
+    assert sum(name.endswith(".s1p") for name in record.files) == 1 and listener.names == ["DUT"]
+    assert record.measurements == [{"nombre": "DUT", "fichero": record.files[0], "formato": "touchstone", "puertos_eut": {"P1": "EUT"}}]
+    [path] = record.paths
+    assert [e["id"] for e in path["elementos"]] == ["CAB-PT-BF-01", "ADP-LISN-01"] and path["plano"] == "PR1"
+    prompt = next(r for r in operator.requests if r.step == "medida")
+    assert "EUT (Terminales / bornas (no coaxial)) en PR1 (extremo B de «ADP-LISN-01»" in prompt.message
+
+
+def test_record_keeps_the_paths_of_the_setup(library):
+    result, _, _ = run(library, "cable_CAB-DUT-0003")
+    record = result.record
+    assert record.setup["caminos"] == {"P1": ["CAB-PT-292-01"], "P2": ["CAB-PT-292-02"]}
+    assert record.setup["conectores_dut_admitidos"] == "PR1: 2,92 mm (K) hembra; PR2: 2,92 mm (K) macho"
+    first, second = record.paths
+    assert first["conector_puerto_vna"] == "2,92 mm (K) macho" and first["conector_plano"] == "2,92 mm (K) macho"
+    [element] = first["elementos"]
+    assert element["id"] == "CAB-PT-292-01" and element["lado_vna"] == "A" and element["lado_dut"] == "B"
+    assert element["datos_s"] == "CAB-PT-292-01.s2p" and second["conector_dut_admitido"] == "2,92 mm (K) macho"
+    cable = next(e for e in record.equipment if e["id"] == "CAB-PT-292-02")
+    assert cable["rol"] == "P2-1" and cable["camino"] == "P2" and cable["posicion"] == 1 and cable["rol_nombre"] == "Camino P2 · 1"
+    snapshot = yaml.safe_load((record.folder / "hardware_setup.yaml").read_text(encoding="utf-8"))
+    assert snapshot["formato"] == "calelektra/hardware_setup_ensayo@0.4" and snapshot["setup"]["caminos"]["P1"] == ["CAB-PT-292-01"]
+    assert snapshot["caminos"][1]["elementos"][0]["id"] == "CAB-PT-292-02"
+    data = read_touchstone(record.folder / record.measurements[0]["fichero"])
+    assert any(line.startswith("Camino P1: P1 (2,92 mm (K) macho) → CAB-PT-292-01 (A→B) → PR1") for line in data.comments)
+
+
+def test_eut_ports_on_each_path_can_be_chosen(library):
+    template = template_with(library, "cable_CAB-DUT-0003", eut_ports=["B", "A"])
+    plan = prepare_run(library, template, TODAY)
+    assert not plan.ok  # B (male) cannot go on PR1 (male)
+    assert any("mismo género" in i.message for i in plan.issues)
+    template = template_with(library, "cable_CAB-DUT-0003", eut_ports=["C"])
+    assert any("no tiene los puertos C" in i.message for i in prepare_run(library, template, TODAY).issues)
+
+
+def test_transmission_with_normalization_exports_s21_to_csv(library):
+    result, operator, listener = run(library, "transmision_CAB-DUT-0001")
+    record = result.record
+    assert record.status == "completado" and record.calibration["metodo"] == "normalizacion"
+    assert record.calibration["through"] == "ADP-NN-01" and record.calibration["kit"] is None
+    titles = [r.title for r in operator.requests]
+    assert titles[0] == "Normalización de transmisión: through «ADP-NN-01»" and not any("Abierto" in title for title in titles)
+    assert record.verification["comprobaciones"][0]["comprobacion"] == "|S21| del through normalizado"
+    [measurement] = record.measurements
+    assert measurement["formato"] == "csv_s21" and measurement["fichero"].endswith("_S21.csv")
+    assert not [f for f in record.files if "/" not in f and f.endswith((".s2p", ".s1p"))]  # no Touchstone result
+    header, columns = read_csv_columns(record.folder / measurement["fichero"])
+    assert header == ["Frecuencia (Hz)", "S21 (dB)", "S21 (°)", "U S21 (dB, k=2)", "U S21 (°, k=2)"] and len(columns[0]) == 401
+    s = result.data["DUT"]
+    assert np.all(np.isfinite(s[:, 1, 0])) and np.all(np.isnan(s[:, 0, 0]))  # only S21 is measured
+    assert list(result.uncertainty["DUT"]) == ["S21"]
+    assert any("normalización de transmisión" in warning for warning in record.uncertainty["avisos"])
+    assert [entry["parametros"][0]["parametro"] for entry in record.spec_results] == ["S21"]  # the S12 of the spec is not evaluated
+    assert set(record.results) == {"perdidas_insercion_db", "retardo_ns"}
+
+
+def test_directional_coupler_by_port_pairs(library):
+    result, operator, listener = run(library, "acoplador_ACP-0001")
+    record = result.record
+    assert record.status == "completado" and record.verdict == "PASA"
+    assert listener.names[-3:] == ["ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"]
+    prompts = [r for r in operator.requests if r.step == "medida"]
+    assert [p.title for p in prompts] == ["Par ENTRADA – SALIDA (1/3)", "Par ENTRADA – ACOPLADO (2/3)", "Par SALIDA – ACOPLADO (3/3)"]
+    assert "ACOPLADO (N 50 Ω hembra) en «LOAD-N-01»" in prompts[0].message and "SALIDA (N 50 Ω hembra) en PR2" in prompts[0].message
+    assert [m["puertos_eut"] for m in record.measurements] == [
+        {"P1": "ENTRADA", "P2": "SALIDA"}, {"P1": "ENTRADA", "P2": "ACOPLADO"}, {"P1": "SALIDA", "P2": "ACOPLADO"},
+    ]
+    assert record.measurements[0]["puertos_en_carga"] == ["ACOPLADO", "AISLADO"]
+    assert sum(name.endswith(".s2p") for name in record.files) == 3
+    entries = {entry["nombre"]: entry for entry in record.spec_results}
+    assert set(entries) == {"Pérdidas de inserción", "Acoplamiento", "Aislamiento", "Directividad", "Pérdidas de retorno"}
+    assert entries["Acoplamiento"]["criterio"].startswith("20 ± 1 dB") and all(e["resultado"] == "PASA" for e in entries.values())
+    coupling = record.results["acoplamiento_db"]
+    assert 19 <= coupling["min"] <= coupling["max"] <= 21
+    header, _ = read_csv_columns(record.folder / next(f for f in record.files if f.endswith("_acoplador.csv")))
+    assert header[1:] == [
+        "Pérdidas de inserción IL (dB)", "Acoplamiento C (dB)", "Aislamiento I (dB)", "Directividad D (dB)", "Pérdidas de retorno RL (dB)",
+    ]
+    assert {m["medida"] for m in record.uncertainty["medidas"]} == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
+
+
+def test_coupler_pairs_are_checked(library):
+    template = template_with(library, "acoplador_ACP-0001", pairs=[("ENTRADA", "ENTRADA"), ("SALIDA", "OTRO")])
+    plan = prepare_run(library, template, TODAY)
+    assert not plan.ok and sum("no válido" in i.message for i in plan.issues) == 2
+    library.models["carga_n_50"].values["conector"] = {"familia": "N", "genero": "hembra"}  # loads that do not mate the ports
+    plan = prepare_run(library, library.procedures["acoplador_ACP-0001"], TODAY)
+    assert any(i.message.startswith("Par ENTRADA – ACOPLADO: ") and "mismo género" in i.message for i in plan.issues)
 
 
 def test_each_launch_is_a_new_record_in_the_chosen_folder(library):
@@ -164,8 +252,12 @@ def test_invalid_eut_for_the_setup_is_not_run(library):
 def test_algorithm_and_vna_limits(library):
     assert {s.id for s in suitable_setups(library, "vna_1_puerto")} == {"lisn_impedancia_VNA-01", "lisn_impedancia_VNA-BF"}
     assert "cable_vna_292" in {s.id for s in suitable_setups(library, "vna_2_puertos")}
+    assert {s.id for s in suitable_setups(library, "vna_transmision")} == {"transmision_N_18G"}
+    assert {s.id for s in suitable_setups(library, "vna_acoplador")} == {"acoplador_N_18G"}
     plan = prepare_run(library, template_with(library, "cable_CAB-DUT-0002", setup_id="lisn_impedancia_VNA-BF"), TODAY)
-    assert not plan.ok and any("plano(s) de referencia" in i.message for i in plan.issues)
+    assert not plan.ok and any("no sirve para «Camino RF — 2 puertos — Reflexión y transmisión" in i.message for i in plan.issues)
+    plan = prepare_run(library, template_with(library, "cable_CAB-DUT-0001", setup_id="sac_nsa_3m"), TODAY)
+    assert any("no tiene todavía algoritmo de ensayo" in i.message for i in plan.issues)
     template = library.procedures["cable_CAB-DUT-0002"].model_copy(deep=True)
     template.sweep.traces["S21"].if_bandwidth = 1e9
     plan = prepare_run(library, template, TODAY)

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -42,7 +43,16 @@ from calelektra.gui.setup_diagram import SetupDiagramView
 from calelektra.gui.template_widgets import SpecEditor, TraceEditor
 from calelektra.gui.test_common import equipment_text, plan_html, setup_state
 from calelektra.procedures.engine import eut_choices, prepare_run, suitable_setups
-from calelektra.procedures.model import ALGORITHMS, CALIBRATION_METHODS, PLANES_NEEDED, TRACES, ProcedureTemplate
+from calelektra.procedures.model import (
+    ALGORITHMS,
+    CALIBRATION_METHODS,
+    COUPLER_PORTS,
+    DEFAULT_COUPLER_PAIRS,
+    PLANES_NEEDED,
+    TRACES,
+    ProcedureTemplate,
+)
+from calelektra.setups.paths import default_dut_ports
 from calelektra.setups.analysis import analyze_setup
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
@@ -107,10 +117,37 @@ class ProcedureEditor(QWidget):
         self.eut_info.setWordWrap(True)
         eut_form = QFormLayout()
         eut_form.addRow(self.eut_label, self.eut)
+        self.eut_ports: list[QComboBox] = []
+        self.ports_row = QWidget()
+        ports_layout = QHBoxLayout(self.ports_row)
+        ports_layout.setContentsMargins(0, 0, 0, 0)
+        for index in range(2):
+            combo = QComboBox()
+            combo.setToolTip(f"Puerto del EUT en el plano PR{index + 1} (final del camino de P{index + 1})")
+            combo.currentIndexChanged.connect(self._edited)
+            self.eut_ports.append(combo)
+            ports_layout.addWidget(QLabel(f"PR{index + 1}:"))
+            ports_layout.addWidget(combo, 1)
+        eut_form.addRow("Puertos del EUT", self.ports_row)
+        self.pairs = QListWidget()
+        self.pairs.setMaximumHeight(118)
+        self.pairs.setToolTip("Pares de puertos del acoplador que se miden: el primero en PR1, el segundo en PR2; los otros dos en las cargas de 50 Ω")
+        for first_index, first in enumerate(COUPLER_PORTS):
+            for second in COUPLER_PORTS[first_index + 1 :]:
+                item = QListWidgetItem(f"{first} (PR1) – {second} (PR2)")
+                item.setData(Qt.ItemDataRole.UserRole, (first, second))
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked if (first, second) in DEFAULT_COUPLER_PAIRS else Qt.CheckState.Unchecked)
+                self.pairs.addItem(item)
+        self.pairs.itemChanged.connect(lambda _item: self._edited())
+        self.pairs_label = QLabel("Pares de puertos")
+        eut_form.addRow(self.pairs_label, self.pairs)
+        self.eut_form = eut_form
         eut_card.body.addLayout(eut_form)
         eut_card.body.addWidget(self.eut_info)
         specs_title = QLabel("Especificaciones S del modelo del EUT (pasa / falla)")
         specs_title.setObjectName("cardTitle")
+        self.specs_title = specs_title
         self.specs = SpecEditor(resolver=lambda reference: self._eut_spec_path(reference), read_only=True)
         self.specs.setMinimumHeight(120)
         self.edit_specs = QPushButton(icon("editar", style.PRIMARY.name()), "Editar las especificaciones del modelo…")
@@ -207,7 +244,7 @@ class ProcedureEditor(QWidget):
 
         options = style.Card("Opciones del algoritmo (YAML)", icon_name="ajustes")
         self.options = QPlainTextEdit()
-        self.options.setPlaceholderText("lineas: todas\ntolerancia_z_pct: 20")
+        self.options.setPlaceholderText("clave: valor (opciones adicionales del algoritmo; normalmente vacío)")
         self.options.setMaximumHeight(100)
         options.body.addWidget(self.options)
 
@@ -296,9 +333,66 @@ class ProcedureEditor(QWidget):
             self.setup_info.setText("Las frecuencias de medida las da el hardware setup.")
         self._eut_changed()
 
+    def _update_ports(self, wanted: list[str] | None = None) -> None:
+        """Ports of the EUT on each plane (not for a coupler: it is measured by pairs)."""
+        algorithm = self.algorithm.currentData()
+        coupler = algorithm == "vna_acoplador"
+        needed = PLANES_NEEDED[algorithm]
+        self.eut_form.setRowVisible(self.ports_row, not coupler)
+        self.eut_form.setRowVisible(self.pairs, coupler)
+        ports = default_dut_ports(self.library, self._current_eut())
+        wanted = wanted if wanted is not None else [combo.currentData() for combo in self.eut_ports]
+        for index, combo in enumerate(self.eut_ports):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("(orden de su categoría)" if not ports else f"{ports[index]} (orden de su categoría)" if index < len(ports) else "—", None)
+            for port in ports:
+                combo.addItem(port, port)
+            value = wanted[index] if index < len(wanted) else None
+            if value and combo.findData(value) < 0:
+                combo.addItem(f"{value}  ⚠ el EUT no lo tiene", value)
+            combo.setCurrentIndex(max(combo.findData(value), 0) if value else 0)
+            combo.setVisible(index < needed)
+            combo.blockSignals(False)
+        layout = self.ports_row.layout()
+        for index in range(layout.count()):
+            widget = layout.itemAt(index).widget()
+            if isinstance(widget, QLabel):
+                widget.setVisible(index // 2 < needed)
+
+    def eut_port_values(self) -> list[str]:
+        values = [combo.currentData() for combo in self.eut_ports[: PLANES_NEEDED[self.algorithm.currentData()]]]
+        return [value for value in values if value] if all(values) else []
+
+    def pair_values(self) -> list[tuple[str, str]]:
+        return [
+            self.pairs.item(row).data(Qt.ItemDataRole.UserRole)
+            for row in range(self.pairs.count())
+            if self.pairs.item(row).checkState() == Qt.CheckState.Checked
+        ]
+
+    def set_pairs(self, pairs: list[tuple[str, str]]) -> None:
+        wanted = {tuple(pair) for pair in pairs} or set(DEFAULT_COUPLER_PAIRS)
+        self.pairs.blockSignals(True)
+        for row in range(self.pairs.count()):
+            item = self.pairs.item(row)
+            first, second = item.data(Qt.ItemDataRole.UserRole)
+            checked = (first, second) in wanted or (second, first) in wanted
+            item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+            if (second, first) in wanted:  # pair given the other way round: keep its order
+                item.setData(Qt.ItemDataRole.UserRole, (second, first))
+                item.setText(f"{second} (PR1) – {first} (PR2)")
+        self.pairs.blockSignals(False)
+
     def _eut_changed(self, *_args) -> None:
         equipment = self._current_eut()
         model = self.library.model_of(equipment) if equipment else None
+        self._update_ports()
+        coupler = self.algorithm.currentData() == "vna_acoplador"
+        self.specs_title.setText(
+            "Valores nominales del modelo del acoplador (pasa / falla)" if coupler else "Especificaciones S del modelo del EUT (pasa / falla)"
+        )
+        self.specs.setVisible(not coupler)
         self.specs.set_traces(TRACES[self.algorithm.currentData()])
         self.specs.load(model.s_specifications if model else [])
         self.edit_specs.setEnabled(model is not None)
@@ -386,6 +480,8 @@ class ProcedureEditor(QWidget):
             self.eut.setCurrentIndex(self.eut.count() - 1)
             self.eut.blockSignals(False)
             self._eut_changed()
+        self._update_ports(list(procedure.eut_ports))
+        self.set_pairs(list(procedure.pairs))
         sweep = procedure.sweep
         self.power.setValue(sweep.power_dbm)
         self.traces.load(sweep)
@@ -435,6 +531,8 @@ class ProcedureEditor(QWidget):
             "algoritmo": self.algorithm.currentData(),
             "hardware_setup": self.setup.currentData(),
             "eut": self.eut.currentData(),
+            "puertos_eut": self.eut_port_values() if self.algorithm.currentData() != "vna_acoplador" else [],
+            "pares": [list(pair) for pair in self.pair_values()] if self.algorithm.currentData() == "vna_acoplador" else [],
             "barrido": sweep,
             "calibracion": {
                 "metodo": self.method.currentData(),
@@ -593,8 +691,8 @@ class ProceduresView(QWidget):
         setup = self.library.setups.get(setup_id or "")
         if setup is not None:
             template = self.library.resolved_template(setup.template)
-            if template is not None and len(template.reference_planes) == PLANES_NEEDED["vna_1_puerto"]:
-                algorithm = "vna_1_puerto"
+            if template is not None and template.algorithms and template.algorithms[0] in ALGORITHMS:
+                algorithm = template.algorithms[0]  # the test the setup is made for
         new_id, counter = "nueva_plantilla", 2
         while new_id in self.library.procedures:
             new_id, counter = f"nueva_plantilla_{counter}", counter + 1

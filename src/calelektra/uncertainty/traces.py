@@ -151,14 +151,15 @@ def dataset_uncertainty(
     if_bandwidth_of: Callable[[str], float | None] | None = None,
     settings: UncertaintyOptions | None = None,
     today: date | None = None,
+    parameters: tuple[str, ...] | None = None,
 ) -> dict[str, TraceUncertainty]:
-    """Uncertainty of every S-parameter of a measurement ``s`` (points, n, n), n = 1 or 2."""
+    """Uncertainty of the S-parameters of a measurement ``s`` (points, n, n), n = 1 or 2 (only ``parameters`` if given)."""
     traces = {}
     n = s.shape[1]
     for i in range(n):
         for j in range(n):
             parameter = f"S{i + 1}{j + 1}"
-            if parameter not in PARAMETERS:
+            if parameter not in PARAMETERS or (parameters is not None and parameter not in parameters):
                 continue
             ifbw = if_bandwidth_of(parameter) if if_bandwidth_of else None
             traces[parameter] = trace_uncertainty(engine, equipment, parameter, frequencies, s[:, i, j], ifbw, settings, today)

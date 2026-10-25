@@ -1,0 +1,52 @@
+# Medida de impedancia: reflexión en 1 puerto (S11 → .s1p). El camino de P1
+# (cables, adaptadores…) lleva el plano de referencia hasta el puerto del DUT;
+# allí se hace la calibración OSM.
+formato: calelektra/plantilla_setup@0.4
+id: impedancia_1p
+nombre: Medida de impedancia — Reflexión en 1 puerto (parámetro S11 → .s1p)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración OSM en el plano de referencia (final del camino de P1), medida de
+  la reflexión del puerto del DUT, impedancia y exportación a Touchstone (.s1p)
+  y CSV.
+algoritmos: [vna_1_puerto]
+caminos:
+  P1:
+    etiqueta: Camino P1
+    categorias: [cable_medida, adaptador, path]
+roles:
+  vna:
+    categoria: vna
+    etiqueta: VNA
+  kit_cal:
+    categoria: kit_calibracion
+    etiqueta: Kit de calibración
+    cardinalidad: "0..1"
+    descripcion: Opcional. Sin kit asignado se usa el kit seleccionado en el VNA (no queda registrado).
+  dut:
+    categoria: [carga, antena, lisn, cable, adaptador, acoplador]
+    etiqueta: DUT
+    es_dut: true
+    requiere_datos_s: false
+calibracion_vna:
+  metodos: [OSM]
+  kit: kit_cal
+requisitos:
+  - id: vna_puertos
+    campo: vna.num_puertos
+    operador: ">="
+    valor: 1
+  - id: vna_osm
+    campo: vna.metodos_calibracion
+    operador: contiene
+    valor: OSM
+    mensaje: El VNA debe poder calibrar OSM en un puerto
+estados_conexion:
+  calibracion:
+    descripcion: Estándares Open / Short / Match en el plano PR1 (final del camino)
+    conexiones: []
+  medida:
+    descripcion: Puerto del DUT conectado en PR1
+    conexiones:
+      - [P1, dut.#1]

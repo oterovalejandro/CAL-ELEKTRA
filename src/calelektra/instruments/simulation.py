@@ -1,7 +1,8 @@
 """Models of the devices that the dummy VNA «sees» connected to its ports.
 
 Two-port models return ``S(f)`` with shape ``(points, 2, 2)``; one-port models
-return ``Γ(f)``. A DUT is simulated from its S-parameter file when it has one,
+return ``Γ(f)``; the directional coupler model returns its 4 × 4 matrix (each
+measured pair is a 2 × 2 sub-matrix, the other ports terminated in 50 Ω). A DUT is simulated from its S-parameter file when it has one,
 otherwise from its catalogue fields (length, attenuation, LISN network…), so
 the fields of the equipment are also used while a (simulated) test runs.
 """
@@ -87,6 +88,49 @@ def lisn_model(network: str, line_index: int = 0, z0: float = 50.0) -> OnePortMo
     return model
 
 
+def coupler_model(coupling_db: float = 20.0, directivity_db: float = 20.0, seed: int = 0) -> Callable[[np.ndarray], np.ndarray]:
+    """Directional coupler, ports ENTRADA, SALIDA, ACOPLADO, AISLADO (S has shape (points, 4, 4)).
+
+    Coupling ``coupling_db`` with a small ripple, main-line loss growing with
+    √f, directivity around ``directivity_db`` and input/output reflections of
+    about −25 dB. Reciprocal and symmetric (S32 = S41, S42 = S31).
+    """
+    rng = np.random.default_rng(seed)
+    phases = rng.uniform(-np.pi, np.pi, 6)
+
+    def model(f: np.ndarray) -> np.ndarray:
+        f_ghz = np.maximum(f, 0) / 1e9
+        coupling = coupling_db + 0.4 * np.sin(f_ghz / 2.3 + phases[0])
+        c = 10 ** (-coupling / 20)
+        loss_db = 0.15 + 0.12 * np.sqrt(f_ghz)
+        through = np.sqrt(1 - c**2) * 10 ** (-loss_db / 20)
+        directivity = directivity_db + 3 * np.cos(f_ghz / 3.1 + phases[1]) - 0.1 * f_ghz
+        leak = 10 ** (-(coupling + directivity) / 20)
+        delay = np.exp(-2j * np.pi * f * 0.35e-9)
+        s = np.zeros((len(f), 4, 4), dtype=complex)
+        for (i, j), value in {
+            (0, 1): through * delay,
+            (0, 2): c * delay * np.exp(1j * phases[2]),
+            (1, 3): c * delay * np.exp(1j * phases[2]),
+            (0, 3): leak * np.exp(1j * (phases[3] - 2 * np.pi * f * 0.2e-9)),
+            (1, 2): leak * np.exp(1j * (phases[3] - 2 * np.pi * f * 0.2e-9)),
+            (2, 3): 10 ** (-45 / 20) * np.exp(1j * phases[4]),
+        }.items():
+            s[:, i, j] = s[:, j, i] = value
+        for port in range(4):
+            gamma_db = -26 + 0.25 * f_ghz + 2 * np.sin(f_ghz + port + phases[5])
+            s[:, port, port] = 10 ** (gamma_db / 20) * np.exp(1j * (phases[5] + port - 2 * np.pi * f * 0.08e-9))
+        return s
+
+    return model
+
+
+def pair_model(model: Callable[[np.ndarray], np.ndarray], first: int, second: int) -> TwoPortModel:
+    """Two-port seen by the VNA between two ports of a multiport (the others terminated in 50 Ω)."""
+    index = [first, second]
+    return lambda f: model(f)[:, index][:, :, index]
+
+
 @dataclass
 class BenchState:
     """What is physically connected to the analyzer ports (simulation)."""
@@ -108,9 +152,14 @@ def unknown_through_model() -> TwoPortModel:
 def simulated_dut(library, equipment, line_index: int = 0) -> tuple[int, Callable[[np.ndarray], np.ndarray]]:
     """Model of a DUT for the simulated VNA built from its S-parameter file or its fields.
 
-    Returns ``(ports, model)``: 2 → ``S(f)`` of a two-port, 1 → ``Γ(f)``.
+    Returns ``(ports, model)``: 2 → ``S(f)`` of a two-port, 1 → ``Γ(f)``, 4 → ``S(f)`` of a
+    directional coupler (``pair_model`` gives each measured pair).
     """
     category = library.category_id_of(equipment)
+    if category == "acoplador":
+        coupling = float(library.field(equipment, "acoplamiento_nominal_db", 20.0) or 20.0)
+        directivity = float(library.field(equipment, "directividad_min_db", 15.0) or 15.0) + 9.0
+        return 4, coupler_model(coupling, directivity, seed=sum(map(ord, equipment.id)) % 997)
     if equipment.s_parameters is not None:
         data = library.touchstone_of(equipment)
         if data.n_ports == 2:

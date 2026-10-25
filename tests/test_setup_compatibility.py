@@ -4,6 +4,7 @@ from calelektra.core.issues import Severity
 from calelektra.setups.analysis import analyze_setup
 from calelektra.setups.connections import design_calibration, effective_connections
 from calelektra.setups.model import Requirement
+from calelektra.setups.paths import expand
 from calelektra.setups.requirements import evaluate
 
 from conftest import TODAY, setup_with_dut
@@ -22,8 +23,10 @@ def test_vna_only_cable_setup_is_valid_and_uses_uosm(library):
     assert analysis.calibration.method == "UOSM"  # both VNA ports are male: the planes cannot be mated
     assert analysis.calibration.ports == (1, 2)
     assert analysis.calibration.kit_name == "2.92 mm Ideal Kit"
-    assert {c.group for c in analysis.checks} == {"Requisito", "Conexión", "Calibración"}
-    assert all(c.status == "ok" for c in analysis.checks)
+    assert {c.group for c in analysis.checks} == {"Camino", "Requisito", "Conexión", "Calibración"}
+    assert all(c.status in ("ok", "info") for c in analysis.checks)
+    admitted = next(c for c in analysis.checks if c.subject == "Conectores de DUT admitidos")
+    assert admitted.detail == "PR1: 2,92 mm (K) hembra; PR2: 2,92 mm (K) hembra"  # empty paths: planes on the VNA ports
 
 
 def test_insertable_planes_give_tosm(library):
@@ -43,17 +46,33 @@ def test_wrong_connectors_and_kit_are_errors(library):
 
 def test_kit_genders_are_checked(library):
     library.models["kit_292_tosm"].values["generos_disponibles"] = ["macho"]  # male planes need female standards
-    template = library.resolved_template("cable_vna")
-    design = design_calibration(template, library.setups["cable_vna_292"], library)
+    expanded = expand(library.resolved_template("camino_rf_2p_s"), library.setups["cable_vna_292"], library)
+    design = design_calibration(expanded.template, expanded.setup, library)
     assert any(s is Severity.ERROR and "estándares hembra" in m for s, m in design.checks)
 
 
 def test_optional_roles_are_bridged(library):
-    template = library.resolved_template("componente_2p")
-    connections = effective_connections(template, setup_with_dut(library, "cable_N_18G", "CAB-DUT-0001"), "medida")
+    setup = library.setups["transmision_N_18G"]
+    del setup.assignments["through"]
+    expanded = expand(library.resolved_template("camino_rf_2p_s21"), setup, library)
+    connections = effective_connections(expanded.template, expanded.setup, "normalizacion")
     pairs = {(str(c.a), str(c.b)) for c in connections}
-    assert ("cable_p1.B", "dut.A") in pairs  # adapter not assigned
-    assert any(c.bridged == ("adaptador_p1",) for c in connections)
+    assert ("P1-1.B", "P2-1.B") in pairs  # through not assigned: the ends of the paths are joined
+    assert any(c.bridged == ("through",) for c in connections)
+    assert ("vna.P1", "P1-1.A") in pairs  # the paths stay connected in every state
+
+
+def test_transmission_normalization_needs_a_through_when_the_planes_do_not_mate(library):
+    analysis = analyze_setup(library.setups["transmision_N_18G"], library, TODAY)
+    design = analysis.calibration
+    assert analysis.ok and design.method == "normalizacion" and design.through.id == "ADP-NN-01" and design.kit is None
+    setup = library.setups["transmision_N_18G"]
+    del setup.assignments["through"]
+    design = analyze_setup(setup, library, TODAY).calibration
+    assert any(s is Severity.ERROR and "asigne un through de normalización" in m for s, m in design.checks)
+    setup.paths["P2"].append(setup.paths["P2"][0].model_copy(update={"equipment": "ADP-NN-02"}))  # PR2 becomes N male
+    design = analyze_setup(setup, library, TODAY).calibration
+    assert design.ok and design.through is None and "through plano" in design.reason
 
 
 def test_requirement_failures_use_the_fields(library):

@@ -10,7 +10,7 @@ from calelektra.instruments.base import InstrumentError, VectorNetworkAnalyzer
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.rs_znx import RsZnxVna
 
-SUPPORTED_METHODS = ("OSM", "TOSM", "UOSM")
+SUPPORTED_METHODS = ("OSM", "TOSM", "UOSM", "normalizacion")
 DRIVERS = {
     "dummy": "VNA simulado de CAL-ELEKTRA",
     "rs_znx": "R&S ZNB/ZNx (comandos SCPI del driver RsZnx)",

@@ -4,10 +4,12 @@ A test template is launched in a folder chosen by the user; the run is
 saved as ``<carpeta>/<ensayo>/ensayo.yaml`` next to its files: results
 (.s2p/.s1p, CSV), copies of the frequency list and of the specification files
 used, and the instrument log. The record keeps the template as launched, the
-hardware setup with its frequency definition, every equipment with its
-certificate, the VNA calibration, the verification, the uncertainty of the
-traces, the pass / fail evaluation and the verdict, so a calibration can be
-traced back.
+hardware setup with its frequency definition and its paths (the equipment of
+each VNA port in order, how it is connected, the reference plane and the DUT
+connector it admits), every equipment with its certificate, the VNA
+calibration, the verification, the measurements and their files, the
+uncertainty of the traces, the pass / fail evaluation and the verdict, so a
+calibration can be traced back.
 """
 
 from __future__ import annotations
@@ -58,7 +60,8 @@ class TestRecord(BaseModel):
     verdict: str | None = Field(default=None, alias="veredicto")  # PASA | FALLA | NO_EVALUADO | SIN_ESPECIFICACIONES
     procedure: dict[str, Any] = Field(default_factory=dict, alias="procedimiento")  # id, name, version, algorithm
     template: dict[str, Any] = Field(default_factory=dict, alias="plantilla")  # test template as launched
-    setup: dict[str, Any] = Field(default_factory=dict)  # hardware setup: id, name, required range, frequencies
+    setup: dict[str, Any] = Field(default_factory=dict)  # hardware setup: id, name, required range, frequencies, paths
+    paths: list[dict[str, Any]] = Field(default_factory=list, alias="caminos")  # each path resolved (setups/paths.py)
     dut: dict[str, Any] = Field(default_factory=dict)  # EUT with its model, serial number and certificate
     equipment: list[dict[str, Any]] = Field(default_factory=list, alias="equipos")
     frequency_range: list[str] = Field(default_factory=list, alias="rango")
@@ -71,6 +74,7 @@ class TestRecord(BaseModel):
     conditions: dict[str, Any] = Field(default_factory=dict, alias="condiciones")  # ambient temperature…
     uncertainty: dict[str, Any] = Field(default_factory=dict, alias="incertidumbre")  # file, k and summary per trace
     results: dict[str, Any] = Field(default_factory=dict, alias="resultados")
+    measurements: list[dict[str, Any]] = Field(default_factory=list, alias="medidas")  # name, file, format, ports of the EUT
     files: list[str] = Field(default_factory=list, alias="ficheros")
     steps: list[StepRecord] = Field(default_factory=list, alias="pasos")
 

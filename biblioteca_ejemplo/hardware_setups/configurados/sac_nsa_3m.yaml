@@ -1,13 +1,17 @@
-formato: calelektra/setup@0.3
+# NSA de la cámara SAC a 3 m. Camino TX: path de la cámara hasta la antena
+# emisora; camino RX: desde la antena receptora por su path. Las antenas cambian
+# con el segmento de frecuencia (bicónicas y log-periódicas).
+formato: calelektra/setup@0.4
 id: sac_nsa_3m
 nombre: NSA cámara SAC 3 m
 plantilla: sac_nsa
 rango_requerido: [30 MHz, 1 GHz]
+caminos:
+  P1: [PATH-TX-01]
+  P2: [PATH-RX-01]
 asignaciones:
   recinto: SAC-01
   vna: VNA-01
-  path_tx: PATH-TX-01
-  path_rx: PATH-RX-01
   adaptador_through: ADP-THRU-N-01
   soporte_tx: MAST-01
   soporte_rx: MAST-02

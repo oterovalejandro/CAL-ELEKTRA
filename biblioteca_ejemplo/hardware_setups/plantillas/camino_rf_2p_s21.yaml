@@ -1,0 +1,59 @@
+# Camino RF de 2 puertos: solo transmisión (S21 → .csv). La referencia es una
+# NORMALIZACIÓN de transmisión: through entre los planos PR1 y PR2 (unión directa
+# si los conectores lo permiten; si no, el through de normalización del setup,
+# cuyas pérdidas quedan dentro de la referencia). No usa el kit de calibración.
+formato: calelektra/plantilla_setup@0.4
+id: camino_rf_2p_s21
+nombre: Camino RF — 2 puertos — Transmisión (parámetro S21 → .csv)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Normalización de transmisión con un through entre los planos de referencia,
+  medida de S21 del DUT conectado entre ellos y exportación a CSV.
+algoritmos: [vna_transmision]
+caminos:
+  P1:
+    etiqueta: Camino P1
+    categorias: [cable_medida, adaptador, path]
+  P2:
+    etiqueta: Camino P2
+    categorias: [cable_medida, adaptador, path]
+roles:
+  vna:
+    categoria: vna
+    etiqueta: VNA
+  through:
+    categoria: adaptador
+    etiqueta: Through de normalización
+    cardinalidad: "0..1"
+    descripcion: Solo si los planos PR1 y PR2 no se pueden unir directamente.
+  dut:
+    categoria: [cable, cable_medida, adaptador, path]
+    etiqueta: DUT
+    es_dut: true
+    requiere_datos_s: false
+calibracion_vna:
+  metodos: [normalizacion]
+  through: through
+requisitos:
+  - id: vna_puertos
+    campo: vna.num_puertos
+    operador: ">="
+    valor: 2
+    mensaje: El VNA debe tener al menos 2 puertos de medida
+  - id: vna_normalizacion
+    campo: vna.metodos_calibracion
+    operador: contiene
+    valor: normalizacion
+    mensaje: El VNA debe poder normalizar la transmisión
+estados_conexion:
+  normalizacion:
+    descripcion: Through entre PR1 y PR2 (unión directa o through de normalización)
+    conexiones:
+      - [P1, through.A]
+      - [through.B, P2]
+  medida:
+    descripcion: DUT conectado entre PR1 (su puerto 1) y PR2 (su puerto 2)
+    conexiones:
+      - [P1, dut.#1]
+      - [dut.#2, P2]

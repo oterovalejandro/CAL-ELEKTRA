@@ -1,0 +1,7 @@
+# Acoplador direccional de cliente a calibrar
+formato: calelektra/equipo@0.3
+id: ACP-0001
+modelo: acoplador_n_20db
+estado: en_servicio
+numero_serie: CLIENTE-9001
+descripcion: Acoplador direccional de cliente a calibrar

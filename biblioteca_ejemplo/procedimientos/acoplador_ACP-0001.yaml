@@ -1,0 +1,39 @@
+# Plantilla de ensayo: acoplador direccional ACP-0001 con el hardware setup
+# «Acoplador direccional — 4 puertos» (acoplador_N_18G). Se miden tres pares de
+# puertos (el primero en P1, el segundo en P2; los otros dos en las cargas de
+# 50 Ω): entrada–salida (pérdidas de inserción), entrada–acoplado
+# (acoplamiento) y salida–acoplado (aislamiento → directividad). El pasa / falla
+# compara con los valores nominales del modelo del acoplador.
+formato: calelektra/procedimiento@0.3
+id: acoplador_ACP-0001
+nombre: Acoplador direccional ACP-0001 (CLIENTE-9001) → .s2p por par
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración de los dos planos de referencia, medida de cada par de puertos
+  con los otros dos terminados en 50 Ω, pérdidas de inserción, acoplamiento,
+  aislamiento y directividad, pasa / falla frente a los valores nominales y
+  exportación a .s2p por par y CSV.
+algoritmo: vna_acoplador
+hardware_setup: acoplador_N_18G
+eut: ACP-0001
+pares:
+  - [ENTRADA, SALIDA]
+  - [ENTRADA, ACOPLADO]
+  - [SALIDA, ACOPLADO]
+barrido:
+  potencia_dbm: -10
+  ifbw: 1 kHz
+  promedios: 1
+  suavizado_pct: 0
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1
+  s11_max_db: -30
+exportacion:
+  formato: RI
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

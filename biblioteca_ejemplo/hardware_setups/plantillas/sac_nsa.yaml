@@ -1,12 +1,28 @@
 # Cámara semianecoica — NSA, CISPR 16-1-4 método clásico con factores de
-# antena, siempre con VNA. Antenas por segmento de frecuencia (p. ej. bicónicas
-# y log-periódicas). Alturas y posiciones las fija la ejecución, no el setup.
-formato: calelektra/plantilla_setup@0.3
+# antena, siempre con VNA. Camino P1 (transmisión): cables / path hasta la antena
+# emisora; camino P2 (recepción): antena receptora, path, preamplificador… hasta
+# el VNA. Cada camino termina en su antena (por segmento de frecuencia, p. ej.
+# bicónicas y log-periódicas); el plano de referencia queda en el conector de la
+# antena, donde se une el through de la normalización (V_DIRECTA). Alturas y
+# posiciones las fija la ejecución, no el setup. (Sin algoritmo de ensayo todavía.)
+formato: calelektra/plantilla_setup@0.4
 id: sac_nsa
 nombre: SAC — NSA (método clásico) — VNA
-version: "0.3"
+version: "0.4"
 estado: borrador
 rango_medida: [30 MHz, 1 GHz]
+algoritmos: []
+caminos:
+  P1:
+    etiqueta: Camino TX
+    categorias: [cable_medida, path, adaptador, preamplificador]
+    sentido: tx
+    final: antena_tx
+  P2:
+    etiqueta: Camino RX
+    categorias: [cable_medida, path, adaptador, preamplificador]
+    sentido: rx
+    final: antena_rx
 roles:
   recinto:
     categoria: recinto
@@ -15,20 +31,11 @@ roles:
   vna:
     categoria: vna
     etiqueta: VNA
-  path_tx:
-    categoria: [path, cable_medida]
-    etiqueta: Path TX
-  path_rx:
-    categoria: [path, cable_medida]
-    etiqueta: Path RX
-  preamplificador:
-    categoria: preamplificador
-    etiqueta: Preamplificador
-    cardinalidad: "0..1"
   adaptador_through:
     categoria: adaptador
     etiqueta: Through de normalización
-    tipos: [through]
+    cardinalidad: "0..1"
+    tipos: [through, coaxial]
   antena_tx:
     categoria: antena
     etiqueta: Antena TX
@@ -55,7 +62,7 @@ ejes:
   posicion:     { actuador: manual, descripcion: Posición de la antena TX en el volumen de ensayo }
 calibracion_vna:
   metodos: [normalizacion]
-  estado: normalizacion
+  through: adaptador_through
 requisitos:
   - id: vna_puertos
     campo: vna.num_puertos
@@ -90,19 +97,13 @@ requisitos:
     mensaje: La altura de la antena receptora se barre durante la NSA; con un soporte manual se pedirá cada altura al operador
 estados_conexion:
   medida:
-    descripcion: Antenas montadas en sus soportes
+    descripcion: Antenas al final de los caminos, montadas en sus soportes
     conexiones:
-      - [vna.P1, path_tx.A]
-      - [path_tx.B, antena_tx.RF]
+      - [P1, antena_tx.RF]
       - { entre: [antena_tx.RF, antena_rx.RF], tipo: radiado }
-      - [antena_rx.RF, path_rx.B]
-      - [path_rx.A, preamplificador.OUT]
-      - [preamplificador.IN, vna.P2]
+      - [antena_rx.RF, P2]
   normalizacion:
-    descripcion: Antenas desconectadas; paths unidos con el through (V_DIRECTA)
+    descripcion: Antenas desconectadas; caminos unidos con el through (V_DIRECTA)
     conexiones:
-      - [vna.P1, path_tx.A]
-      - [path_tx.B, adaptador_through.A]
-      - [adaptador_through.B, path_rx.B]
-      - [path_rx.A, preamplificador.OUT]
-      - [preamplificador.IN, vna.P2]
+      - [P1, adaptador_through.A]
+      - [adaptador_through.B, P2]

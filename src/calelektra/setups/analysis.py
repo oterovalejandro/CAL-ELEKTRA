@@ -1,9 +1,12 @@
 """Validation of a configured hardware setup.
 
-Checks, per role: cardinality, category, service state, calibration validity,
-ports, allowed types and S-parameter data. Then the field-based requirements
-of the template (``requisitos``), the connectors of every connection and the
-VNA calibration (reference planes, method, cal kit). Per frequency segment:
+The paths of the VNA ports are expanded first (``setups/paths.py``): each
+equipment of a path is checked like a role, and the DUT connector that each
+path admits is reported. Checks, per role: cardinality, category, service
+state, calibration validity, ports, allowed types and S-parameter data. Then
+the field-based requirements of the template (``requisitos``), the connectors
+of every connection (the chains of the paths included) and the VNA
+calibration (reference planes at the end of the paths, method, cal kit). Per frequency segment:
 the effective range (intersection of every measuring equipment) must contain
 the required range; otherwise an alarm names the equipment limiting each edge.
 Finally the frequency points of the setup (``frecuencias``) are computed and
@@ -26,6 +29,7 @@ from calelektra.core.units import format_frequency
 from calelektra.setups.connections import CalibrationDesign, ConnectionCheck, check_connections, design_calibration
 from calelektra.setups.frequencies import FrequencyError, FrequencyPlan, plan_frequencies
 from calelektra.setups.model import ConfiguredSetup, Role, Segment, SetupTemplate
+from calelektra.setups.paths import ExpandedSetup, ResolvedPath, expand
 from calelektra.setups.requirements import RequirementResult, evaluate
 
 REQUIREMENT_SEVERITY = {"error": Severity.ERROR, "aviso": Severity.WARNING, "info": Severity.INFO}
@@ -43,7 +47,7 @@ class SegmentAnalysis:
 class Check:
     """One line of the compatibility table shown with the setup."""
 
-    group: str  # Requisito | Conexión | Calibración
+    group: str  # Camino | Requisito | Conexión | Calibración
     subject: str
     status: str  # ok | error | aviso | info | sin_datos
     detail: str
@@ -56,7 +60,8 @@ STATUS_OF = {None: "ok", Severity.ERROR: "error", Severity.WARNING: "aviso", Sev
 @dataclass
 class SetupAnalysis:
     setup: ConfiguredSetup
-    template: SetupTemplate | None
+    template: SetupTemplate | None  # as written (paths not expanded)
+    expanded: ExpandedSetup | None = None  # paths as roles, connections and reference planes
     issues: list[Issue] = field(default_factory=list)
     segments: list[SegmentAnalysis] = field(default_factory=list)
     role_severity: dict[str, Severity] = field(default_factory=dict)
@@ -69,6 +74,10 @@ class SetupAnalysis:
     @property
     def ok(self) -> bool:
         return not has_errors(self.issues)
+
+    @property
+    def paths(self) -> list[ResolvedPath]:
+        return self.expanded.paths if self.expanded is not None else []
 
     @property
     def covered(self) -> bool:
@@ -87,12 +96,15 @@ def _join_ids(contributions: list[RangeContribution]) -> str:
 
 
 class _Analyzer:
-    def __init__(self, setup: ConfiguredSetup, library: Library, today: date):
-        self.setup = setup
+    def __init__(self, setup: ConfiguredSetup, library: Library, today: date, dut_ports: list[str] | None = None):
         self.library = library
         self.today = today
-        self.template = library.resolved_template(setup.template)
-        self.result = SetupAnalysis(setup=setup, template=self.template)
+        template = library.resolved_template(setup.template)
+        expanded = expand(template, setup, library, dut_ports) if template is not None else None
+        # the checks work on the expanded setup: the equipment of the paths are roles like the others
+        self.template = expanded.template if expanded is not None else None
+        self.setup = expanded.setup if expanded is not None else setup
+        self.result = SetupAnalysis(setup=setup, template=template, expanded=expanded)
         self._checked: set[tuple[str, str]] = set()
 
     def run(self) -> SetupAnalysis:
@@ -101,6 +113,7 @@ class _Analyzer:
                 Issue(Severity.ERROR, "setup.plantilla", f"La plantilla «{self.setup.template}» no existe en la biblioteca")
             )
             return self.result
+        self._check_paths()
         self._check_unknown_roles()
         self._check_segments_layout()
         named = bool(self.setup.segments)
@@ -119,6 +132,28 @@ class _Analyzer:
             self._check_coverage(segment, segment.name if named else None)
         self._check_frequencies()
         return self.result
+
+    # ── paths of the VNA ports ─────────────────────────────────────────────
+    def _check_paths(self) -> None:
+        expanded = self.result.expanded
+        assert expanded is not None
+        for issue in expanded.issues:
+            self.result.add(issue)
+        if not expanded.paths:
+            return
+        for path in expanded.paths:
+            problems = [i for i in path.issues if i.severity >= Severity.WARNING]
+            status = "error" if any(i.severity is Severity.ERROR for i in problems) else ("aviso" if problems else "ok")
+            detail = path.describe()
+            if not path.elements:
+                detail += f" — sin equipos: el plano {path.plane} queda en el puerto P{path.vna_port} del VNA"
+            automatic = [e.equipment_id for e in path.elements if e.automatic]
+            if automatic:
+                detail += f" — orientación elegida por los conectores: {', '.join(automatic)}"
+            self.result.checks.append(Check("Camino", path.label, status, detail))
+        admitted = expanded.dut_connectors_text()
+        self.result.checks.append(Check("Camino", "Conectores de DUT admitidos", "info", admitted))
+        self.result.add(Issue(Severity.INFO, "camino.conectores_dut", f"Conectores de DUT que se pueden calibrar: {admitted}"))
 
     # ── frequency points ───────────────────────────────────────────────────
     def _check_frequencies(self) -> None:
@@ -528,5 +563,8 @@ class _Analyzer:
             )
 
 
-def analyze_setup(setup: ConfiguredSetup, library: Library, today: date | None = None) -> SetupAnalysis:
-    return _Analyzer(setup, library, today or date.today()).run()
+def analyze_setup(
+    setup: ConfiguredSetup, library: Library, today: date | None = None, dut_ports: list[str] | None = None
+) -> SetupAnalysis:
+    """Validation of a configured setup; ``dut_ports``: ports of the DUT measured on P1, P2… (default: its category order)."""
+    return _Analyzer(setup, library, today or date.today(), dut_ports).run()

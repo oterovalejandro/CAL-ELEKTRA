@@ -1,0 +1,18 @@
+# Acoplador direccional genérico de 20 dB con conectores N hembra (valores de ejemplo).
+formato: calelektra/modelo@0.3
+id: acoplador_n_20db
+categoria: acoplador
+fabricante: Genérico
+modelo: Acoplador direccional 20 dB, 2 – 18 GHz
+campos:
+  rango_frecuencia: [2 GHz, 18 GHz]
+  acoplamiento_nominal_db: 20
+  tolerancia_acoplamiento_db: 1
+  directividad_min_db: 12
+  perdidas_insercion_max_db: 1.2
+  aislamiento_min_db: 32
+  perdidas_retorno_min_db: 14
+  conector_entrada: { familia: N, genero: hembra }
+  conector_salida: { familia: N, genero: hembra }
+  conector_acoplado: { familia: N, genero: hembra }
+  conector_aislado: { familia: N, genero: hembra }

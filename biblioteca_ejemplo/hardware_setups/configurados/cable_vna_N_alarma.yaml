@@ -1,15 +1,19 @@
-# Ejemplo con ALARMA de conectores: el kit N no sirve para los planos 2,92 mm
-# macho del ZNB43. Una plantilla de ensayo con un cable N (p. ej. CAB-DUT-0001,
-# N macho–macho) tampoco se podría conectar a esos puertos: su comprobación lo
-# indica. Para cables N use el setup «componente_2p» con cables de medida N.
-formato: calelektra/setup@0.3
+# Ejemplo con ALARMA de conectores: sin cables en los caminos los planos son los
+# puertos 2,92 mm macho del ZNB43 y el kit N no sirve para ellos. Un cable N
+# (p. ej. CAB-DUT-0001, N macho–macho) tampoco se podría conectar: la
+# comprobación de la plantilla de ensayo lo indica. Para cables N, use un setup
+# con cables de medida N en los caminos (cable_N_18G).
+formato: calelektra/setup@0.4
 id: cable_vna_N_alarma
 nombre: Cable N directo al ZNB43 (ejemplo con alarma)
-plantilla: cable_vna
+plantilla: camino_rf_2p_s
 rango_requerido: [100 kHz, 18 GHz]
 frecuencias:
   modo: lineal
   puntos: 801
+caminos:
+  P1: []
+  P2: []
 asignaciones:
   vna: VNA-01
   kit_cal: KIT-N-01

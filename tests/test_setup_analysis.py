@@ -19,7 +19,7 @@ def test_cable_alarm_names_limiting_equipment(library):
     assert coverage.effective == FrequencyRange(100e3, 18e9)
     limiting = {i.equipment_id for i in analysis.issues if i.code == "rango.limite_superior"}
     assert limiting == {"CAB-PT-N-01", "CAB-PT-N-02", "KIT-N-01"}
-    assert analysis.role_severity["cable_p1"] is Severity.ERROR
+    assert analysis.role_severity["P1-1"] is Severity.ERROR  # the cable of path P1
     assert "rango.dut" in codes(analysis, Severity.WARNING)
 
 
@@ -66,19 +66,22 @@ def test_role_checks(library):
     setup = ConfiguredSetup(
         id="x",
         name="x",
-        template="componente_2p",
-        required_range=FrequencyRange(1e6, 1e9),
+        template="acoplador_4p",
+        required_range=FrequencyRange(2e9, 18e9),
+        paths={"P1": ["CAB-DUT-0001"], "P2": ["NO-EXISTE"], "P3": ["CAB-PT-N-02"]},  # wrong category, missing, no such path
         assignments={
             "vna": "VNA-01",
-            "cable_p1": "CAB-DUT-0001",  # wrong category
-            "cable_p2": ["CAB-PT-N-02", "CAB-PT-N-01"],  # only one allowed
-            "dut": "NO-EXISTE",
+            "kit_cal": ["KIT-N-01", "KIT-292-01"],  # only one allowed
+            "dut": "NO-EXISTE-2",
             "rol_raro": "VNA-01",
-        },
+        },  # carga_1 and carga_2 not assigned
     )
     analysis = analyze_setup(setup, library, TODAY)
     found = codes(analysis)
-    assert {"equipo.categoria", "rol.multiple", "equipo.inexistente", "rol.sin_asignar", "rol.desconocido"} <= found
+    expected = {"equipo.categoria", "rol.multiple", "equipo.inexistente", "rol.sin_asignar", "rol.desconocido", "camino.desconocido"}
+    assert expected <= found
+    wrong = next(i for i in analysis.issues if i.code == "equipo.categoria")
+    assert wrong.role == "P1-1" and "Camino P1 · 1" in wrong.message
 
 
 def test_cable_without_s_parameters_is_an_error(library):

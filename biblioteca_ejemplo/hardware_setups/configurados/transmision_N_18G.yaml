@@ -1,0 +1,19 @@
+# Transmisión de cables N (S21 → CSV) con normalización: cables de medida N en
+# los caminos. Los planos PR1 y PR2 son N hembra y no se pueden unir
+# directamente: la normalización se hace con el through N macho – N macho
+# ADP-NN-01, cuyas pérdidas quedan dentro de la referencia. Admite DUT con
+# conectores N macho en los dos extremos.
+formato: calelektra/setup@0.4
+id: transmision_N_18G
+nombre: Transmisión de cables N hasta 18 GHz (normalización)
+plantilla: camino_rf_2p_s21
+rango_requerido: [30 MHz, 18 GHz]
+frecuencias:
+  modo: lineal
+  puntos: 401
+caminos:
+  P1: [CAB-PT-N-01]
+  P2: [CAB-PT-N-02]
+asignaciones:
+  vna: VNA-01
+  through: ADP-NN-01

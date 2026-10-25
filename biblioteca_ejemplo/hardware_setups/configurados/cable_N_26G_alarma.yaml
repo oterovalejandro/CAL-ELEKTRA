@@ -1,15 +1,17 @@
-# Ejemplo con ALARMA: el VNA llega a 43,5 GHz, pero los cables de medida N
-# (S2P de 5 Hz a 18 GHz) y el kit N limitan el rango efectivo a 100 kHz – 18 GHz.
-formato: calelektra/setup@0.3
+# Ejemplo con ALARMA: el VNA llega a 43,5 GHz, pero los cables de medida N de
+# los caminos (S2P de 5 Hz a 18 GHz) y el kit N limitan el rango efectivo a
+# 100 kHz – 18 GHz.
+formato: calelektra/setup@0.4
 id: cable_N_26G_alarma
 nombre: Cable N hasta 26,5 GHz (ejemplo con alarma)
-plantilla: componente_2p
+plantilla: camino_rf_2p_s
 rango_requerido: [100 kHz, 26.5 GHz]
 frecuencias:
   modo: lineal
   puntos: 801
+caminos:
+  P1: [CAB-PT-N-01]
+  P2: [CAB-PT-N-02]
 asignaciones:
   vna: VNA-01
-  cable_p1: CAB-PT-N-01
-  cable_p2: CAB-PT-N-02
   kit_cal: KIT-N-01

@@ -1,13 +1,16 @@
-formato: calelektra/setup@0.3
+# S_VSWR de la cámara SAC a 3 m: camino TX hasta la antena omnidireccional y
+# camino RX desde la bocina.
+formato: calelektra/setup@0.4
 id: sac_svswr_3m
 nombre: S_VSWR cámara SAC 3 m
 plantilla: sac_svswr
 rango_requerido: [1 GHz, 18 GHz]
+caminos:
+  P1: [PATH-TX-01]
+  P2: [PATH-RX-01]
 asignaciones:
   recinto: SAC-01
   vna: VNA-01
-  path_tx: PATH-TX-01
-  path_rx: PATH-RX-01
   antena_tx: OMNI-01
   antena_rx: HORN-01
   soporte_tx: MAST-01

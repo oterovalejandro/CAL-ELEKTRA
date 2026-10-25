@@ -1,17 +1,20 @@
-# Setup del grupo de cables 2,92 mm conectados directamente a los puertos
-# 2,92 mm macho del ZNB43, de 50 MHz a 40 GHz con paso de 50 MHz. El cable a
-# calibrar (EUT) lo define cada plantilla de ensayo: con un cable
-# hembra–hembra los planos (macho–macho) no se pueden unir y la calibración
-# será UOSM (through desconocido).
-formato: calelektra/setup@0.3
+# Cables 2,92 mm conectados directamente a los puertos 2,92 mm macho del
+# ZNB43 (caminos vacíos: los planos de referencia están en los puertos del VNA),
+# de 50 MHz a 40 GHz con paso de 50 MHz. Admite DUT con conectores 2,92 mm
+# hembra en los dos extremos: los planos (macho–macho) no se pueden unir y la
+# calibración será UOSM (through desconocido).
+formato: calelektra/setup@0.4
 id: cable_vna_292
 nombre: Cables 2,92 mm — solo VNA (ZNB43)
-plantilla: cable_vna
+plantilla: camino_rf_2p_s
 rango_requerido: [50 MHz, 40 GHz]
 frecuencias:
   modo: lineal
   definicion: paso
   paso: 50 MHz               # → 800 puntos
+caminos:
+  P1: []
+  P2: []
 asignaciones:
   vna: VNA-01
   kit_cal: KIT-292-01

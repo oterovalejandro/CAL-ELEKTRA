@@ -1,11 +1,26 @@
 # Cámara semianecoica — S_VSWR, CISPR 16-1-4 método estándar de 6 posiciones,
-# con VNA. Las posiciones y alturas las fija la ejecución, no el setup.
-formato: calelektra/plantilla_setup@0.3
+# con VNA. Camino P1 (transmisión) hasta la antena omnidireccional y camino P2
+# (recepción) desde la bocina, con preamplificador si hace falta. Las
+# posiciones y alturas las fija la ejecución, no el setup. (Sin algoritmo de
+# ensayo todavía.)
+formato: calelektra/plantilla_setup@0.4
 id: sac_svswr
 nombre: SAC — S_VSWR (6 posiciones) — VNA
-version: "0.3"
+version: "0.4"
 estado: borrador
 rango_medida: [1 GHz, 18 GHz]
+algoritmos: []
+caminos:
+  P1:
+    etiqueta: Camino TX
+    categorias: [cable_medida, path, adaptador, preamplificador]
+    sentido: tx
+    final: antena_tx
+  P2:
+    etiqueta: Camino RX
+    categorias: [cable_medida, path, adaptador, preamplificador]
+    sentido: rx
+    final: antena_rx
 roles:
   recinto:
     categoria: recinto
@@ -14,16 +29,6 @@ roles:
   vna:
     categoria: vna
     etiqueta: VNA
-  path_tx:
-    categoria: [path, cable_medida]
-    etiqueta: Path TX
-  path_rx:
-    categoria: [path, cable_medida]
-    etiqueta: Path RX
-  preamplificador:
-    categoria: preamplificador
-    etiqueta: Preamplificador
-    cardinalidad: "0..1"
   antena_tx:
     categoria: antena
     etiqueta: Antena TX (omnidireccional)
@@ -66,10 +71,8 @@ requisitos:
     mensaje: El S_VSWR se mide en las dos polarizaciones
 estados_conexion:
   medida:
+    descripcion: Antenas al final de los caminos, montadas en sus soportes
     conexiones:
-      - [vna.P1, path_tx.A]
-      - [path_tx.B, antena_tx.RF]
+      - [P1, antena_tx.RF]
       - { entre: [antena_tx.RF, antena_rx.RF], tipo: radiado }
-      - [antena_rx.RF, path_rx.B]
-      - [path_rx.A, preamplificador.OUT]
-      - [preamplificador.IN, vna.P2]
+      - [antena_rx.RF, P2]

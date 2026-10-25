@@ -4,11 +4,14 @@
   bridged (``cable.B – [adaptador] – dut.A`` becomes ``cable.B – dut.A``).
 * Every coaxial connection is checked with the connector fields of the two
   equipment ports (family and gender).
-* The reference planes (``planos_referencia``) give the connector where the
-  calibration standards and the DUT are connected. From them the calibration
-  is designed: OSM with one plane; TOSM (flush through) when both planes mate
-  directly, UOSM (unknown through) when they do not. The cal kit is checked
-  against the planes (family, genders of its standards, methods).
+* The reference planes (at the end of the paths of the VNA ports,
+  ``setups/paths.py``) give the connector where the calibration standards and
+  the DUT are connected. From them the calibration is designed: OSM with one
+  plane; TOSM (flush through) when both planes mate directly, UOSM (unknown
+  through) when they do not; transmission normalization (``normalizacion``)
+  with a flush through or with the through adapter of the setup. The cal kit
+  is checked against the planes (family, genders of its standards, methods);
+  the normalization does not use it.
 
 The procedure engine uses the same functions, so what the setup shows is what
 the measurement does.
@@ -25,7 +28,13 @@ from calelektra.core.connectors import FAMILIES, GENDERS, MECHANICAL_GROUPS, Con
 from calelektra.core.issues import Severity
 from calelektra.setups.model import ConfiguredSetup, Segment, SetupTemplate
 
-PORT_CALIBRATION_METHODS = ("OSM", "TOSM", "UOSM")
+PORT_CALIBRATION_METHODS = ("OSM", "TOSM", "UOSM", "normalizacion")
+METHOD_NAMES = {"normalizacion": "normalización de transmisión"}
+
+
+def method_name(method: str | None) -> str:
+    """Readable name of a calibration method (TOSM, UOSM, OSM or «normalización de transmisión»)."""
+    return METHOD_NAMES.get(method or "", method or "—")
 
 
 @dataclass(frozen=True)
@@ -206,6 +215,7 @@ class CalibrationDesign:
     planes: list[PlaneInfo]
     vna: Equipment | None = None
     kit: Equipment | None = None
+    through: Equipment | None = None  # through adapter of a transmission normalization (None: flush through)
     kit_name: str | None = None
     kit_family: str | None = None
     checks: list[tuple[Severity | None, str]] = field(default_factory=list)
@@ -221,6 +231,53 @@ class CalibrationDesign:
     @property
     def ok(self) -> bool:
         return not any(severity is Severity.ERROR for severity, _ in self.checks)
+
+
+def _check_vna_methods(library: Library, design: CalibrationDesign) -> None:
+    vna, method = design.vna, design.method
+    if vna is None or method is None:
+        return
+    vna_methods = library.field(vna, "metodos_calibracion", [])
+    if method not in vna_methods:
+        name = METHOD_NAMES.get(method, method)
+        design.checks.append((Severity.ERROR, f"El VNA «{vna.id}» no tiene el método {name} ({', '.join(vna_methods) or 'sin métodos'})"))
+    port_count = int(library.field(vna, "num_puertos", 0) or 0)
+    for port in design.ports:
+        if port > port_count:
+            design.checks.append((Severity.ERROR, f"El VNA «{vna.id}» no tiene el puerto {port} ({port_count} puertos)"))
+
+
+def _design_normalization(
+    template: SetupTemplate, setup: ConfiguredSetup, library: Library, design: CalibrationDesign, segment: Segment | None
+) -> None:
+    """Transmission normalization: a through between the two planes (flush, or the through adapter of the setup)."""
+    first, second = design.planes
+    a, b = first.connector, second.connector
+    through_role = template.vna_calibration.get("through")
+    through_ids = setup.ids_for(through_role, segment) if through_role else []
+    through = library.equipment.get(through_ids[0]) if through_ids else None
+    design.method, design.through = "normalizacion", through
+    if through is not None:
+        design.reason = (
+            f"Normalización de transmisión con el through «{through.id}» entre {first.name} y {second.name}: "
+            "sus pérdidas quedan dentro de la referencia"
+        )
+        return
+    issue = mating_issue(a, b) if a is not None and b is not None else None
+    if a is not None and b is not None and (issue is None or issue[0] is Severity.WARNING):
+        design.reason = f"Los planos {first.name} ({a.label()}) y {second.name} ({b.label()}) se unen directamente: normalización de transmisión con through plano"
+        return
+    design.reason = "Normalización de transmisión: los planos no se pueden unir directamente"
+    if a is None or b is None:
+        design.checks.append((Severity.WARNING, "Conectores de los planos sin definir: no se sabe si se pueden unir directamente para la normalización"))
+    else:
+        design.checks.append(
+            (
+                Severity.ERROR,
+                f"Los planos {first.name} ({a.label()}) y {second.name} ({b.label()}) no se pueden unir directamente ({issue[1]}): "
+                "asigne un through de normalización en el setup",
+            )
+        )
 
 
 def _mechanically_compatible(a: str, b: str) -> bool:
@@ -254,6 +311,14 @@ def design_calibration(
         if plane.vna_port is None:
             add((Severity.ERROR, f"Plano {plane.name}: no se sabe a qué puerto del VNA corresponde (puerto_vna)"))
 
+    normalization = allowed == ["normalizacion"] or method_override == "normalizacion"
+    if normalization:
+        if len(planes) != 2:
+            add((Severity.ERROR, f"La normalización de transmisión necesita 2 planos de referencia y la plantilla define {len(planes)}"))
+            return design
+        _design_normalization(template, setup, library, design, segment)
+        _check_vna_methods(library, design)
+        return design
     if len(planes) == 1:
         method, reason = "OSM", "Un plano de referencia: calibración OSM de 1 puerto"
     elif len(planes) == 2:
@@ -288,15 +353,7 @@ def design_calibration(
     if method not in allowed:
         add((Severity.ERROR, f"La plantilla no admite {method} (admite: {', '.join(allowed)})"))
     design.method, design.reason = method, reason
-
-    if vna is not None:
-        vna_methods = library.field(vna, "metodos_calibracion", [])
-        if method not in vna_methods:
-            add((Severity.ERROR, f"El VNA «{vna.id}» no tiene el método {method} ({', '.join(vna_methods) or 'sin métodos'})"))
-        port_count = int(library.field(vna, "num_puertos", 0) or 0)
-        for port in design.ports:
-            if port > port_count:
-                add((Severity.ERROR, f"El VNA «{vna.id}» no tiene el puerto {port} ({port_count} puertos)"))
+    _check_vna_methods(library, design)
 
     kit_role = template.vna_calibration.get("kit")
     kit_ids = setup.ids_for(kit_role) if kit_role else []

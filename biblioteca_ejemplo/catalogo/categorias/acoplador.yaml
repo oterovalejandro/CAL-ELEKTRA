@@ -1,0 +1,25 @@
+# Acoplador direccional de 4 puertos que se CALIBRA (DUT). Sus valores
+# nominales (del modelo) son la referencia del pasa / falla del ensayo
+# «Acoplador direccional — 4 puertos».
+formato: calelektra/categoria@0.3
+id: acoplador
+nombre: Acoplador direccional (a calibrar)
+clase: pasivo
+rf: true
+puertos:
+  - { nombre: ENTRADA, conector: conector_entrada }
+  - { nombre: SALIDA, conector: conector_salida }
+  - { nombre: ACOPLADO, conector: conector_acoplado }
+  - { nombre: AISLADO, conector: conector_aislado }
+campos:
+  rango_frecuencia: { etiqueta: Rango de frecuencia nominal, tipo: rango_frecuencia, nivel: ambos, obligatorio: true, grupo: RF }
+  acoplamiento_nominal_db: { etiqueta: Acoplamiento nominal, tipo: numero, unidad: dB, nivel: modelo, obligatorio: true, grupo: RF }
+  tolerancia_acoplamiento_db: { etiqueta: Tolerancia del acoplamiento (±), tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  directividad_min_db: { etiqueta: Directividad mínima, tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  perdidas_insercion_max_db: { etiqueta: Pérdidas de inserción máximas, tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  aislamiento_min_db: { etiqueta: Aislamiento mínimo, tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  perdidas_retorno_min_db: { etiqueta: Pérdidas de retorno mínimas, tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  conector_entrada: { etiqueta: Conector de entrada, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
+  conector_salida: { etiqueta: Conector de salida, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
+  conector_acoplado: { etiqueta: Conector del puerto acoplado, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
+  conector_aislado: { etiqueta: Conector del puerto aislado, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }

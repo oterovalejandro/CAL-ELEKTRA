@@ -156,7 +156,7 @@ def test_factory_builds_the_vna_from_its_fields(library):
     assert isinstance(vna, DummyVna)
     assert vna.frequency_range == FrequencyRange(100e3, 43.5e9) and vna.port_count == 2
     assert vna.power_range == (-40, 0) and vna.if_bandwidth_range == (1, 10e6) and vna.max_points == 100001
-    assert set(vna.calibration_methods) == {"OSM", "TOSM", "UOSM"}
+    assert set(vna.calibration_methods) == {"OSM", "TOSM", "UOSM", "normalizacion"}
     low = open_vna(library.equipment["VNA-BF-01"], library)
     assert low.max_points == 1601 and low.frequency_range == FrequencyRange(5, 3e9)
 

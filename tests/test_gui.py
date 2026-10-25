@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 import yaml
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QMessageBox
 
@@ -80,11 +81,16 @@ def test_open_every_setup(window, qapp):
     assert window.open_setup("cable_N_26G_alarma").badge.text().startswith("ALARMA")
     nsa = window.open_setup("sac_nsa_3m")
     assert nsa.analysis.covered
-    assert {"vna.P1", "vna.P2", "antena_tx", "soporte_rx"} <= set(nsa.diagram.nodes)
+    assert {"vna", "puerto:P1", "puerto:P2", "P1-1", "plano:PR1", "antena_tx", "soporte_rx"} <= set(nsa.diagram.nodes)
+    # every setup: VNA on the left, its ports, the path of each port, the planes, then what hangs from them
+    x = {key: node.pos().x() for key, node in nsa.diagram.nodes.items()}
+    assert x["vna"] < x["puerto:P1"] == x["puerto:P2"] < x["P1-1"] < x["plano:PR1"] == x["plano:PR2"] < x["antena_tx"]
+    assert nsa.diagram.nodes["puerto:P2"].spec.lines == ["2,92 mm (K) macho", "Camino RX"]
     cable = window.open_setup("cable_vna_292")
     assert cable.state_combo.currentText() == "medida"
-    assert {"vna.P1", "vna.P2", "dut"} <= set(cable.diagram.nodes)
+    assert {"vna", "puerto:P1", "puerto:P2", "plano:PR1", "plano:PR2", "dut"} <= set(cable.diagram.nodes)
     assert cable.diagram.nodes["dut"].spec.lines == ["lo define la plantilla de ensayo"]
+    assert cable.diagram.nodes["plano:PR1"].spec.lines == ["2,92 mm (K) macho", "DUT: 2,92 mm (K) hembra"]
     assert cable.calibration_panel.planes.rowCount() == 2
     assert "UOSM" in cable.bottom_tabs.tabText(cable.bottom_tabs.indexOf(cable.calibration_panel))
     assert cable.bottom_tabs.tabText(0) == "Frecuencias (800 puntos)" and "paso 50 MHz" in cable.frequency_summary.text()
@@ -124,18 +130,55 @@ def test_required_range_edit(window, qapp):
 
 
 def test_new_setup_save_and_reload(window, qapp, library_copy):
-    setup = ConfiguredSetup(id="nuevo_cable", name="Nuevo cable", template="cable_vna", required_range=FrequencyRange(10e6, 40e9))
+    setup = ConfiguredSetup(id="nuevo_cable", name="Nuevo cable", template="camino_rf_2p_s", required_range=FrequencyRange(10e6, 18e9))
     editor = window.open_new_setup(setup)
-    editor.setup.assignments.update({"vna": "VNA-01", "kit_cal": "KIT-292-01", "dut": "CAB-DUT-0002"})
+    editor.setup.assignments.update({"vna": "VNA-01", "kit_cal": "KIT-N-01", "dut": "CAB-DUT-0001"})
     editor.refresh()
+    assert not editor.analysis.ok  # empty paths: the planes are the 2,92 mm ports of the VNA, not N
+    # the path of each port, from the VNA: a measurement cable 2,92 mm – N
+    for path, cable in (("P1", "CAB-PT-N-01"), ("P2", "CAB-PT-N-02")):
+        editor.show_path(path)
+        panel = editor.role_panel
+        assert panel.title.text() == f"Camino {path}" and "Sin equipos" in panel.path_list.item(0).text()
+        panel.path_candidates.setCurrentIndex(panel.path_candidates.findData(cable))
+        panel.path_buttons["añadir"].click()
+        process(qapp)
+    assert [i.equipment for i in editor.setup.paths["P1"]] == ["CAB-PT-N-01"] and editor.selected_role == "P2-1"
     assert editor.analysis.ok and editor.analysis.covered
+    assert "DUT: N 50 Ω macho" in editor.diagram.nodes["plano:PR2"].spec.lines
+    assert "Conector de DUT admitido:</b> N 50 Ω macho" in editor.role_panel.info.text()
+    editor.role_panel.path_buttons["invertir"].click()  # connected by its N end: the planes cannot be reached
+    process(qapp)
+    assert editor.setup.paths["P2"][0].reversed and not editor.analysis.ok
+    editor.role_panel.path_buttons["invertir"].click()
+    process(qapp)
     editor._node_moved("dut", 10.0, 20.0)
     assert editor.save()
     data = yaml.safe_load((library_copy / "hardware_setups/configurados/nuevo_cable.yaml").read_text(encoding="utf-8"))
-    assert data["formato"] == "calelektra/setup@0.3"
-    assert data["rango_requerido"] == ["10 MHz", "40 GHz"]
+    assert data["formato"] == "calelektra/setup@0.4"
+    assert data["rango_requerido"] == ["10 MHz", "18 GHz"]
+    assert data["caminos"] == {"P1": ["CAB-PT-N-01"], "P2": ["CAB-PT-N-02"]}
     assert data["disposicion"]["dut"] == [10.0, 20.0]
     assert "nuevo_cable" in Library.load(library_copy).setups
+
+
+def test_path_panel_orders_the_equipment(window, qapp):
+    editor = window.open_setup("acoplador_N_18G")
+    editor._role_clicked("P1-2")  # the adapter: its path is shown with it selected
+    panel = editor.role_panel
+    assert panel.title.text() == "Camino P1" and panel.path_list.currentRow() == 1
+    assert panel.path_list.item(1).text().startswith("2. ADP-NN-01")
+    panel.path_buttons["subir"].click()
+    process(qapp)
+    assert [i.equipment for i in editor.setup.paths["P1"]] == ["ADP-NN-01", "CAB-PT-N-01"]
+    assert not editor.analysis.ok  # an N male adapter on the 2,92 mm port of the VNA
+    editor.role_panel.path_buttons["bajar"].click()
+    process(qapp)
+    assert [i.equipment for i in editor.setup.paths["P1"]] == ["CAB-PT-N-01", "ADP-NN-01"] and editor.analysis.ok
+    editor.role_panel.path_buttons["quitar"].click()
+    process(qapp)
+    assert [i.equipment for i in editor.setup.paths["P1"]] == ["CAB-PT-N-01"]
+    assert "DUT: N 50 Ω macho" in editor.diagram.nodes["plano:PR1"].spec.lines
 
 
 def test_new_equipment_from_category_fields(window, qapp, library_copy):
@@ -269,6 +312,33 @@ def test_new_template_from_a_setup(window, qapp):
     view.editor.eut.setCurrentIndex(view.editor.eut.findData("LISN-0001"))
     view.editor.refresh_check()
     assert view.editor.plan.ok
+    assert "EUT en PR1" in view.editor.check_summary.text() and "Camino P1:</b> P1 (N 50 Ω hembra) → CAB-PT-BF-01" in view.editor.check_summary.text()
+
+
+def test_template_editor_for_coupler_pairs_and_eut_ports(window, qapp):
+    view = window.procedures_view
+    window.show_section("procedimientos")
+    view.reload(select="acoplador_ACP-0001")
+    editor = view.editor
+    assert editor.algorithm.currentData() == "vna_acoplador" and editor.setup.currentData() == "acoplador_N_18G"
+    assert editor.pair_values() == [("ENTRADA", "SALIDA"), ("ENTRADA", "ACOPLADO"), ("SALIDA", "ACOPLADO")]
+    assert editor.pairs.isVisibleTo(editor) and not editor.ports_row.isVisibleTo(editor)
+    assert "Valores nominales del acoplador" in editor.check_summary.text() and editor.plan.ok
+    aislado = next(row for row in range(editor.pairs.count()) if editor.pairs.item(row).data(Qt.ItemDataRole.UserRole) == ("ENTRADA", "AISLADO"))
+    editor.pairs.item(aislado).setCheckState(Qt.CheckState.Checked)
+    template = editor.build()
+    assert ("ENTRADA", "AISLADO") in template.measured_pairs() and len(template.measured_pairs()) == 4
+    view._set_dirty(False)  # discard the change
+
+    view.reload(select="cable_CAB-DUT-0003")
+    editor = view.editor
+    assert editor.ports_row.isVisibleTo(editor) and not editor.pairs.isVisibleTo(editor)
+    assert editor.eut_port_values() == [] and editor.build().eut_ports == []  # the order of its category: A on PR1, B on PR2
+    _choose(editor.eut_ports[0], "B")
+    _choose(editor.eut_ports[1], "A")
+    assert editor.build().eut_ports == ["B", "A"]
+    editor.refresh_check()
+    assert not editor.plan.ok and "B en PR1, A en PR2" in editor.check_summary.text()
 
 
 def _choose(combo: QComboBox, data) -> None:
@@ -331,7 +401,7 @@ def test_test_with_operator_dialogs(window, qapp, monkeypatch):
     wait_for(lambda: not test.running)
     first = test.record
     assert first.status == "completado"
-    assert len(shown) == 3 + 1 + 2  # OSM standards, match check, two LISN lines
+    assert len(shown) == 3 + 1 + 1  # OSM standards, match check, the EUT terminal
     assert "Abierto" in shown[0]
 
     monkeypatch.setattr(test_window_module.PromptDialog, "exec", lambda dialog: QDialog.DialogCode.Rejected)
@@ -493,3 +563,33 @@ def test_vna_dialog_keeps_its_uncertainty_file(window, qapp):
     cable = EquipmentDialog(library, library.equipment["CAB-DUT-0002"], window)
     assert not cable.calibration_form.isRowVisible(cable.uncertainty_row)
     assert cable.build().uncertainty_file is None
+
+
+def test_transmission_and_coupler_tests_in_the_window(window, qapp):
+    library = window.library
+    transmission = window._add_test_window(
+        TestWindow(library, library.procedures["transmision_CAB-DUT-0001"], library.tests_folder, "Pérdidas", "prueba", automatic=True)
+    )
+    transmission.start()
+    wait_for(lambda: not transmission.running)
+    assert transmission.record.status == "completado"
+    labels = [transmission.plot.trace_boxes.itemAt(i).widget().text() for i in range(transmission.plot.trace_boxes.count())]
+    assert labels == ["S21"]  # only the measured trace
+    rows = {transmission.results.item(r, 0).text(): transmission.results.item(r, 1).text() for r in range(transmission.results.rowCount())}
+    assert rows["Camino P1"].startswith("P1 (2,92 mm (K) macho) → CAB-PT-N-01 (A→B) → PR1: N 50 Ω hembra")
+    assert rows["Calibración"] == "normalización de transmisión · through ADP-NN-01" and rows["Medida"].endswith("_S21.csv (A en P1, B en P2)")
+
+    coupler = window._add_test_window(
+        TestWindow(library, library.procedures["acoplador_ACP-0001"], library.tests_folder, "Acoplador", "prueba", automatic=True)
+    )
+    coupler.start()
+    wait_for(lambda: not coupler.running)
+    assert coupler.record.verdict == "PASA" and set(coupler.plot.datasets) == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
+    assert set(coupler.plot.uncertainty) == set(coupler.plot.datasets)
+    assert coupler.spec_table.rowCount() == 5 and coupler.tabs.tabText(1) == "Pasa / falla — PASA"
+    window.show_section("ensayos")
+    window.tests_view.show_test(coupler.record.folder)
+    process(qapp)
+    detail = window.tests_view.detail
+    assert set(detail.plot.datasets) == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
+    assert "Caminos y medidas" in detail.info.text() and "Medida ENTRADA-ACOPLADO" in detail.info.text()

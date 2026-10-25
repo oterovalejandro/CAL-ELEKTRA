@@ -62,6 +62,7 @@ from calelektra.gui.test_common import (
     record_smoothing,
     record_spec_curves,
     save_package,
+    setup_rows,
     setup_state,
     verdict_chip,
 )
@@ -71,6 +72,7 @@ from calelektra.procedures.engine import STEPS, AutoOperator, ProcedureRunner, P
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import TestRecord
 from calelektra.procedures.specs import VERDICTS
+from calelektra.setups.connections import method_name
 
 
 def default_test_name(procedure: ProcedureTemplate) -> str:
@@ -846,9 +848,13 @@ class TestWindow(QWidget):
         sweep = record.sweep
         if sweep:
             rows.append(("Barrido", f"{sweep.get('modo', '')} {sweep.get('inicio')} – {sweep.get('fin')}, {sweep.get('puntos')} puntos, IFBW {sweep.get('ifbw')}"))
+        rows += setup_rows(record)
         calibration = record.calibration
         if calibration:
-            rows.append(("Calibración", f"{calibration.get('metodo', '—')}" + (f" · kit {calibration['kit']}" if calibration.get("kit") else "")))
+            text = method_name(calibration.get("metodo")) + (f" · kit {calibration['kit']}" if calibration.get("kit") else "")
+            if calibration.get("through"):
+                text += f" · through {calibration['through']}"
+            rows.append(("Calibración", text))
         for check in record.verification.get("comprobaciones", []):
             state = "correcto" if check["correcto"] else "FUERA DE TOLERANCIA"
             rows.append((f"Verificación: {check['comprobacion']}", f"{check['valor_db']:g} dB (límite {check['limite_db']:g} dB) — {state}"))

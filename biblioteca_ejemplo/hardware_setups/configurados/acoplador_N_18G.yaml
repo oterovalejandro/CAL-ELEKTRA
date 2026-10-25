@@ -1,0 +1,20 @@
+# Acopladores direccionales con conectores N hembra: cada camino lleva un cable
+# de medida N y un adaptador N macho – N macho, así los planos PR1 y PR2 quedan
+# en N macho (admite puertos N hembra). Los dos puertos libres de cada medida se
+# terminan con las cargas de 50 Ω.
+formato: calelektra/setup@0.4
+id: acoplador_N_18G
+nombre: Acopladores direccionales N, 2 – 18 GHz
+plantilla: acoplador_4p
+rango_requerido: [2 GHz, 18 GHz]
+frecuencias:
+  modo: lineal
+  puntos: 321
+caminos:
+  P1: [CAB-PT-N-01, ADP-NN-01]
+  P2: [CAB-PT-N-02, ADP-NN-02]
+asignaciones:
+  vna: VNA-01
+  kit_cal: KIT-N-01
+  carga_1: LOAD-N-01
+  carga_2: LOAD-N-02

@@ -27,9 +27,11 @@ from calelektra.procedures.ambient import AmbientLog, read_tph_workbook
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import TestRecord
 from calelektra.procedures.results import (
+    read_results_csv_s21,
     uncertainty_csv_path,
     write_results_csv_1p,
     write_results_csv_2p,
+    write_results_csv_s21,
     write_uncertainty_csv,
 )
 from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
@@ -45,6 +47,10 @@ if TYPE_CHECKING:
 PENDING, COMPLETE = "pendiente", "completa"
 CONDITIONS_FOLDER = "condiciones"
 PENDING_NOTE = " — incertidumbre pendiente de las condiciones ambientales"
+NORMALIZATION_NOTE = (
+    "Calibración por normalización de transmisión: el fichero de incertidumbres del VNA da la incertidumbre de una "
+    "calibración completa de 2 puertos (no incluye el desajuste que la normalización no corrige)"
+)
 
 
 @dataclass
@@ -88,8 +94,13 @@ def compute_uncertainty(
     conditions: dict,
     test_day: date,
     on_measurement: Callable[[str, dict[str, TraceUncertainty]], None] | None = None,
+    calibration_method: str | None = None,
 ) -> UncertaintyRun:
-    """Uncertainty of every measurement of a test with the settings of its template and its conditions."""
+    """Uncertainty of every measurement of a test with the settings of its template and its conditions.
+
+    Only the traces of the template are calculated (S21 in the transmission test). With a transmission
+    normalization the result carries a warning: the uncertainty file assumes a full 2-port calibration.
+    """
     settings = template.uncertainty
     temperature = temperature_of(conditions)
     state = COMPLETE if temperature is not None or not settings.temperature_stability else PENDING
@@ -97,6 +108,7 @@ def compute_uncertainty(
         settings.coverage_factor, settings.trace_noise, settings.temperature_stability, temperature if settings.temperature_stability else None
     )
     due, _valid, warnings = engine.calibration_status(test_day)
+    notes = [NORMALIZATION_NOTE] if calibration_method == "normalizacion" else []
     if temperature is not None and settings.temperature_stability:
         temperature_text: Any = list(temperature)
     elif state == PENDING:
@@ -115,14 +127,18 @@ def compute_uncertainty(
         "dia_comprobacion": test_day.isoformat(),  # day the calibration of the uncertainty file is checked on
         "calculada": f"{datetime.now():%Y-%m-%d %H:%M:%S}",
     }
-    if warnings:
-        entry["avisos"] = warnings
+    if calibration_method:
+        entry["calibracion"] = calibration_method
+    if warnings or notes:
+        entry["avisos"] = warnings + notes
     traces: dict[str, dict[str, TraceUncertainty]] = {}
     measurements = []
-    problems: list[str] = list(warnings)
+    problems: list[str] = list(warnings) + notes
     missing = 0
     for name, s in data.items():
-        traces[name] = dataset_uncertainty(engine, designation, frequencies, s, lambda trace: template.sweep.trace(trace)[0], options, test_day)
+        traces[name] = dataset_uncertainty(
+            engine, designation, frequencies, s, lambda trace: template.sweep.trace(trace)[0], options, test_day, template.traces
+        )
         if on_measurement is not None:
             on_measurement(name, traces[name])
         measurements.append({"medida": name, "trazas": {p: t.summary() for p, t in traces[name].items()}})
@@ -146,7 +162,9 @@ def compute_uncertainty(
         detail += f" — {missing} punto(s) sin incertidumbre (fuera de los rangos del fichero)"
     if warnings:
         detail += " — VNA fuera de calibración según el fichero"
-    status = "aviso" if state == PENDING or missing or warnings else "ok"
+    if notes:
+        detail += " — calibración por normalización de transmisión"
+    status = "aviso" if state == PENDING or missing or warnings or notes else "ok"
     return UncertaintyRun(entry, traces, status, detail, problems)
 
 
@@ -171,28 +189,40 @@ def recalculate_uncertainty(record: TestRecord) -> str:
     measurements: dict[str, tuple[Path, np.ndarray, np.ndarray]] = {}
     for item in entry["medidas"]:
         path = folder / item["fichero_resultado"]
-        data = read_touchstone(path)
-        measurements[item["medida"]] = (path, data.frequencies, data.s)
+        if path.suffix.lower() == ".csv":  # transmission test: the CSV is the result
+            frequencies, s = read_results_csv_s21(path)
+            measurements[item["medida"]] = (path, frequencies, s)
+        else:
+            data = read_touchstone(path)
+            measurements[item["medida"]] = (path, data.frequencies, data.s)
     frequencies = next(iter(measurements.values()))[1]
     try:
         test_day = date.fromisoformat(str(entry["dia_comprobacion"]))
     except (KeyError, ValueError):
         test_day = record.started.date()
     run = compute_uncertainty(
-        engine, designation_of(entry), frequencies, {name: s for name, (_p, _f, s) in measurements.items()}, template, record.conditions, test_day
+        engine,
+        designation_of(entry),
+        frequencies,
+        {name: s for name, (_p, _f, s) in measurements.items()},
+        template,
+        record.conditions,
+        test_day,
+        calibration_method=record.calibration.get("metodo") if isinstance(record.calibration, dict) else None,
     )
     k = template.uncertainty.coverage_factor
-    network = record.results.get("red_nominal") if isinstance(record.results, dict) else None
     for item, new in zip(entry["medidas"], run.entry["medidas"]):
         path, f, s = measurements[item["medida"]]
         traces = run.traces[item["medida"]]
         write_uncertainty_csv(uncertainty_csv_path(path), f, traces, k)
         results_csv = path.with_suffix(".csv")
-        if results_csv.is_file():
+        if path.suffix.lower() == ".csv":
+            write_results_csv_s21(path, f, s[:, 1, 0], traces, k)
+        elif results_csv.is_file():
             if s.shape[1] == 2:
                 write_results_csv_2p(results_csv, f, s, traces, k)
             else:
-                write_results_csv_1p(results_csv, f, s[:, 0, 0], network, traces, k)
+                write_results_csv_1p(results_csv, f, s[:, 0, 0], traces, k)
         new["fichero_resultado"], new["fichero"] = item["fichero_resultado"], item.get("fichero", uncertainty_csv_path(path).name)
     record.uncertainty = {**run.entry, **{key: entry[key] for key in ("fichero", "vna", "equipo_vna") if key in entry}}
     for step in record.steps:

@@ -43,6 +43,7 @@ from calelektra.gui.test_common import (
     record_spec_curves,
     record_uncertainty,
     save_package,
+    setup_rows,
     uncertainty_rows,
     verdict_chip,
 )
@@ -146,6 +147,8 @@ class TestDetail(QWidget):
         for name in record.files:
             lower = name.lower()
             kind = "grafica" if lower.endswith((".s1p", ".s2p")) else ("exportar" if lower.endswith(".csv") else "procedimientos")
+            if lower.endswith(".csv") and any(m.get("fichero") == name and m.get("formato") == "csv_s21" for m in record.measurements):
+                kind = "grafica"  # the result of a transmission test
             item = QListWidgetItem(icon(kind, style.PRIMARY.name()), name)
             item.setData(Qt.ItemDataRole.UserRole, str(folder / name) if folder else name)
             self.files.addItem(item)
@@ -186,6 +189,10 @@ class TestDetail(QWidget):
         template = record.launched_template()
         if template is not None:
             parts.append(f"<b>Plantilla</b> (como se lanzó): {html.escape(template.name)} v{html.escape(template.version)}")
+        paths = setup_rows(record)
+        if paths:
+            items = "".join(f"<li>{html.escape(name)}: <b>{html.escape(value)}</b></li>" for name, value in paths)
+            parts.append(f"<b>Caminos y medidas</b><ul style='margin-top:2px'>{items}</ul>")
         calibration = record.calibration
         if calibration:
             text = f"<b>Calibración:</b> {calibration.get('metodo', '—')}"

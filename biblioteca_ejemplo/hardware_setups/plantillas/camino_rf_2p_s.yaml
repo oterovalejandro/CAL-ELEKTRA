@@ -1,0 +1,61 @@
+# Camino RF de 2 puertos: reflexión y transmisión (los cuatro parámetros S → .s2p).
+# Estructura común de los hardware setups: el VNA a la izquierda; de él salen
+# los puertos P1 y P2 y, de cada uno, un CAMINO (cables de medida, adaptadores…)
+# que lleva el plano de referencia hasta el puerto del DUT. El conector del final
+# de cada camino dice qué conectores de DUT se pueden calibrar con el setup.
+# La calibración se decide con los conectores de los planos: TOSM si se unen
+# directamente (macho con hembra); si no, UOSM con un through desconocido.
+formato: calelektra/plantilla_setup@0.4
+id: camino_rf_2p_s
+nombre: Camino RF — 2 puertos — Reflexión y transmisión (parámetros S → .s2p)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración de los dos planos de referencia (final de los caminos de P1 y P2),
+  medida de S11, S21, S12 y S22 del DUT conectado entre ellos y exportación a
+  Touchstone (.s2p) y CSV.
+algoritmos: [vna_2_puertos]
+caminos:
+  P1:
+    etiqueta: Camino P1
+    categorias: [cable_medida, adaptador, path]
+  P2:
+    etiqueta: Camino P2
+    categorias: [cable_medida, adaptador, path]
+roles:
+  vna:
+    categoria: vna
+    etiqueta: VNA
+  kit_cal:
+    categoria: kit_calibracion
+    etiqueta: Kit de calibración
+    cardinalidad: "0..1"
+    descripcion: Opcional. Sin kit asignado se usa el kit seleccionado en el VNA (no queda registrado).
+  dut:
+    categoria: [cable, cable_medida, adaptador, path]
+    etiqueta: DUT
+    es_dut: true
+    requiere_datos_s: false
+calibracion_vna:
+  metodos: [TOSM, UOSM]
+  kit: kit_cal
+requisitos:
+  - id: vna_puertos
+    campo: vna.num_puertos
+    operador: ">="
+    valor: 2
+    mensaje: El VNA debe tener al menos 2 puertos de medida
+  - id: vna_metodos
+    campo: vna.metodos_calibracion
+    operador: contiene_alguno
+    valor: [TOSM, UOSM]
+    mensaje: El VNA debe poder calibrar 2 puertos (TOSM o UOSM)
+estados_conexion:
+  calibracion:
+    descripcion: Estándares del kit en los planos PR1 y PR2 (final de los caminos)
+    conexiones: []
+  medida:
+    descripcion: DUT conectado entre PR1 (su puerto 1) y PR2 (su puerto 2)
+    conexiones:
+      - [P1, dut.#1]
+      - [dut.#2, P2]

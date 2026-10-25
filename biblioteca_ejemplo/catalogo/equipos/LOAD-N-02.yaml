@@ -1,0 +1,5 @@
+# Carga 50 Ω N (segunda terminación para los puertos libres del acoplador)
+formato: calelektra/equipo@0.3
+id: LOAD-N-02
+modelo: carga_n_50
+estado: en_servicio

@@ -27,6 +27,7 @@ from calelektra.procedures.record import (
 )
 from calelektra.procedures.record_uncertainty import conditions_loaded, is_pending
 from calelektra.procedures.specs import VERDICTS
+from calelektra.setups.paths import describe_path_record
 
 SUMMARY_FILE = "resumen_ensayo.txt"
 
@@ -61,13 +62,34 @@ def summary_text(record: TestRecord) -> str:
     frequencies = record.sweep or {}
     if frequencies:
         lines.append(f"  Frecuencias: {frequencies.get('modo', '')} {frequencies.get('inicio')} – {frequencies.get('fin')}, {frequencies.get('puntos')} puntos")
+    if record.paths:
+        lines.append("  Caminos (del puerto del VNA al plano de referencia):")
+        for path in record.paths:
+            lines.append(f"    {path.get('etiqueta', 'Camino')}: {describe_path_record(path)}")
+            for element in path.get("elementos", []):
+                text = f"      {element.get('posicion')}. {element.get('id')} — {element.get('modelo', '')}"
+                if element.get("numero_serie"):
+                    text += f", nº {element['numero_serie']}"
+                if element.get("certificado"):
+                    text += f", certificado {element['certificado']}"
+                if element.get("datos_s"):
+                    text += f", datos S {element['datos_s']}"
+                lines.append(text)
+        if record.setup.get("conectores_dut_admitidos"):
+            lines.append(f"  Conectores de DUT admitidos: {record.setup['conectores_dut_admitidos']}")
     for equipment in record.equipment:
-        text = f"  {equipment.get('rol')}: {equipment.get('id')} — {equipment.get('modelo')}"
+        if equipment.get("camino"):
+            continue  # listed with its path
+        text = f"  {equipment.get('rol_nombre', equipment.get('rol'))}: {equipment.get('id')} — {equipment.get('modelo')}"
         if equipment.get("numero_serie"):
             text += f", nº {equipment['numero_serie']}"
         if equipment.get("certificado"):
             text += f", certificado {equipment['certificado']}" + (f" (vence {equipment['calibracion_vence']})" if equipment.get("calibracion_vence") else "")
         lines.append(text)
+    for measurement in record.measurements:
+        ports = ", ".join(f"{port} en {path}" for path, port in measurement.get("puertos_eut", {}).items())
+        loads = f"; en carga: {', '.join(measurement['puertos_en_carga'])}" if measurement.get("puertos_en_carga") else ""
+        lines.append(f"  Medida {measurement.get('nombre')}: {measurement.get('fichero')} ({ports}{loads})")
     if record.dut and record.dut.get("id") not in {equipment.get("id") for equipment in record.equipment}:
         lines.append(f"  EUT: {record.dut.get('id')} — {record.dut.get('modelo')}" + (f", nº {record.dut['numero_serie']}" if record.dut.get("numero_serie") else ""))
     lines += ["", "Condiciones ambientales"]

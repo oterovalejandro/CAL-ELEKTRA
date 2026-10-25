@@ -91,10 +91,12 @@ CALIBRATION_STATUS = {
 def calibration_plan(method: str, ports: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
     """Standards that a manual calibration acquires, in order."""
     plan: list[tuple[str, tuple[int, ...]]] = []
-    if method not in ("OSM", "TOSM", "UOSM"):
+    if method not in ("OSM", "TOSM", "UOSM", "normalizacion"):
         raise InstrumentError(f"Método de calibración no soportado: {method}")
     if method != "OSM" and len(ports) != 2:
         raise InstrumentError(f"{method} necesita exactamente 2 puertos")
+    if method == "normalizacion":  # transmission normalization: only the through between the planes
+        return [("THROUGH", tuple(ports))]
     for port in ports:
         for standard in REFLECTION_STANDARDS:
             plan.append((standard, (port,)))
@@ -118,7 +120,7 @@ class VectorNetworkAnalyzer(Instrument):
     power_range: tuple[float, float] | None = None
     if_bandwidth_range: tuple[float, float] | None = None
     max_points: int | None = None
-    calibration_methods: tuple[str, ...] = ("OSM", "TOSM", "UOSM")
+    calibration_methods: tuple[str, ...] = ("OSM", "TOSM", "UOSM", "normalizacion")
 
     # ── limits from the equipment fields ───────────────────────────────────
     def sweep_problem(self, start: float, stop: float, points: int, sweep_type: str) -> str | None:

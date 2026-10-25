@@ -22,7 +22,9 @@ from calelektra.procedures.model import ALGORITHMS, TRACES, SweepSettings
 from calelektra.procedures.package import save_test_package
 from calelektra.procedures.record import TestRecord
 from calelektra.procedures.record_uncertainty import conditions_loaded, is_pending, load_ambient_conditions
+from calelektra.procedures.results import read_csv_columns, read_results_csv_s21
 from calelektra.procedures.specs import VERDICTS, SpecCurve, spec_curves
+from calelektra.setups.paths import describe_path_record
 from calelektra.uncertainty.engine import UncertaintyCalculationError
 
 SETTINGS = ("CAL-ELEKTRA", "CAL-ELEKTRA")
@@ -65,6 +67,10 @@ def plan_html(library: Library, plan: RunPlan) -> str:
     lines = [f"<b>Plantilla:</b> {html.escape(procedure.name)} " + muted.format(html.escape(ALGORITHMS[procedure.algorithm].split(" (")[0]))]
     if plan.setup is not None:
         lines.append(f"<b>Hardware setup:</b> {html.escape(library.setups[plan.setup.id].name if plan.setup.id in library.setups else plan.setup.id)}")
+    if plan.expanded is not None:
+        for path in plan.expanded.paths:
+            lines.append(f"&nbsp;&nbsp;<b>{html.escape(path.label)}:</b> {html.escape(path.describe())}")
+        lines.append(f"&nbsp;&nbsp;<b>Conectores de DUT admitidos:</b> {html.escape(plan.expanded.dut_connectors_text())}")
     if plan.frequency_plan is not None:
         lines.append(f"<b>Frecuencias</b> (del setup): {html.escape(plan.frequency_plan.describe())}")
     lines.append(f"<b>Medida:</b> {sweep.power_dbm:g} dBm · {html.escape(trace_text(sweep, procedure.traces))}")
@@ -72,16 +78,31 @@ def plan_html(library: Library, plan: RunPlan) -> str:
         simulated = " <span style='color:#6c3483'><b>(SIMULADO)</b></span>" if is_simulated(plan.vna, library) else ""
         lines.append(f"<b>VNA:</b> {plan.vna.id}{simulated}")
     lines.append(f"<b>EUT:</b> {html.escape(equipment_text(library, plan.dut)) if plan.dut else '—'}")
+    if plan.dut is not None and plan.measurements and plan.expanded is not None:
+        if procedure.algorithm == "vna_acoplador":
+            pairs = ", ".join(f"{m.title} ({m.dut_ports[0]} en PR1, {m.dut_ports[1]} en PR2)" for m in plan.measurements)
+            lines.append(f"<b>Pares de puertos</b> (los otros dos en las cargas de 50 Ω): {html.escape(pairs)}")
+        else:
+            ports = ", ".join(f"{port} en {path.plane}" for path, port in zip(plan.expanded.paths, plan.measurements[0].dut_ports))
+            lines.append(f"<b>Puertos del EUT:</b> {html.escape(ports)}")
     design = plan.design
     if procedure.calibration.method == "existente":
         lines.append("<b>Calibración:</b> se usa la calibración activa del VNA")
+    elif design is not None and design.method == "normalizacion":
+        through = f"through «{design.through.id}»" if design.through else "through plano"
+        lines.append(f"<b>Calibración:</b> normalización de transmisión con {through}<br>&nbsp;&nbsp;{html.escape(design.reason)}")
     elif design is not None and design.method:
         planes = ", ".join(f"{p.name} → P{p.vna_port} ({p.connector.label() if p.connector else '?'})" for p in design.planes)
         kit = f" · kit {design.kit.id}" if design.kit else " · kit del VNA"
         lines.append(f"<b>Calibración:</b> {design.method}{kit}<br>&nbsp;&nbsp;{html.escape(design.reason)}<br>&nbsp;&nbsp;Planos: {html.escape(planes)}")
-    if plan.specs:
+    if plan.coupler_limits:
+        limits = "; ".join(f"{key.replace('_', ' ')} {limit.describe()}" for key, limit in plan.coupler_limits.items())
+        lines.append(f"<b>Valores nominales del acoplador</b> (pasa / falla): {html.escape(limits)}")
+    elif plan.specs:
         specs = "; ".join(f"{spec.name} ({spec.describe()})" for spec, _ in plan.specs)
         lines.append(f"<b>Especificaciones</b> (del modelo del EUT): {html.escape(specs)}")
+    elif plan.dut is not None and procedure.algorithm == "vna_acoplador":
+        lines.append("<b>Valores nominales:</b> el modelo del acoplador no tiene (sin veredicto pasa / falla)")
     elif plan.dut is not None:
         lines.append("<b>Especificaciones:</b> el modelo del EUT no tiene (sin veredicto pasa / falla)")
     if procedure.uncertainty.active and plan.vna is not None:
@@ -96,8 +117,6 @@ def plan_html(library: Library, plan: RunPlan) -> str:
                 )
         else:
             lines.append(f"<b>Incertidumbre:</b> {plan.vna.id} no tiene fichero de incertidumbres")
-    if plan.lines != ["—"]:
-        lines.append(f"<b>Líneas:</b> {', '.join(plan.lines)}")
     return "<br>".join(lines)
 
 
@@ -125,14 +144,28 @@ def dataset_label(file_name: str) -> str:
 
 
 def record_datasets(record: TestRecord) -> list[tuple[str, np.ndarray, np.ndarray]]:
-    """Measured data of a test, read back from its result Touchstone files.
+    """Measured data of a test, read back from its result files (``medidas`` of the record).
 
-    Only the files at the top of the test folder are results: the
-    specification files kept in ``especificaciones/`` are not measurements.
+    Tests made before 0.8 have no ``medidas``: their results are the Touchstone
+    files at the top of the test folder (the specification files kept in
+    ``especificaciones/`` are not measurements).
     """
     datasets = []
     folder = record.folder
     if folder is None:
+        return datasets
+    if record.measurements:
+        for measurement in record.measurements:
+            path = folder / str(measurement.get("fichero", ""))
+            try:
+                if measurement.get("formato") == "csv_s21":
+                    frequencies, s = read_results_csv_s21(path)
+                else:
+                    data = read_touchstone(path)
+                    frequencies, s = data.frequencies, data.s
+            except (TouchstoneError, OSError, ValueError):
+                continue
+            datasets.append((str(measurement.get("nombre", "DUT")), frequencies, s))
         return datasets
     for name in record.files:
         if "/" in name or not name.lower().endswith((".s1p", ".s2p")):
@@ -147,12 +180,10 @@ def record_datasets(record: TestRecord) -> list[tuple[str, np.ndarray, np.ndarra
 
 def read_uncertainty_csv(path: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Expanded uncertainty per trace (U dB, U °) of an ``…_incertidumbre.csv`` written by the engine."""
-    lines = [line for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
-    if len(lines) < 2:
+    try:
+        header, columns = read_csv_columns(path)
+    except ValueError:
         return {}
-    header = lines[0].split(";")
-    rows = [[float(cell.replace(",", ".")) for cell in line.split(";")] for line in lines[1:]]
-    columns = np.array(rows, dtype=float).T
     found: dict[str, dict[str, np.ndarray]] = {}
     for index, name in enumerate(header):
         match = re.match(r"U (S\d\d) \((dB|°)", name)
@@ -170,11 +201,27 @@ def record_uncertainty(record: TestRecord) -> dict[str, dict[str, tuple[np.ndarr
         result_file, file_name = entry.get("fichero_resultado"), entry.get("fichero")
         if not result_file or not file_name:
             continue
+        label = str(entry.get("medida")) if record.measurements and entry.get("medida") else dataset_label(result_file)
         try:
-            bands[dataset_label(result_file)] = read_uncertainty_csv(record.folder / file_name)
+            bands[label] = read_uncertainty_csv(record.folder / file_name)
         except (OSError, ValueError):
             continue
     return bands
+
+
+def setup_rows(record: TestRecord) -> list[tuple[str, str]]:
+    """Rows of the results table about the paths of the hardware setup and the measurements of the EUT."""
+    rows: list[tuple[str, str]] = []
+    for path in record.paths:
+        rows.append((str(path.get("etiqueta", "Camino")), describe_path_record(path)))
+    if record.setup.get("conectores_dut_admitidos"):
+        rows.append(("Conectores de DUT admitidos", str(record.setup["conectores_dut_admitidos"])))
+    for measurement in record.measurements:
+        ports = ", ".join(f"{port} en {path}" for path, port in measurement.get("puertos_eut", {}).items())
+        loads = f"; en carga: {', '.join(measurement['puertos_en_carga'])}" if measurement.get("puertos_en_carga") else ""
+        name = measurement.get("nombre", "DUT")
+        rows.append(("Medida" if name == "DUT" else f"Medida {name}", f"{measurement.get('fichero')} ({ports}{loads})"))
+    return rows
 
 
 def conditions_rows(record: TestRecord) -> list[tuple[str, str]]:

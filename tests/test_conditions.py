@@ -141,9 +141,8 @@ def test_lisn_recalculation_checks_the_calibration_on_the_day_of_the_test(librar
     warnings = record.uncertainty.get("avisos")
     load_ambient_conditions(library, record, tph_workbook(tmp_path / "tph.xlsx", record.started, record.finished))
     assert record.uncertainty["estado"] == "completa" and record.uncertainty.get("avisos") == warnings
-    assert len(record.uncertainty["medidas"]) == 2  # one per line of the LISN, both recalculated
-    for entry in record.uncertainty["medidas"]:
-        assert entry["fichero_resultado"].endswith(".s1p") and (record.folder / entry["fichero"]).is_file()
+    [entry] = record.uncertainty["medidas"]  # the EUT terminal (generic impedance in 1 port)
+    assert entry["fichero_resultado"].endswith(".s1p") and (record.folder / entry["fichero"]).is_file()
 
 
 def test_package_keeps_all_the_information_of_the_test(library, tmp_path):

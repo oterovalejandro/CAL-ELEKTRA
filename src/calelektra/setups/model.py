@@ -1,16 +1,27 @@
 """Hardware setup templates (generic) and configured setups (equipment assigned).
 
-A template declares *roles* (typed slots filled with equipment), the
-connections between their ports in each state (measurement, calibration…),
-the reference planes, the VNA calibration and the field-based requirements
-(``requisitos``) that the assigned equipment must meet.
+Every setup has the same structure: the VNA on the left; from it, one line
+per port used (P1, P2…) and, from each port, a **path** (``caminos``) that
+extends the reference plane from the VNA connector to the port of the DUT.
+A path is an ordered list of equipment (measurement cables, adapters,
+chamber paths, preamplifiers…): its DUT-side connector says which DUT
+connectors the setup can calibrate (``setups/paths.py``).
 
-A configured setup assigns the equipment and gives the frequency points of
-the measurements made with it (``frecuencias``, inside ``rango_requerido``).
+A template declares the paths (port, admitted categories, direction of the
+signal, element that ends the path such as an antenna), the other *roles*
+(typed slots: VNA, cal kit, DUT, loads, antennas…), the connections of each
+state (measurement, calibration…) — the endpoint ``P1`` is the DUT-side end
+of path P1 —, the VNA calibration, the test algorithms that can use it and
+the field-based requirements (``requisitos``) of the assigned equipment.
+
+A configured setup assigns the equipment of the roles and of the paths and
+gives the frequency points of the measurements made with it
+(``frecuencias``, inside ``rango_requerido``).
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +34,13 @@ SWEEP_MODES = {"lineal": "Lineal", "logaritmico": "Logarítmico", "lista": "List
 LINEAR_DEFINITIONS = {"puntos": "Nº de puntos", "paso": "Paso de frecuencia"}
 
 Cardinality = Literal["1", "0..1", "0..n", "1..n"]
+SETUP_FORMAT_VERSION = "0.4"  # 0.4: paths per VNA port (0.3 setups had one role per cable and adapter)
+PATH_SENSES = {
+    "ambos": "Ambos sentidos",
+    "tx": "Transmisión (del VNA hacia el DUT)",
+    "rx": "Recepción (del DUT hacia el VNA)",
+}
+DEFAULT_PATH_CATEGORIES = ["cable_medida", "adaptador", "path"]
 
 
 class Role(BaseModel):
@@ -140,10 +158,32 @@ class Requirement(BaseModel):
         return roles
 
 
+class PathDefinition(BaseModel):
+    """Path of a VNA port in a setup template: equipment that takes the reference plane from the VNA port to the DUT."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    vna_port: int | None = Field(default=None, alias="puerto_vna", ge=1)  # default: the number of the key (P1 → 1)
+    label: str | None = Field(default=None, alias="etiqueta")
+    description: str | None = Field(default=None, alias="descripcion")
+    categories: StrList = Field(default_factory=lambda: list(DEFAULT_PATH_CATEGORIES), alias="categorias")
+    sense: Literal["ambos", "tx", "rx"] = Field(default="ambos", alias="sentido")  # direction of the signal (directional elements)
+    final: str | None = None  # role that ends the path after the reference plane (e.g. an antenna)
+
+    def port_number(self, key: str) -> int:
+        if self.vna_port:
+            return self.vna_port
+        match = re.search(r"(\d+)$", key)
+        return int(match.group(1)) if match else 1
+
+    def display(self, key: str) -> str:
+        return self.label or f"Camino {key}"
+
+
 class SetupTemplate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="allow", arbitrary_types_allowed=True)
 
-    format: str = Field(default="calelektra/plantilla_setup@0.3", alias="formato")
+    format: str = Field(default=f"calelektra/plantilla_setup@{SETUP_FORMAT_VERSION}", alias="formato")
     id: str
     name: str = Field(alias="nombre")
     version: str = "0.1"
@@ -151,8 +191,11 @@ class SetupTemplate(BaseModel):
     description: str | None = Field(default=None, alias="descripcion")
     extends: str | None = Field(default=None, alias="extiende")
     default_range: FrequencyRangeField | None = Field(default=None, alias="rango_medida")
+    algorithms: StrList = Field(default_factory=list, alias="algoritmos")  # test algorithms that can use the setups
+    paths: dict[str, PathDefinition] = Field(default_factory=dict, alias="caminos")
     roles: dict[str, Role] = Field(default_factory=dict)
     connection_states: dict[str, ConnectionState] = Field(default_factory=dict, alias="estados_conexion")
+    # derived from the paths when the setup is expanded (``setups/paths.py``); not written in the templates
     reference_planes: dict[str, Any] = Field(default_factory=dict, alias="planos_referencia")
     vna_calibration: dict[str, Any] = Field(default_factory=dict, alias="calibracion_vna")
     axes: dict[str, Any] = Field(default_factory=dict, alias="ejes")
@@ -186,9 +229,19 @@ class SetupTemplate(BaseModel):
         states.update(self.connection_states)
         own_ids = {r.id for r in self.requirements if r.id}
         requirements = [r for r in parent.requirements if not r.id or r.id not in own_ids] + list(self.requirements)
+        paths = {key: definition.model_copy() for key, definition in parent.paths.items()}
+        for key, definition in self.paths.items():
+            if key in paths:
+                merged = paths[key].model_dump(by_alias=False)
+                merged.update(definition.model_dump(by_alias=False, exclude_unset=True))
+                paths[key] = PathDefinition.model_validate(merged)
+            else:
+                paths[key] = definition
         merged_template = self.model_copy(
             update={
                 "roles": roles,
+                "paths": paths,
+                "algorithms": self.algorithms or parent.algorithms,
                 "connection_states": states,
                 "requirements": requirements,
                 "reference_planes": {**parent.reference_planes, **self.reference_planes},
@@ -271,17 +324,40 @@ class FrequencySettings(BaseModel):
         return f"{SWEEP_MODES[self.mode]}, {self.points} puntos"
 
 
+class PathItem(BaseModel):
+    """An equipment of a path, from the VNA towards the DUT (``"CAB-PT-N-01"`` or ``{equipo, invertido}``).
+
+    Two-port equipment is connected by its first port on the VNA side unless
+    that does not mate and the other port does (automatic), or ``invertido``
+    says so. Directional equipment (IN / OUT) follows the direction of the path.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    equipment: str = Field(alias="equipo")
+    reversed: bool = Field(default=False, alias="invertido")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_text(cls, data: Any) -> Any:
+        return {"equipo": data} if isinstance(data, str) else data
+
+    def to_yaml(self) -> str | dict[str, Any]:
+        return {"equipo": self.equipment, "invertido": True} if self.reversed else self.equipment
+
+
 class ConfiguredSetup(BaseModel):
-    """A template with equipment assigned to its roles, a required frequency range and its frequency points."""
+    """A template with equipment assigned to its roles and paths, a required frequency range and its frequency points."""
 
     model_config = ConfigDict(populate_by_name=True, extra="allow", arbitrary_types_allowed=True)
 
-    format: str = Field(default="calelektra/setup@0.3", alias="formato")
+    format: str = Field(default=f"calelektra/setup@{SETUP_FORMAT_VERSION}", alias="formato")
     id: str
     name: str = Field(alias="nombre")
     template: str = Field(alias="plantilla")
     required_range: FrequencyRangeField = Field(alias="rango_requerido")
     frequencies: FrequencySettings = Field(default_factory=FrequencySettings, alias="frecuencias")
+    paths: dict[str, list[PathItem]] = Field(default_factory=dict, alias="caminos")  # VNA port → equipment towards the DUT
     assignments: dict[str, Assignment] = Field(default_factory=dict, alias="asignaciones")
     segments: list[Segment] = Field(default_factory=list, alias="segmentos")
     layout: dict[str, list[float]] = Field(default_factory=dict, alias="disposicion")
@@ -307,5 +383,29 @@ class ConfiguredSetup(BaseModel):
             return assignment_ids(segment.assignments[role_key])
         return assignment_ids(self.assignments.get(role_key))
 
+    def path_ids(self, key: str) -> list[str]:
+        return [item.equipment for item in self.paths.get(key, [])]
+
+    def equipment_ids(self) -> set[str]:
+        """Every equipment of the setup: roles, segments and paths."""
+        ids: set[str] = set()
+        for value in self.assignments.values():
+            ids.update(assignment_ids(value))
+        for segment in self.segments:
+            for value in segment.assignments.values():
+                ids.update(assignment_ids(value))
+        for items in self.paths.values():
+            ids.update(item.equipment for item in items)
+        return ids
+
     def to_yaml_dict(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True, exclude_none=True, mode="json")
+        data = self.model_dump(by_alias=True, exclude_none=True, mode="json")
+        data["caminos"] = {key: [item.to_yaml() for item in items] for key, items in self.paths.items()}
+        ordered = {}
+        for key, value in data.items():  # paths right after the frequencies, before the other assignments
+            if key != "caminos":
+                ordered[key] = value
+            if key == "frecuencias":
+                ordered["caminos"] = data["caminos"]
+        ordered.setdefault("caminos", data["caminos"])
+        return ordered

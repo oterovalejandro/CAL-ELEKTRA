@@ -1,16 +1,15 @@
 # Ejemplo con ALARMA: la LISN se verifica desde 9 kHz y el ZNB43 empieza en
 # 100 kHz. Asignando VNA-BF-01 (baja frecuencia) la alarma desaparece.
-formato: calelektra/setup@0.3
+formato: calelektra/setup@0.4
 id: lisn_impedancia_VNA-01
 nombre: Impedancia LISN con ZNB43 (ejemplo con alarma)
-plantilla: lisn_impedancia
+plantilla: impedancia_1p
 rango_requerido: [9 kHz, 30 MHz]
 frecuencias:
   modo: logaritmico
   puntos: 201
+caminos:
+  P1: [CAB-PT-N-01, ADP-LISN-01]
 asignaciones:
   vna: VNA-01
-  cable_p1: CAB-PT-N-01
-  adaptador_p1: ADP-LISN-01
   kit_cal: KIT-N-01
-  carga_receptor: LOAD-N-01

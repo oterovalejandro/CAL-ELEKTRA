@@ -1,8 +1,11 @@
 """Editor of a configured hardware setup.
 
 Diagram (left) + role panel (right) + coverage chart / compatibility checks /
-VNA calibration / segments / validation (bottom). Every change re-runs the
-setup analysis and refreshes the views.
+VNA calibration / segments / validation (bottom). Clicking a port, an
+equipment of a path or a reference plane opens the path of that VNA port: its
+equipment in order from the VNA, how each one is connected, the connector of
+the plane and the DUT connector it admits. Every change re-runs the setup
+analysis and refreshes the views.
 """
 
 from __future__ import annotations
@@ -41,11 +44,11 @@ from calelektra.core.connectors import GENDERS
 from calelektra.gui import style
 from calelektra.gui.coverage_widget import CoverageWidget
 from calelektra.gui.icons import icon
-from calelektra.gui.setup_diagram import SetupDiagramView
+from calelektra.gui.setup_diagram import PATH_ROLE, SetupDiagramView
 from calelektra.gui.template_widgets import FrequencyEditor
 from calelektra.setups.analysis import Check, SetupAnalysis, analyze_setup
-from calelektra.setups.connections import CalibrationDesign
-from calelektra.setups.model import ConfiguredSetup, Role, Segment, SetupTemplate
+from calelektra.setups.connections import CalibrationDesign, method_name
+from calelektra.setups.model import PATH_SENSES, ConfiguredSetup, PathItem, Role, Segment, SetupTemplate
 
 UNASSIGNED = "— sin asignar —"
 CARDINALITY_TEXT = {"1": "obligatorio, 1 equipo", "0..1": "opcional, 1 equipo", "0..n": "opcional, varios", "1..n": "obligatorio, varios"}
@@ -56,9 +59,10 @@ def _frequency_text(hz: float) -> str:
 
 
 class RolePanel(QWidget):
-    """Details and equipment assignment of the selected role."""
+    """Details and equipment assignment of the selected role, or the equipment of the selected path."""
 
     assignment_changed = Signal()
+    focus_changed = Signal(str)  # role (or ``camino:P1``) to keep selected after an edit
 
     def __init__(self, library: Library, parent: QWidget | None = None):
         super().__init__(parent)
@@ -89,6 +93,14 @@ class RolePanel(QWidget):
         while self.assignment_form.rowCount():
             self.assignment_form.removeRow(0)
         self.issues_list.clear()
+        self.assignment_box.setTitle("Asignación de equipos")
+        path_key = role_key[len(PATH_ROLE) :] if role_key and role_key.startswith(PATH_ROLE) else None
+        if role_key and path_key is None and analysis.expanded is not None:
+            owner = analysis.expanded.path_of_role(role_key)
+            path_key = owner.key if owner else None
+        if path_key is not None and path_key in template.paths:
+            self._show_path(template, setup, path_key, analysis, role_key)
+            return
         if role_key is None or role_key not in template.roles:
             self.title.setText("Seleccione un rol en el diagrama")
             self.info.clear()
@@ -136,6 +148,129 @@ class RolePanel(QWidget):
             if issue.role == role_key:
                 item = QListWidgetItem(style.severity_icon(self, issue.severity), issue.message)
                 self.issues_list.addItem(item)
+        if not self.issues_list.count():
+            self.issues_list.addItem(QListWidgetItem(style.severity_icon(self, None), "Sin incidencias"))
+
+    # ── paths ──────────────────────────────────────────────────────────────
+    def _show_path(self, template: SetupTemplate, setup: ConfiguredSetup, path_key: str, analysis: SetupAnalysis, role_key: str | None) -> None:
+        definition = template.paths[path_key]
+        path = analysis.expanded.path(path_key) if analysis.expanded is not None else None
+        self.title.setText(definition.display(path_key))
+        categories = ", ".join(self.library.categories[c].name if c in self.library.categories else c for c in definition.categories)
+        port = f"P{definition.port_number(path_key)}" + (f" ({path.vna_connector.label()})" if path and path.vna_connector else "")
+        details = [f"<b>Puerto del VNA:</b> {port}", f"<b>Admite:</b> {categories}"]
+        if definition.sense != "ambos":
+            details.append(f"<b>Sentido de la señal:</b> {PATH_SENSES[definition.sense]}")
+        if definition.final and definition.final in template.roles:
+            details.append(f"<b>Termina en:</b> {template.roles[definition.final].display(definition.final)} (después del plano de referencia)")
+        if path is not None:
+            end, dut = path.end_connector, path.dut_connector
+            details.append(f"<b>Plano de referencia {path.plane}:</b> {end.label() if end else 'conector sin definir'}")
+            details.append(f"<b>Conector de DUT admitido:</b> {dut.label() if dut else '—'}")
+        details.append(
+            "<i>El camino lleva el plano de referencia desde el puerto del VNA hasta el puerto del DUT; los equipos se "
+            "conectan en este orden, empezando por el VNA.</i>"
+        )
+        self.info.setText("<br>".join(details))
+        self.assignment_box.setTitle("Equipos del camino (desde el VNA)")
+        items = setup.paths.get(path_key, [])
+        elements = path.elements if path is not None else []
+        listing = QListWidget()
+        listing.setMaximumHeight(150)
+        for index, item in enumerate(items):
+            element = elements[index] if index < len(elements) else None
+            known = item.equipment in self.library.equipment
+            text = f"{index + 1}. " + (self._candidate_text(item.equipment) if known else f"{item.equipment}  ⚠ no existe")
+            if element is not None and element.vna_side and element.dut_side:
+                text += f"  ({element.vna_side} → {element.dut_side}" + (", invertido" if element.reversed else "") + ")"
+            entry = QListWidgetItem(icon("cable", style.PRIMARY.name() if known else style.ERROR.name()), text)
+            listing.addItem(entry)
+        if not items:
+            empty = QListWidgetItem("Sin equipos: el plano de referencia queda en el puerto del VNA")
+            empty.setFlags(Qt.ItemFlag.NoItemFlags)
+            listing.addItem(empty)
+        selected = next((e.index - 1 for e in elements if e.role == role_key), 0 if items else -1)
+        listing.setCurrentRow(selected)
+
+        candidates = QComboBox()
+        candidates.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        candidates.setMinimumContentsLength(22)
+        for equipment in self.library.equipment_in_categories(list(definition.categories)):
+            candidates.addItem(self._candidate_text(equipment.id), equipment.id)
+        add = QPushButton(icon("nuevo", style.PRIMARY.name()), "Añadir al final")
+        add_row = QWidget()
+        add_layout = QHBoxLayout(add_row)
+        add_layout.setContentsMargins(0, 0, 0, 0)
+        add_layout.addWidget(candidates, 1)
+        add_layout.addWidget(add)
+        buttons = QWidget()
+        button_layout = QHBoxLayout(buttons)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        up = QPushButton("Subir")
+        down = QPushButton("Bajar")
+        flip = QPushButton("Invertir")
+        flip.setToolTip("Conectar el equipo por su otro extremo en el lado del VNA")
+        remove = QPushButton(icon("eliminar", style.ERROR.name()), "Quitar")
+        for button in (up, down, flip, remove):
+            button_layout.addWidget(button)
+        button_layout.addStretch(1)
+
+        def changed(row: int) -> None:
+            count = len(setup.paths.get(path_key, []))
+            self.focus_changed.emit(f"{path_key}-{row + 1}" if 0 <= row < count else PATH_ROLE + path_key)
+            self.assignment_changed.emit()
+
+        def added() -> None:
+            if candidates.currentData():
+                setup.paths.setdefault(path_key, []).append(PathItem(equipment=candidates.currentData()))
+                changed(len(setup.paths[path_key]) - 1)
+
+        def move(step: int) -> None:
+            row = listing.currentRow()
+            target = row + step
+            if 0 <= row < len(items) and 0 <= target < len(items):
+                items[row], items[target] = items[target], items[row]
+                changed(target)
+
+        def flipped() -> None:
+            row = listing.currentRow()
+            if 0 <= row < len(items):
+                items[row] = PathItem(equipment=items[row].equipment, reversed=not items[row].reversed)
+                changed(row)
+
+        def removed() -> None:
+            row = listing.currentRow()
+            if 0 <= row < len(items):
+                del items[row]
+                changed(min(row, len(items) - 1))
+
+        add.clicked.connect(added)
+        up.clicked.connect(lambda: move(-1))
+        down.clicked.connect(lambda: move(1))
+        flip.clicked.connect(flipped)
+        remove.clicked.connect(removed)
+        for button in (up, down, flip, remove):
+            button.setEnabled(bool(items))
+        add.setEnabled(candidates.count() > 0)
+
+        def show_element(row: int) -> None:
+            if 0 <= row < len(items):
+                self.equipment_info.setText(self._equipment_html(items[row].equipment))
+            else:
+                self.equipment_info.setText("<i>Ningún equipo seleccionado</i>")
+
+        listing.currentRowChanged.connect(show_element)
+        show_element(selected)
+        self.assignment_form.addRow(listing)
+        self.assignment_form.addRow(add_row)
+        self.assignment_form.addRow(buttons)
+        self.path_list, self.path_candidates = listing, candidates  # for the tests
+        self.path_buttons = {"subir": up, "bajar": down, "invertir": flip, "quitar": remove, "añadir": add}
+
+        roles = {element.role for element in elements}
+        for issue in analysis.issues:
+            if issue.role in roles or (issue.code.startswith("camino.") and issue.role is None and path_key in issue.message):
+                self.issues_list.addItem(QListWidgetItem(style.severity_icon(self, issue.severity), issue.message))
         if not self.issues_list.count():
             self.issues_list.addItem(QListWidgetItem(style.severity_icon(self, None), "Sin incidencias"))
 
@@ -363,8 +498,13 @@ class ChecksTable(QTreeWidget):
     def load(self, checks: list[Check]) -> None:
         self.clear()
         groups: dict[str, QTreeWidgetItem] = {}
-        icons = {"Requisito": "procedimientos", "Conexión": "cable", "Calibración": "vna"}
-        titles = {"Requisito": "Requisitos sobre los campos", "Conexión": "Conectores de cada conexión", "Calibración": "Calibración del VNA"}
+        icons = {"Camino": "cable", "Requisito": "procedimientos", "Conexión": "cable", "Calibración": "vna"}
+        titles = {
+            "Camino": "Caminos de los puertos del VNA",
+            "Requisito": "Requisitos sobre los campos",
+            "Conexión": "Conectores de cada conexión",
+            "Calibración": "Calibración del VNA",
+        }
         for check in checks:
             group = groups.get(check.group)
             if group is None:
@@ -419,12 +559,19 @@ class CalibrationPanel(QWidget):
             self.planes.setVisible(False)
             return
         self.planes.setVisible(True)
+        normalization = design.method == "normalizacion"
         kit = f"«{design.kit.id}»" + (f" — en el VNA: <i>{design.kit_name}</i>" if design.kit_name else "") if design.kit else "sin kit asignado"
-        self.summary.setText(f"<b>Método: {design.method}</b> — {design.reason}.<br><b>Kit:</b> {kit}")
+        if normalization:
+            through = f"<b>Through:</b> «{design.through.id}»" if design.through else "<b>Through:</b> plano (unión directa de los planos)"
+            self.summary.setText(f"<b>Método: {method_name(design.method)}</b> — {design.reason}.<br>{through} · no usa el kit")
+        else:
+            self.summary.setText(f"<b>Método: {design.method}</b> — {design.reason}.<br><b>Kit:</b> {kit}")
         for plane in design.planes:
             connector = plane.connector
             standards = "—"
-            if connector is not None and connector.gender in ("macho", "hembra"):
+            if normalization:
+                standards = "Through" + (f" «{design.through.id}»" if design.through else " plano")
+            elif connector is not None and connector.gender in ("macho", "hembra"):
                 standards = f"Open / Short / Match {GENDERS[connector.mating_gender()]}"
             elif connector is not None:
                 standards = "Open / Short / Match"
@@ -531,6 +678,7 @@ class SetupEditor(QWidget):
         self.diagram.node_moved.connect(self._node_moved)
         self.role_panel = RolePanel(self.library)
         self.role_panel.assignment_changed.connect(self._changed)
+        self.role_panel.focus_changed.connect(self._focus)
         role_scroll = QScrollArea()
         role_scroll.setWidgetResizable(True)
         role_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -595,7 +743,7 @@ class SetupEditor(QWidget):
         tabs = self.bottom_tabs
         tabs.setTabText(tabs.indexOf(self.checks), f"Compatibilidad ({failed} incidencias)" if failed else "Compatibilidad")
         method = self.analysis.calibration.method if self.analysis.calibration else None
-        tabs.setTabText(tabs.indexOf(self.calibration_panel), f"Calibración del VNA ({method})" if method else "Calibración del VNA")
+        tabs.setTabText(tabs.indexOf(self.calibration_panel), f"Calibración del VNA ({'normalización' if method == 'normalizacion' else method})" if method else "Calibración del VNA")
         tabs.setTabText(tabs.indexOf(self.issues), f"Validación ({errors} errores, {warnings} avisos)")
         plan = self.analysis.frequency_plan
         frequency_problem = any(i.code.startswith("frecuencias.") and i.severity is Severity.ERROR for i in self.analysis.issues)
@@ -682,6 +830,13 @@ class SetupEditor(QWidget):
         if new != self.setup.required_range:
             self.setup.required_range = new
             self._changed()
+
+    def _focus(self, role_key: str) -> None:
+        self.selected_role = role_key
+
+    def show_path(self, path_key: str) -> None:
+        """Select the path of a VNA port (its equipment in the role panel)."""
+        self._role_clicked(PATH_ROLE + path_key)
 
     def _role_clicked(self, role_key: str) -> None:
         if role_key == self.selected_role:

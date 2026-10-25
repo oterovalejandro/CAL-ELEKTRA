@@ -84,6 +84,7 @@ class _Correction:
     one_port: dict[int, OnePortTerms]
     two_port: TwoPortTerms | None
     created: datetime
+    normalization: np.ndarray | None = None  # raw forward transmission of the through (transmission normalization)
 
 
 def _interp_terms(terms: OnePortTerms, f_cal: np.ndarray, f: np.ndarray) -> OnePortTerms:
@@ -125,7 +126,7 @@ class DummyVna(VectorNetworkAnalyzer):
         power_range: tuple[float, float] = (-40.0, 0.0),
         if_bandwidth_range: tuple[float, float] = (1.0, 10e6),
         max_points: int = 100001,
-        calibration_methods: Sequence[str] = ("OSM", "TOSM", "UOSM"),
+        calibration_methods: Sequence[str] = ("OSM", "TOSM", "UOSM", "normalizacion"),
         noise_floor_dbm_at_10hz: float = -130.0,
         seed: int | None = None,
     ):
@@ -370,6 +371,7 @@ class DummyVna(VectorNetworkAnalyzer):
                 one_port={p: _interp_terms(t, f_cal, f) for p, t in correction.one_port.items()},
                 two_port=_interp_two_port(correction.two_port, f_cal, f) if correction.two_port else None,
                 created=correction.created,
+                normalization=interp_complex(f, f_cal, correction.normalization) if correction.normalization is not None else None,
             )
             return "CAI", interpolated
         return "OFF", None  # sweep outside the calibrated range: the correction cannot be applied
@@ -377,7 +379,10 @@ class DummyVna(VectorNetworkAnalyzer):
     @staticmethod
     def _apply_correction(raw: np.ndarray, correction: _Correction) -> np.ndarray:
         data = raw.copy()
-        if correction.two_port is not None:
+        if correction.normalization is not None:  # only the forward transmission is corrected
+            a, b = correction.ports
+            data[:, b - 1, a - 1] = raw[:, b - 1, a - 1] / correction.normalization
+        elif correction.two_port is not None:
             index = (slice(None), *_pair(correction.ports))  # type: ignore[arg-type]
             data[index] = correction.two_port.correct(raw[index])
         else:
@@ -476,13 +481,17 @@ class DummyVna(VectorNetworkAnalyzer):
         if missing:
             names = ", ".join(f"{STANDARD_NAMES[s]} ({'-'.join(map(str, p))})" for s, p in missing)
             self._fail("aplicar_calibracion", f"faltan estándares: {names}")
+        normalization = None
         try:
             one_port = {
                 port: solve_one_port({s: session.acquired[(s, (port,))] for s in REFLECTION_STANDARDS})
                 for port in session.ports
+                if session.method != "normalizacion"
             }
             two_port = None
-            if session.method in ("TOSM", "UOSM"):
+            if session.method == "normalizacion":
+                normalization = session.acquired[("THROUGH", session.ports)][:, 1, 0]
+            elif session.method in ("TOSM", "UOSM"):
                 a, b = session.ports
                 if session.method == "TOSM":
                     two_port = solve_tosm(one_port[a], one_port[b], session.acquired[("THROUGH", (a, b))])
@@ -494,6 +503,8 @@ class DummyVna(VectorNetworkAnalyzer):
         terms = [t.tracking for t in one_port.values()]
         if two_port is not None:
             terms += [two_port.forward_tracking, two_port.reverse_tracking]
+        if normalization is not None:
+            terms.append(normalization)
         if not all(np.all(np.isfinite(t)) and np.all(np.abs(t) > 1e-9) for t in terms):
             self._fail("aplicar_calibracion", "términos de error no válidos (¿estándares mal conectados?)")
         self._correction = _Correction(
@@ -503,6 +514,7 @@ class DummyVna(VectorNetworkAnalyzer):
             one_port=one_port,
             two_port=two_port,
             created=datetime.now(),
+            normalization=normalization,
         )
         self._correction_on = True
         self._session = None

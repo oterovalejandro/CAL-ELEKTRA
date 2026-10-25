@@ -29,8 +29,9 @@ from calelektra.core.issues import Severity
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.gui import style
 from calelektra.gui.icons import icon
+from calelektra.procedures.model import ALGORITHMS
 from calelektra.setups.analysis import SetupAnalysis, analyze_setup
-from calelektra.setups.model import ConfiguredSetup, SetupTemplate
+from calelektra.setups.model import PATH_SENSES, ConfiguredSetup, SetupTemplate
 
 
 def slugify(text: str) -> str:
@@ -69,13 +70,22 @@ def template_html(library: Library, template: SetupTemplate) -> str:
             tags.append("por segmento")
         categories = ", ".join(library.categories[c].name if c in library.categories else c for c in role.categories)
         roles.append(f"<li><b>{html.escape(role.display(key))}</b>{' (' + ', '.join(tags) + ')' if tags else ''} — {html.escape(categories)}</li>")
-    parts.append("<b>Roles</b><ul style='margin-top:2px'>" + "".join(roles) + "</ul>")
-    if template.reference_planes:
-        planes = []
-        for name, definition in template.reference_planes.items():
-            where = definition.get("en") if isinstance(definition, dict) else definition
-            planes.append(f"{name}: {', '.join(where) if isinstance(where, list) else where}")
-        parts.append("<b>Planos de referencia:</b> " + html.escape("; ".join(planes)))
+    if template.paths:
+        paths = []
+        for key, definition in template.paths.items():
+            categories = ", ".join(library.categories[c].name if c in library.categories else c for c in definition.categories)
+            text = f"<b>{html.escape(definition.display(key))}</b> (puerto P{definition.port_number(key)} → plano PR{definition.port_number(key)}): {html.escape(categories)}"
+            if definition.sense != "ambos":
+                text += f" · {html.escape(PATH_SENSES[definition.sense].lower())}"
+            if definition.final:
+                text += f" · termina en {html.escape(template.roles[definition.final].display(definition.final) if definition.final in template.roles else definition.final)}"
+            paths.append(f"<li>{text}</li>")
+        parts.append("<b>Caminos de los puertos del VNA</b> (del VNA al plano de referencia)<ul style='margin-top:2px'>" + "".join(paths) + "</ul>")
+    parts.append("<b>Otros roles</b><ul style='margin-top:2px'>" + "".join(roles) + "</ul>")
+    if template.algorithms:
+        parts.append("<b>Ensayos:</b> " + html.escape("; ".join(ALGORITHMS.get(a, a) for a in template.algorithms)))
+    else:
+        parts.append("<b>Ensayos:</b> sin algoritmo de ensayo todavía")
     methods = template.vna_calibration.get("metodos")
     if methods:
         parts.append("<b>Calibración del VNA:</b> " + html.escape(", ".join(map(str, methods))))
@@ -100,7 +110,7 @@ class NewSetupDialog(QDialog):
         self.setWindowTitle("Nuevo hardware setup")
         self.resize(860, 560)
         layout = QVBoxLayout(self)
-        layout.addWidget(style.PageHeader("Nuevo hardware setup", "Elija la plantilla genérica; después asigne los equipos a sus roles en el editor."))
+        layout.addWidget(style.PageHeader("Nuevo hardware setup", "Elija la plantilla genérica; después, en el editor, ponga los equipos de cada camino (del puerto del VNA al DUT) y asigne los demás roles."))
         body = QHBoxLayout()
         self.templates = QListWidget()
         self.templates.setMaximumWidth(340)
@@ -176,7 +186,9 @@ class NewSetupDialog(QDialog):
         except (UnitError, ValueError) as exc:
             QMessageBox.warning(self, self.windowTitle(), f"Rango requerido no válido: {exc}")
             return
-        self.setup = ConfiguredSetup(id=setup_id, name=name, template=item.data(Qt.ItemDataRole.UserRole), required_range=required)
+        template = self.library.templates.get(item.data(Qt.ItemDataRole.UserRole))
+        paths = {key: [] for key in template.paths} if template else {}
+        self.setup = ConfiguredSetup(id=setup_id, name=name, template=item.data(Qt.ItemDataRole.UserRole), required_range=required, paths=paths)
         self.accept()
 
 

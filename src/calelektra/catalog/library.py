@@ -41,7 +41,7 @@ from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchst
 from calelektra.core.units import UnitError
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import RECORD_FILE, TestRecord
-from calelektra.setups.model import ConfiguredSetup, SetupTemplate
+from calelektra.setups.model import SETUP_FORMAT_VERSION, ConfiguredSetup, SetupTemplate
 from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
 
 FOLDERS = {
@@ -58,6 +58,8 @@ UNCERTAINTY_FOLDER = Path("catalogo/incertidumbres")
 LIST_FOLDER = Path("hardware_setups/listas")
 TESTS_FOLDER = Path("ensayos")
 TEST_ROOTS_FILE = "carpetas.yaml"  # external test folders (inside ensayos/)
+# oldest format version that can be read, per kind (0.4: hardware setups with paths per VNA port)
+MIN_FORMAT_VERSIONS = {"plantilla_setup": SETUP_FORMAT_VERSION, "setup": SETUP_FORMAT_VERSION}
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -81,6 +83,13 @@ def validation_message(exc: ValidationError) -> str:
         location = ".".join(str(item) for item in error["loc"])
         parts.append(f"{location}: {error['msg']}")
     return "; ".join(parts)
+
+
+def _version_tuple(text: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(part) for part in text.split("."))
+    except ValueError:
+        return (0,)
 
 
 def dump_yaml(data: dict[str, Any], path: Path, header: str | None = None) -> None:
@@ -148,6 +157,16 @@ class Library:
                     Severity.ERROR,
                     "yaml.formato",
                     f"{path.name}: se esperaba 'formato: calelektra/{kind}@…' y se encontró {data.get('formato')!r}",
+                    path,
+                )
+                continue
+            minimum = MIN_FORMAT_VERSIONS.get(kind)
+            if minimum and _version_tuple(fmt[1]) < _version_tuple(minimum):
+                self._issue(
+                    Severity.ERROR,
+                    "yaml.version",
+                    f"{path.name}: formato {fmt[1]} anterior a {minimum}; los hardware setups se describen ahora con un camino "
+                    "por puerto del VNA (caminos: P1, P2…). Vuelva a crearlo con la plantilla actual",
                     path,
                 )
                 continue
@@ -329,18 +348,8 @@ class Library:
         return resolved
 
     def references_to(self, equipment_id: str) -> list[str]:
-        """Configured setups that use an equipment."""
-        users = []
-        for setup in self.setups.values():
-            ids = set()
-            for value in setup.assignments.values():
-                ids.update([value] if isinstance(value, str) else list(value or []))
-            for segment in setup.segments:
-                for value in segment.assignments.values():
-                    ids.update([value] if isinstance(value, str) else list(value or []))
-            if equipment_id in ids:
-                users.append(setup.id)
-        return users
+        """Configured setups that use an equipment (in a role or in a path)."""
+        return [setup.id for setup in self.setups.values() if equipment_id in setup.equipment_ids()]
 
     def templates_using(self, setup_id: str | None = None, equipment_id: str | None = None) -> list[str]:
         """Test templates that call a hardware setup or calibrate an equipment (EUT)."""
@@ -599,6 +608,9 @@ class Library:
         if fmt is None or fmt[0] not in FOLDERS:
             raise LibraryError(f"{Path(source).name}: 'formato' no reconocido ({data!r:.60})")
         kind = fmt[0]
+        minimum = MIN_FORMAT_VERSIONS.get(kind)
+        if minimum and _version_tuple(fmt[1]) < _version_tuple(minimum):
+            raise LibraryError(f"{Path(source).name}: formato {fmt[1]} anterior a {minimum} (los setups se describen ahora con caminos)")
         validators: dict[str, Callable[[Any], Any]] = {
             "categoria": Category.model_validate,
             "modelo": EquipmentModel.model_validate,

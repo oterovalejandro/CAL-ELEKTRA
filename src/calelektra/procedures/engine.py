@@ -16,11 +16,16 @@ these steps, using the fields of the assigned equipment:
 * the limits of the VNA (range, points, IFBW, power, calibration methods) and
   its connectors come from its fields;
 * the calibration (method, ports, connectors, cal kit and its name in the VNA)
-  comes from the reference planes of the setup (``setups/connections.py``);
+  comes from the reference planes of the setup, at the end of the paths of
+  the VNA ports (``setups/paths.py``, ``setups/connections.py``);
 * the operator is asked to connect each standard and the EUT, naming the
-  plane, the equipment and the connector genders;
+  plane, the equipment at the end of the path and the connector genders;
+* algorithms: 2 ports (S → .s2p), transmission with normalization
+  (S21 → .csv), impedance in 1 port (S11 → .s1p) and directional coupler
+  (one .s2p per port pair, the other ports on 50 Ω loads);
 * pass / fail compares the measurement with the S2P specification files of
-  the model of the EUT (``procedures/specs.py``).
+  the model of the EUT (``procedures/specs.py``) or, for a coupler, with the
+  nominal values of its model (``procedures/coupler.py``).
 
 Operator actions are requests to an :class:`Operator` (dialogs in the GUI,
 automatic in simulation and tests). When the VNA is simulated the engine also
@@ -45,7 +50,7 @@ from calelektra.catalog.model import Equipment
 from calelektra.core.connectors import FAMILIES, GENDERS, Connector
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.issues import Issue, Severity, has_errors
-from calelektra.core.networks import LISN_NETWORKS, gamma_to_impedance, lisn_impedance
+from calelektra.core.networks import gamma_to_impedance
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone, write_touchstone
 from calelektra.core.units import format_frequency
 from calelektra.instruments.base import (
@@ -57,21 +62,33 @@ from calelektra.instruments.base import (
 )
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import driver_description, open_vna
-from calelektra.instruments.simulation import simulated_dut, unknown_through_model
+from calelektra.instruments.simulation import pair_model, simulated_dut, unknown_through_model
 from calelektra.catalog.model import SpecFile
-from calelektra.procedures.model import ALGORITHMS, PLANES_NEEDED, ProcedureTemplate
+from calelektra.procedures.coupler import (
+    CouplerLimit,
+    coupler_limits,
+    coupler_quantities,
+    coupler_summary,
+    coupler_verdict,
+    evaluate_coupler,
+    pair_name,
+)
+from calelektra.procedures.model import ALGORITHMS, COUPLER_PORTS, PLANES_NEEDED, ProcedureTemplate
 from calelektra.procedures.record import SETUP_SNAPSHOT, TEMPLATE_SNAPSHOT, StepRecord, TestRecord
 from calelektra.procedures.specs import VERDICTS, SpecResult, evaluate_spec, verdict
 from calelektra.setups.analysis import SetupAnalysis, analyze_setup
-from calelektra.setups.connections import CalibrationDesign, PlaneInfo, design_calibration
+from calelektra.setups.connections import CalibrationDesign, PlaneInfo, check_connections, design_calibration, method_name
 from calelektra.setups.frequencies import FrequencyPlan
 from calelektra.setups.model import SWEEP_MODES, ConfiguredSetup, SetupTemplate
+from calelektra.setups.paths import ExpandedSetup, default_dut_ports, dut_role_of, expand
 from calelektra.procedures.record_uncertainty import PENDING_NOTE, compute_uncertainty, is_pending
 from calelektra.procedures.results import (
     db as _db,
     uncertainty_csv_path,
+    write_coupler_csv,
     write_results_csv_1p,
     write_results_csv_2p,
+    write_results_csv_s21,
     write_uncertainty_csv,
 )
 from calelektra.uncertainty.engine import UncertaintyCalculationError
@@ -143,12 +160,6 @@ class RunListener:
     def progress(self, fraction: float, text: str = "") -> None: ...
 
 
-def dut_role_of(template: SetupTemplate | None) -> str | None:
-    if template is None:
-        return None
-    return next((key for key, role in template.roles.items() if role.is_dut), None)
-
-
 def with_dut(setup: ConfiguredSetup, role: str | None, dut_id: str | None) -> ConfiguredSetup:
     """Copy of the setup with the DUT of the test assigned to its DUT role."""
     if not role or not dut_id:
@@ -160,13 +171,9 @@ def with_dut(setup: ConfiguredSetup, role: str | None, dut_id: str | None) -> Co
 
 
 def setup_suits(library: Library, algorithm: str, setup: ConfiguredSetup) -> bool:
-    """The setup has the reference planes the algorithm needs (2 for 2 ports, 1 for 1 port) and a DUT role."""
+    """The template of the setup can be used by the algorithm (``algoritmos``) and has a DUT role."""
     template = library.resolved_template(setup.template)
-    return (
-        template is not None
-        and len(template.reference_planes) == PLANES_NEEDED[algorithm]
-        and dut_role_of(template) is not None
-    )
+    return template is not None and algorithm in template.algorithms and dut_role_of(template) is not None
 
 
 def suitable_setups(library: Library, algorithm: str) -> list[ConfiguredSetup]:
@@ -186,10 +193,23 @@ def eut_choices(library: Library, setup: ConfiguredSetup | None) -> tuple[str | 
 
 # ── preparation: everything resolved from the template, its setup, its EUT and the equipment fields ──
 @dataclass
+class PlannedMeasurement:
+    """One measurement of the EUT: «DUT», or a port pair of a directional coupler (e.g. «ENTRADA-SALIDA»)."""
+
+    name: str
+    dut_ports: list[str]  # ports of the EUT on P1, P2… then the others (``dut.#1``, ``dut.#2``…)
+    expanded: ExpandedSetup | None = None  # the setup with these ports of the EUT
+
+    @property
+    def title(self) -> str:
+        return self.name.replace("-", " – ")
+
+
+@dataclass
 class RunPlan:
     procedure: ProcedureTemplate
     setup: ConfiguredSetup | None  # the hardware setup of the template, with its EUT assigned
-    template: SetupTemplate | None
+    template: SetupTemplate | None  # template of the setup (paths not expanded)
     analysis: SetupAnalysis | None
     design: CalibrationDesign | None
     vna: Equipment | None
@@ -197,8 +217,10 @@ class RunPlan:
     dut_role: str | None
     frequency_plan: FrequencyPlan | None
     specs: list[tuple[SpecFile, Path]]  # specifications of the model of the EUT, with their files
-    lines: list[str]
+    measurements: list[PlannedMeasurement]
     issues: list[Issue] = field(default_factory=list)
+    expanded: ExpandedSetup | None = None  # the setup with its paths as roles (first measurement)
+    coupler_limits: dict[str, CouplerLimit] = field(default_factory=dict)  # nominal values of a coupler
 
     @property
     def ok(self) -> bool:
@@ -214,13 +236,50 @@ class RunPlan:
     def ports(self) -> tuple[int, ...]:
         if self.design is not None and self.design.ports:
             return self.design.ports
-        return (1, 2) if self.procedure.algorithm == "vna_2_puertos" else (1,)
+        return (1,) if PLANES_NEEDED[self.procedure.algorithm] == 1 else (1, 2)
 
     @property
     def method(self) -> str:
         if self.procedure.calibration.method == "existente":
             return "existente"
         return self.design.method if self.design and self.design.method else "—"
+
+
+def _planned_measurements(
+    library: Library, procedure: ProcedureTemplate, dut: Equipment | None, error: Callable[[str, str], None]
+) -> list[PlannedMeasurement]:
+    """The measurements of the test and the ports of the EUT on each path."""
+    ports = default_dut_ports(library, dut)
+    if procedure.algorithm == "vna_acoplador":
+        planned = []
+        for first, second in procedure.measured_pairs():
+            if first not in COUPLER_PORTS or second not in COUPLER_PORTS or first == second:
+                error(f"Par de puertos «{first}–{second}» no válido: los puertos del acoplador son {', '.join(COUPLER_PORTS)}", "ensayo.pares")
+                continue
+            others = [port for port in COUPLER_PORTS if port not in (first, second)]
+            planned.append(PlannedMeasurement(pair_name(first, second), [first, second, *others]))
+        if not planned:
+            error("La plantilla de ensayo no tiene pares de puertos que medir", "ensayo.pares")
+        return planned
+    needed = PLANES_NEEDED[procedure.algorithm]
+    chosen = list(procedure.eut_ports) or ports[:needed]
+    if dut is not None and ports:
+        unknown = [port for port in chosen if port not in ports]
+        if unknown:
+            error(f"El EUT «{dut.id}» no tiene los puertos {', '.join(unknown)} (puertos: {', '.join(ports)})", "ensayo.puertos_eut")
+        elif len(chosen) < needed:
+            error(f"La medida necesita {needed} puertos del EUT y «{dut.id}» tiene {len(ports)}", "ensayo.puertos_eut")
+    return [PlannedMeasurement("DUT", chosen + [port for port in ports if port not in chosen])]
+
+
+COUPLER_FIELDS = (
+    "acoplamiento_nominal_db",
+    "tolerancia_acoplamiento_db",
+    "directividad_min_db",
+    "perdidas_insercion_max_db",
+    "aislamiento_min_db",
+    "perdidas_retorno_min_db",
+)
 
 
 def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | None = None) -> RunPlan:
@@ -233,6 +292,7 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
     def warning(message: str, code: str = "ensayo") -> None:
         issues.append(Issue(Severity.WARNING, code, message))
 
+    algorithm = procedure.algorithm
     setup = library.setups.get(procedure.setup_id) if procedure.setup_id else None
     if setup is None:
         error(
@@ -241,7 +301,7 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
             else "Elija el hardware setup de la plantilla de ensayo",
             "ensayo.setup",
         )
-        return RunPlan(procedure, None, None, None, None, None, None, None, None, [], ["—"], issues)
+        return RunPlan(procedure, None, None, None, None, None, None, None, None, [], [], issues)
     template = library.resolved_template(setup.template)
     dut_role = dut_role_of(template)
     eut_id = procedure.eut_id
@@ -252,37 +312,66 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
         eut_id = None
     if template is not None and dut_role is None:
         error(f"La plantilla «{template.name}» del setup no tiene rol de equipo a calibrar (DUT)")
+    if template is not None and algorithm not in template.algorithms:
+        admitted = ", ".join(ALGORITHMS.get(a, a) for a in template.algorithms)
+        error(
+            f"El hardware setup «{setup.name}» (plantilla «{template.name}») no sirve para «{ALGORITHMS[algorithm]}»"
+            + (f"; sirve para: {admitted}" if admitted else "; no tiene todavía algoritmo de ensayo"),
+            "ensayo.setup",
+        )
     effective = with_dut(setup, dut_role, eut_id)
-    analysis = analyze_setup(effective, library, today) if template is not None else None
+    dut = library.equipment.get(eut_id) if eut_id else None
+    measurements = _planned_measurements(library, procedure, dut, error)
+    first_ports = measurements[0].dut_ports if measurements else None
+    analysis = analyze_setup(effective, library, today, dut_ports=first_ports) if template is not None else None
+    expanded = analysis.expanded if analysis is not None else None
     if analysis is not None:
         issues.extend(i for i in analysis.issues if i.severity is not Severity.INFO)
     else:
         error(f"La plantilla «{setup.template}» del setup no existe")
     vna_ids = effective.ids_for("vna")
     vna = library.equipment.get(vna_ids[0]) if vna_ids else None
-    dut = library.equipment.get(eut_id) if eut_id else None
     if vna is None:
         error("El setup no tiene VNA asignado")
 
+    # every port pair of a coupler changes the connections of the EUT: check them all
+    if template is not None:
+        seen = {issue.message for issue in issues}
+        for index, measurement in enumerate(measurements):
+            measurement.expanded = expanded if index == 0 else expand(template, effective, library, measurement.dut_ports)
+            if index == 0 or measurement.expanded is None:
+                continue
+            for check in check_connections(measurement.expanded.template, measurement.expanded.setup, library):
+                if check.state != "medida" or check.severity not in (Severity.ERROR, Severity.WARNING):
+                    continue
+                if dut_role not in (check.a.endpoint.role, check.b.endpoint.role):
+                    continue
+                message = f"Par {measurement.title}: {check.a.text()} ↔ {check.b.text()}: {check.message}"
+                if message not in seen:
+                    seen.add(message)
+                    issues.append(Issue(check.severity, "conexion.conectores", message))
+
     design = None
     method = procedure.calibration.method
-    if template is not None:
+    if expanded is not None:
         override = None if method in ("automatico", "existente") else method
-        design = design_calibration(template, effective, library, method_override=override)
+        design = design_calibration(expanded.template, expanded.setup, library, method_override=override)
         if override:
             issues.extend(Issue(s, "calibracion.vna", m) for s, m in design.checks if s in (Severity.ERROR, Severity.WARNING))
-        planes_needed = PLANES_NEEDED[procedure.algorithm]
+        planes_needed = PLANES_NEEDED[algorithm]
         if len(design.planes) != planes_needed:
             error(
-                f"El algoritmo «{ALGORITHMS[procedure.algorithm]}» necesita {planes_needed} plano(s) de referencia "
+                f"El algoritmo «{ALGORITHMS[algorithm]}» necesita {planes_needed} camino(s) con su plano de referencia "
                 f"y la plantilla «{template.name}» del setup define {len(design.planes)}"
             )
         elif method != "existente" and design.method is None:
             error(f"La plantilla «{template.name}» no calibra los puertos del VNA: {design.reason}")
-        if procedure.algorithm == "vna_2_puertos" and method == "OSM":
-            error("OSM es una calibración de 1 puerto: no sirve para medir 2 puertos")
-        if procedure.algorithm == "vna_1_puerto" and method in ("TOSM", "UOSM"):
+        if algorithm in ("vna_2_puertos", "vna_acoplador") and method in ("OSM", "normalizacion"):
+            error(f"«{method}» no corrige los 4 parámetros S de 2 puertos: use TOSM, UOSM o automático")
+        if algorithm == "vna_1_puerto" and method in ("TOSM", "UOSM", "normalizacion"):
             error(f"{method} calibra 2 puertos: use OSM para la medida de 1 puerto")
+        if algorithm == "vna_transmision" and method in ("OSM", "TOSM", "UOSM"):
+            error(f"El ensayo de transmisión se calibra con normalización (through entre los planos), no con {method}")
 
     # frequency points: those of the hardware setup (checked by the setup analysis)
     frequency_plan = analysis.frequency_plan if analysis is not None else None
@@ -319,40 +408,50 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
                     f"El fichero de incertidumbres de «{vna.id}» cubre {FrequencyRange(*covered)}: fuera de ese rango no habrá incertidumbre",
                     "ensayo.incertidumbre",
                 )
+            if algorithm == "vna_transmision":
+                warning(
+                    "Incertidumbre con normalización de transmisión: el fichero del VNA da la de una calibración completa de 2 puertos",
+                    "ensayo.incertidumbre",
+                )
 
-    # specifications of the model of the EUT (pass / fail)
-    specs = library.specifications_of(dut) if dut is not None else []
-    for spec, path in specs:
-        try:
-            data = read_touchstone(path)
-        except TouchstoneError as exc:
-            error(f"Especificación «{spec.name}» del modelo de «{dut.id}»: {exc}", "ensayo.especificacion")
-            continue
-        missing = [p for p in spec.parameters if p not in procedure.traces or int(p[1]) > data.n_ports or int(p[2]) > data.n_ports]
-        if missing:
-            error(f"Especificación «{spec.name}»: {', '.join(missing)} no está en el fichero o no lo mide la plantilla", "ensayo.especificacion")
-        if frequency_plan is not None:
-            overlap = data.frequency_range.intersect(frequency_plan.range)
-            if overlap is None:
-                warning(f"Especificación «{spec.name}» ({data.frequency_range}) fuera de las frecuencias del setup: no se evaluará", "ensayo.especificacion")
-            elif not data.frequency_range.contains(frequency_plan.range):
-                warning(f"Especificación «{spec.name}»: solo se evalúa en {overlap}", "ensayo.especificacion")
-
-    lines = ["—"]
-    if dut is not None and library.category_id_of(dut) == "lisn":
-        lines = list(library.field(dut, "lineas", []) or [])
-        wanted_lines = procedure.options.get("lineas", "todas")
-        if isinstance(wanted_lines, (list, tuple)):
-            unknown = [line for line in wanted_lines if line not in lines]
-            if unknown:
-                error(f"La LISN «{dut.id}» no tiene las líneas {', '.join(unknown)} (campo «Líneas»: {', '.join(lines)})")
-            lines = [line for line in lines if line in wanted_lines]
-        if not lines:
-            error(f"La LISN «{dut.id}» no indica sus líneas (campo «Líneas»)")
-        network = library.field(dut, "red_nominal")
-        if network not in LISN_NETWORKS:
-            warning(f"La red nominal de «{dut.id}» ({network}) no es conocida: no se calcularán desviaciones")
-    return RunPlan(procedure, effective, template, analysis, design, vna, dut, dut_role, frequency_plan, specs, lines, issues)
+    # pass / fail: S2P specifications of the model of the EUT, or the nominal values of a coupler
+    specs: list[tuple[SpecFile, Path]] = []
+    limits: dict[str, CouplerLimit] = {}
+    if dut is not None and algorithm == "vna_acoplador":
+        limits = coupler_limits({key: library.field(dut, key) for key in COUPLER_FIELDS})
+        if not limits:
+            warning(f"El modelo de «{dut.id}» no tiene valores nominales de acoplador: el ensayo no dará veredicto", "ensayo.especificacion")
+    elif dut is not None:
+        for spec, path in library.specifications_of(dut):
+            try:
+                data = read_touchstone(path)
+            except TouchstoneError as exc:
+                error(f"Especificación «{spec.name}» del modelo de «{dut.id}»: {exc}", "ensayo.especificacion")
+                continue
+            measured = [p for p in spec.parameters if p in procedure.traces]
+            missing = [p for p in spec.parameters if p not in procedure.traces]
+            beyond = [p for p in spec.parameters if int(p[1]) > data.n_ports or int(p[2]) > data.n_ports]
+            if beyond:
+                error(f"Especificación «{spec.name}»: {', '.join(beyond)} no está en el fichero", "ensayo.especificacion")
+                continue
+            if missing and algorithm == "vna_transmision":
+                if not measured:
+                    warning(f"Especificación «{spec.name}»: no se evalúa (el ensayo de transmisión solo mide S21)", "ensayo.especificacion")
+                    continue
+                warning(f"Especificación «{spec.name}»: solo se evalúa {', '.join(measured)} (el ensayo de transmisión solo mide S21)", "ensayo.especificacion")
+                spec = spec.model_copy(update={"parameters": measured})
+            elif missing:
+                error(f"Especificación «{spec.name}»: {', '.join(missing)} no lo mide la plantilla", "ensayo.especificacion")
+            if frequency_plan is not None:
+                overlap = data.frequency_range.intersect(frequency_plan.range)
+                if overlap is None:
+                    warning(f"Especificación «{spec.name}» ({data.frequency_range}) fuera de las frecuencias del setup: no se evaluará", "ensayo.especificacion")
+                elif not data.frequency_range.contains(frequency_plan.range):
+                    warning(f"Especificación «{spec.name}»: solo se evalúa en {overlap}", "ensayo.especificacion")
+            specs.append((spec, path))
+    return RunPlan(
+        procedure, effective, template, analysis, design, vna, dut, dut_role, frequency_plan, specs, measurements, issues, expanded, limits
+    )
 
 
 @dataclass
@@ -503,7 +602,7 @@ class ProcedureRunner:
         if not plan.ok:
             errors = [i.message for i in plan.issues if i.severity is Severity.ERROR]
             raise StepError(f"No se puede ejecutar: {errors[0]}" + (f" (y {len(errors) - 1} errores más)" if len(errors) > 1 else ""))
-        assert plan.setup is not None
+        assert plan.setup is not None and plan.expanded is not None
         setup = self.library.setups[plan.setup.id]
         record.setup = {
             "id": setup.id,
@@ -511,10 +610,14 @@ class ProcedureRunner:
             "plantilla": setup.template,
             "rango_requerido": setup.required_range.to_yaml(),
             "frecuencias": setup.frequencies.model_dump(by_alias=True, exclude_none=True, mode="json"),
+            "caminos": {key: [item.to_yaml() for item in items] for key, items in setup.paths.items()},
+            "conectores_dut_admitidos": plan.expanded.dut_connectors_text(),
         }
+        record.paths = [path.to_record(self.library) for path in plan.expanded.paths]
         record.equipment = [self._equipment_entry(role, eq_id) for role, eq_id in self._assigned()]
         if plan.dut is not None:
             record.dut = self._equipment_entry(plan.dut_role or "dut", plan.dut.id)
+            record.dut["puertos_medidos"] = {m.name: m.dut_ports[: len(plan.expanded.paths)] for m in plan.measurements}
         if plan.frequency_plan is not None:
             record.frequency_range = [format_frequency(plan.frequency_plan.start, decimal="."), format_frequency(plan.frequency_plan.stop, decimal=".")]
         self._write_snapshots()
@@ -530,10 +633,12 @@ class ProcedureRunner:
         if record.folder is None:
             return
         setup = {
-            "formato": "calelektra/hardware_setup_ensayo@0.3",
+            "formato": "calelektra/hardware_setup_ensayo@0.4",
             "ensayo": record.id,
             "setup": self.plan.setup.to_yaml_dict(),  # with the EUT of the template in its role
             "plantilla_setup": self.plan.template.model_dump(by_alias=True, exclude_none=True, mode="json") if self.plan.template else None,
+            "caminos": record.paths,  # each path resolved: equipment in order, orientation, connectors, plane
+            "conectores_dut_admitidos": record.setup.get("conectores_dut_admitidos"),
             "equipos": record.equipment,
         }
         for name, data, title in (
@@ -545,10 +650,12 @@ class ProcedureRunner:
                 record.files.append(name)
 
     def _assigned(self) -> list[tuple[str, str]]:
-        assert self.plan is not None and self.plan.template is not None
+        """Roles and equipment of the setup, the equipment of the paths included (in their order)."""
+        assert self.plan is not None and self.plan.expanded is not None
+        expanded = self.plan.expanded
         pairs = []
-        for role in self.plan.template.roles:
-            for equipment_id in self.plan.setup.ids_for(role):
+        for role in expanded.template.roles:
+            for equipment_id in expanded.setup.ids_for(role):
                 pairs.append((role, equipment_id))
         return pairs
 
@@ -556,6 +663,13 @@ class ProcedureRunner:
         eq = self.library.equipment[equipment_id]
         model = self.library.model_of(eq)
         entry: dict = {"rol": role, "id": eq.id, "modelo": model.display_name if model else eq.model_id}
+        expanded = self.plan.expanded if self.plan is not None else None
+        if expanded is not None and role in expanded.template.roles:
+            entry["rol_nombre"] = expanded.template.roles[role].display(role)
+            path = expanded.path_of_role(role)
+            if path is not None:
+                entry["camino"] = path.key
+                entry["posicion"] = next(e.index for e in path.elements if e.role == role)
         if eq.serial_number:
             entry["numero_serie"] = eq.serial_number
         if eq.calibration is not None:
@@ -664,7 +778,11 @@ class ProcedureRunner:
         kit = design.kit
         kit_text = f"kit «{kit.id}»" + (f" ({design.kit_name})" if design.kit_name else "") if kit else "kit seleccionado en el VNA"
         self._log(f"{design.reason}")
-        self.vna.begin_calibration(method, ports, design.connectors, design.kit_name, design.kit_family)
+        if method == "normalizacion":
+            kit_text = "through"
+            self.vna.begin_calibration(method, ports, design.connectors)
+        else:
+            self.vna.begin_calibration(method, ports, design.connectors, design.kit_name, design.kit_family)
         steps = calibration_plan(method, ports)
         for index, (standard, standard_ports) in enumerate(steps, start=1):
             self._check_stop()
@@ -674,6 +792,9 @@ class ProcedureRunner:
                 title = f"Calibración {method} — {index}/{len(steps)}: {STANDARD_NAMES[standard]} en {plane.name}"
                 message = f"Conecte el estándar {self._standard_text(standard, plane)} del {kit_text} en el plano {self._plane_text(plane)}."
                 simulate = lambda vna, s=standard, p=standard_ports[0]: vna.connect_standard(s, p)  # noqa: E731
+            elif standard == "THROUGH" and method == "normalizacion":
+                a, b = planes[standard_ports[0]], planes[standard_ports[1]]
+                title, message, simulate = self._normalization_through(a, b, standard_ports)
             elif standard == "THROUGH":
                 a, b = planes[standard_ports[0]], planes[standard_ports[1]]
                 title = f"Calibración {method} — {index}/{len(steps)}: through plano"
@@ -700,17 +821,37 @@ class ProcedureRunner:
             "motivo": design.reason,
             "puertos": list(ports),
             "planos": {plane.name: (plane.connector.label() if plane.connector else "—") for plane in design.planes},
-            "kit": kit.id if kit else None,
-            "kit_en_vna": design.kit_name,
-            "certificado_kit": kit.calibration.certificate if kit and kit.calibration else None,
+            "kit": kit.id if kit and method != "normalizacion" else None,
+            "kit_en_vna": design.kit_name if method != "normalizacion" else None,
+            "certificado_kit": kit.calibration.certificate if kit and kit.calibration and method != "normalizacion" else None,
+            "through": design.through.id if design.through else None,
             "estado_vna": status,
             "fecha": datetime.now().isoformat(timespec="seconds"),
         }
+        record.calibration = {key: value for key, value in record.calibration.items() if value is not None or key == "kit"}
         if self.procedure.calibration.save_on_vna:
             name = self.procedure.calibration.vna_cal_name.format(ensayo=record.id, setup=self.plan.setup.id if self.plan.setup else "")
             self.vna.save_calibration(name)
             record.calibration["guardada_en_vna"] = name
-        return "ok", f"{method} en {', '.join(f'P{p}' for p in ports)} ({CALIBRATION_STATUS[status]})"
+        return "ok", f"{method_name(method)} en {', '.join(f'P{p}' for p in ports)} ({CALIBRATION_STATUS[status]})"
+
+    def _normalization_through(self, a: PlaneInfo, b: PlaneInfo, ports: tuple[int, ...]) -> tuple[str, str, Callable[[DummyVna], None]]:
+        """Request and simulation of the through of a transmission normalization."""
+        design = self.plan.design if self.plan else None
+        through = design.through if design else None
+        if through is None:
+            title = "Normalización de transmisión: through plano"
+            message = f"Una directamente los planos {self._plane_text(a)} y {self._plane_text(b)} (through plano, sin adaptador)."
+            return title, message, lambda vna: vna.connect_through(ports)
+        title = f"Normalización de transmisión: through «{through.id}»"
+        message = (
+            f"Conecte el through de normalización «{through.id}» entre {self._plane_text(a)} y {self._plane_text(b)}. "
+            "Sus pérdidas quedan dentro de la referencia."
+        )
+        n_ports, model = simulated_dut(self.library, through)
+        if n_ports == 2:
+            return title, message, lambda vna: vna.connect_network(model, ports, through.id)
+        return title, message, lambda vna: vna.connect_through(ports)
 
     @staticmethod
     def _through_adapter_text(a: Connector | None, b: Connector | None) -> str:
@@ -727,17 +868,21 @@ class ProcedureRunner:
         frequencies = self.vna.frequencies()
         return frequencies, self.vna.read_s_matrix(ports)
 
-    def _measure_dut(self, ports: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
+    def _measure_dut(self, ports: tuple[int, ...], traces: tuple[str, ...] | None = None) -> tuple[np.ndarray, np.ndarray]:
         """Measure the traces of the DUT with their own IFBW / averaging (not smoothed: smoothing is only for display).
 
         Traces that share IFBW and averaging are read from the same sweep; each
         other combination needs its own sweep (on the VNA they are channel
-        settings). The «all traces» settings are restored afterwards.
+        settings). The «all traces» settings are restored afterwards. Only
+        ``traces`` are read (e.g. S21 in the transmission test); the other
+        elements of the S matrix are NaN.
         """
         assert self.vna is not None
         sweep = self.procedure.sweep
         n = len(ports)
         names = [f"S{i + 1}{j + 1}" for i in range(n) for j in range(n)]
+        if traces:
+            names = [name for name in names if name in traces]
         groups: dict[tuple[float, int], list[str]] = {}
         for name in names:
             ifbw, averages, _ = sweep.trace(name)
@@ -753,7 +898,7 @@ class ProcedureRunner:
             self.vna.single_sweep()
             if frequencies is None:
                 frequencies = self.vna.frequencies()
-                s = np.empty((len(frequencies), n, n), dtype=complex)
+                s = np.full((len(frequencies), n, n), np.nan, dtype=complex)
             for name in members:
                 i, j = int(name[1]) - 1, int(name[2]) - 1
                 s[:, i, j] = self.vna.read_s_parameter(f"S{ports[i]}{ports[j]}")
@@ -778,7 +923,15 @@ class ProcedureRunner:
         planes = {plane.vna_port: plane for plane in design.planes}
         ports = design.ports
         checks: list[dict] = []
-        if method == "TOSM":
+        if method == "normalizacion":
+            a, b = planes[ports[0]], planes[ports[1]]
+            title, message, simulate = self._normalization_through(a, b, ports)
+            self._ask(f"Verificación: {title[0].lower()}{title[1:]}", f"Vuelva a conectar: {message[0].lower()}{message[1:]}", image="through", simulate=simulate, step="verificacion")
+            f, s = self._measure(ports)
+            self.listener.data("Verificación (through)", f, s)
+            deviation = float(np.max(np.abs(_db(s[:, 1, 0]))))
+            checks.append({"comprobacion": "|S21| del through normalizado", "valor_db": round(deviation, 4), "limite_db": settings.s21_tolerance_db, "correcto": deviation <= settings.s21_tolerance_db})
+        elif method == "TOSM":
             a, b = planes[ports[0]], planes[ports[1]]
             self._ask(
                 "Verificación: through plano",
@@ -806,7 +959,7 @@ class ProcedureRunner:
             self.listener.data("Verificación (through desconocido)", f, s)
             reciprocity = float(np.max(np.abs(_db(s[:, 1, 0]) - _db(s[:, 0, 1]))))
             checks.append({"comprobacion": "Reciprocidad |S21| − |S12| del through", "valor_db": round(reciprocity, 4), "limite_db": settings.s21_tolerance_db, "correcto": reciprocity <= settings.s21_tolerance_db})
-        for port in ports:
+        for port in ports if method != "normalizacion" else ():
             plane = planes[port]
             self._ask(
                 f"Verificación: carga adaptada en {plane.name}",
@@ -842,52 +995,74 @@ class ProcedureRunner:
         status = self.vna.calibration_status()
         if status not in ("CAL", "CAI"):
             raise StepError(f"La corrección del VNA no está activa ({CALIBRATION_STATUS.get(status, status)})")
-        if self.procedure.algorithm == "vna_2_puertos":
-            ports = self.plan.ports
-            planes = {plane.vna_port: plane for plane in self.plan.design.planes} if self.plan.design else {}
-            a = self.library.port_connector(dut, "A")
-            b = self.library.port_connector(dut, "B")
-            ends = f" ({a.label() if a else '?'} – {b.label() if b else '?'})"
-            where = " y ".join(
-                f"extremo {end} en {self._plane_text(planes[port]) if port in planes else f'P{port}'}" for end, port in zip("AB", ports)
-            )
-            n_ports, model = simulated_dut(self.library, dut)
-            self._ask(
-                "Conectar el DUT",
-                f"Conecte el DUT «{dut.id}»{ends}: {where}.",
-                image="dut",
-                simulate=lambda vna: vna.connect_network(model, ports, dut.id),
-                step="medida",
-            )
-            f, s = self._measure_dut(ports)
-            result.frequencies, result.data["DUT"] = f, s
-            self.listener.data("DUT", f, s)
-            return "ok", f"{len(f)} puntos, S11 S21 S12 S22 ({CALIBRATION_STATUS[status]})"
-        # one port: one measurement per LISN line (or a single one)
-        port = self.plan.ports[0]
-        plane = self.plan.design.planes[0] if self.plan.design and self.plan.design.planes else None
-        is_lisn = self.library.category_id_of(dut) == "lisn"
-        control = self.library.field(dut, "control", "manual")
-        for index, line in enumerate(self.plan.lines):
+        ports = self.plan.ports
+        traces = self.procedure.traces
+        n_ports, model = simulated_dut(self.library, dut)
+        category_ports = [port.name for port in self.library.ports_of(dut)]
+        total = len(self.plan.measurements)
+        for index, measurement in enumerate(self.plan.measurements):
             self._check_stop()
-            self.listener.progress(index / max(len(self.plan.lines), 1), f"Línea {line}")
-            if is_lisn:
-                title = f"LISN «{dut.id}» — línea {line}"
-                message = f"Conecte el adaptador de medida al terminal EUT de la línea {line}"
-                if control != "remoto":
-                    message += f" y seleccione la línea {line} en la LISN"
-                message += "; el puerto receptor terminado en 50 Ω."
-            else:
-                title = "Conectar el DUT"
-                message = f"Conecte el DUT «{dut.id}» en el plano {self._plane_text(plane) if plane else f'P{port}'}."
-            n_ports, model = simulated_dut(self.library, dut, index)
-            self._ask(title, message, image="lisn" if is_lisn else "dut", simulate=lambda vna, m=model: vna.connect_one_port(m, port, f"{dut.id} {line}"), step="medida")
-            f, s = self._measure_dut((port,))
-            name = line if line != "—" else "DUT"
-            result.frequencies, result.data[name] = f, s
-            self.listener.data(name, f, s)
-            self._log(f"Medida {name}: {len(f)} puntos")
-        return "ok", f"{len(self.plan.lines)} medida(s) de 1 puerto ({CALIBRATION_STATUS[status]})"
+            if total > 1:
+                self.listener.progress(index / total, f"Par {measurement.title}")
+            title = "Conectar el DUT" if total == 1 else f"Par {measurement.title} ({index + 1}/{total})"
+            simulate = self._simulated_connection(model, n_ports, category_ports, measurement, ports)
+            self._ask(title, self._connection_text(measurement), image="dut", simulate=simulate, step="medida")
+            f, s = self._measure_dut(ports, traces)
+            result.frequencies, result.data[measurement.name] = f, s
+            self.listener.data(measurement.name, f, s)
+            if total > 1:
+                self._log(f"Medida {measurement.title}: {len(f)} puntos")
+        text = f"{len(result.frequencies)} puntos, {' '.join(traces)}" if result.frequencies is not None else "sin datos"
+        if total > 1:
+            text = f"{total} pares de puertos, " + text
+        return "ok", f"{text} ({CALIBRATION_STATUS[status]})"
+
+    def _connection_text(self, measurement: PlannedMeasurement) -> str:
+        """Where each port of the EUT goes: the plane at the end of a path, or a load of the setup."""
+        assert self.plan is not None and self.plan.dut is not None
+        dut = self.plan.dut
+        expanded = measurement.expanded
+        if expanded is None:
+            return f"Conecte el DUT «{dut.id}»."
+        planes = {plane.name: plane for plane in self.plan.design.planes} if self.plan.design else {}
+        ends = {path.end_endpoint: path for path in expanded.paths}
+        state = expanded.template.connection_states.get("medida")
+        parts = []
+        for connection in state.connections if state else []:
+            for own, other in ((connection.a, connection.b), (connection.b, connection.a)):
+                role, _, port = own.partition(".")
+                if role != self.plan.dut_role or not port:
+                    continue
+                connector = self.library.port_connector(dut, port)
+                port_text = port + (f" ({connector.label()})" if connector else "")
+                if other in ends:
+                    plane = planes.get(ends[other].plane)
+                    parts.append(f"{port_text} en {self._plane_text(plane) if plane else ends[other].plane}")
+                else:
+                    other_role = other.partition(".")[0]
+                    ids = expanded.setup.ids_for(other_role)
+                    role_def = expanded.template.roles.get(other_role)
+                    label = role_def.display(other_role) if role_def else other_role
+                    parts.append(f"{port_text} en «{ids[0] if ids else other_role}» ({label})")
+        return f"Conecte el DUT «{dut.id}»: " + "; ".join(parts) + "." if parts else f"Conecte el DUT «{dut.id}»."
+
+    def _simulated_connection(
+        self, model: Callable[[np.ndarray], np.ndarray], n_ports: int, category_ports: list[str], measurement: PlannedMeasurement, ports: tuple[int, ...]
+    ) -> Callable[[DummyVna], None]:
+        """What the simulated bench sees with the ports of the EUT of this measurement."""
+        assert self.plan is not None and self.plan.dut is not None
+        label = self.plan.dut.id + ("" if measurement.name == "DUT" else f" {measurement.name}")
+        indexes = [category_ports.index(p) for p in measurement.dut_ports[: len(ports)] if p in category_ports]
+        if n_ports == 4 and len(indexes) == 2:
+            return lambda vna: vna.connect_network(pair_model(model, indexes[0], indexes[1]), ports, label)
+        if len(ports) == 1:
+            if n_ports == 1:
+                return lambda vna: vna.connect_one_port(model, ports[0], label)
+            first = indexes[0] if indexes else 0
+            return lambda vna: vna.connect_one_port(lambda f: model(f)[:, first, first], ports[0], label)
+        if n_ports == 2 and indexes == [1, 0]:
+            return lambda vna: vna.connect_network(lambda f: model(f)[:, ::-1, ::-1], ports, label)
+        return lambda vna: vna.connect_network(model, ports, label)
 
     def _step_incertidumbre(self) -> tuple[str, str]:
         assert self.plan is not None and self.result is not None
@@ -914,7 +1089,15 @@ class ProcedureRunner:
             self.listener.uncertainty(name, result.frequencies, traces)
 
         run = compute_uncertainty(
-            engine, designation, result.frequencies, result.data, self.procedure, record.conditions, self.today or date.today(), measured
+            engine,
+            designation,
+            result.frequencies,
+            result.data,
+            self.procedure,
+            record.conditions,
+            self.today or date.today(),
+            measured,
+            calibration_method=record.calibration.get("metodo"),
         )
         serial = f" nº {engine.serial_number}" if engine.serial_number else ""
         record.uncertainty = {
@@ -933,6 +1116,8 @@ class ProcedureRunner:
         assert self.result is not None
         assert self.plan is not None
         result, record = self.result, self.result.record
+        if self.procedure.algorithm == "vna_acoplador":
+            return self._evaluate_coupler()
         specs = self.plan.specs
         if not specs:
             record.verdict = "SIN_ESPECIFICACIONES"
@@ -958,6 +1143,24 @@ class ProcedureRunner:
             f"{r.spec.name}{f' ({d})' if several else ''}: {'PASA' if r.passed else ('FALLA' if r.passed is False else 'no evaluado')}"
             for d, r in result.spec_results
         )
+        return ("ok" if record.verdict == "PASA" else "aviso"), f"{VERDICTS[record.verdict].upper()} — {detail}"
+
+    def _evaluate_coupler(self) -> tuple[str, str]:
+        """Pass / fail of a directional coupler against the nominal values of its model."""
+        assert self.plan is not None and self.result is not None and self.plan.dut is not None
+        result, record = self.result, self.result.record
+        assert result.frequencies is not None
+        limits = self.plan.coupler_limits
+        if not limits:
+            record.verdict = "SIN_ESPECIFICACIONES"
+            return "omitido", f"El modelo de «{self.plan.dut.id}» no tiene valores nominales de acoplador"
+        quantities = coupler_quantities(result.data)
+        entries = evaluate_coupler(result.frequencies, quantities, limits, self.library.frequency_range_of(self.plan.dut).range)
+        record.spec_results = entries
+        record.verdict = coupler_verdict(entries)
+        for entry in entries:
+            self._log(f"{entry['nombre']}: {entry['resultado']}", "info" if entry["resultado"] == "PASA" else "aviso")
+        detail = "; ".join(f"{entry['nombre']}: {VERDICTS[entry['resultado']].lower()}" for entry in entries)
         return ("ok" if record.verdict == "PASA" else "aviso"), f"{VERDICTS[record.verdict].upper()} — {detail}"
 
     def _keep_file(self, source: Path, subfolder: str) -> str:
@@ -1004,6 +1207,7 @@ class ProcedureRunner:
             f"Ensayo: {record.title} [{record.id}]",
             f"Plantilla de ensayo: {self.procedure.name} (v{self.procedure.version})",
             f"Setup: {record.setup.get('nombre', '—')} [{record.setup.get('plantilla', '—')}]",
+            *(f"Camino {path.key}: {path.describe()}" for path in (self.plan.expanded.paths if self.plan.expanded else [])),
             f"EUT: {self.plan.dut.id if self.plan.dut else '—'}",
             f"VNA: {record.instrument.get('identificacion', '—')}",
             f"Calibración: {calibration.get('metodo', '—')}" + (f", kit {calibration['kit']}" if calibration.get("kit") else ""),
@@ -1025,54 +1229,76 @@ class ProcedureRunner:
         folder = record.folder
         assert folder is not None and result.frequencies is not None
         export = self.procedure.export
+        algorithm = self.procedure.algorithm
         f = result.frequencies
         files: list[Path] = []
+        measurements: list[dict] = []
         summary: dict = {}
-        if self.procedure.algorithm == "vna_2_puertos":
-            s = result.data["DUT"]
-            uncertainty = result.uncertainty.get("DUT")
-            path = folder / f"{self._file_stem()}.s2p"
-            write_touchstone(path, Touchstone(2, f, s, comments=self._comments(self._uncertainty_comment(path))), export.data_format, export.frequency_unit)
-            files.append(path)
-            if export.csv:
-                files.append(write_results_csv_2p(path.with_suffix(".csv"), f, s, uncertainty, self._k))
-            if uncertainty:
-                files.append(self._write_uncertainty("DUT", path, f, uncertainty))
-            summary = self._summary_2p(f, s)
-        else:
-            dut = self.plan.dut
-            network = self.library.field(dut, "red_nominal") if dut is not None else None
-            per_line = {}
+        if algorithm in ("vna_2_puertos", "vna_acoplador"):
             for name, s in result.data.items():
-                suffix = name if name != "DUT" else ""
+                suffix = "" if name == "DUT" else name
                 uncertainty = result.uncertainty.get(name)
-                path = folder / f"{self._file_stem(suffix)}.s1p"
-                comments = ([f"Línea: {name}"] if suffix else []) + self._uncertainty_comment(path)
-                write_touchstone(path, Touchstone(1, f, s, comments=self._comments(comments)), export.data_format, export.frequency_unit)
+                path = folder / f"{self._file_stem(suffix)}.s2p"
+                comments = [f"Par de puertos del acoplador: {name.replace('-', ' en P1, ')} en P2; los otros dos en 50 Ω"] if suffix else []
+                comments += self._uncertainty_comment(path)
+                write_touchstone(path, Touchstone(2, f, s, comments=self._comments(comments)), export.data_format, export.frequency_unit)
                 files.append(path)
                 if export.csv:
-                    files.append(write_results_csv_1p(path.with_suffix(".csv"), f, s[:, 0, 0], network, uncertainty, self._k))
+                    files.append(write_results_csv_2p(path.with_suffix(".csv"), f, s, uncertainty, self._k))
                 if uncertainty:
                     files.append(self._write_uncertainty(name, path, f, uncertainty))
-                per_line[name] = self._summary_1p(f, s[:, 0, 0], network)
-            summary = {"lineas": per_line} if len(per_line) > 1 or "DUT" not in per_line else per_line["DUT"]
-            if network in LISN_NETWORKS:
-                tolerance_z = float(self.procedure.options.get("tolerancia_z_pct", 20.0))
-                tolerance_phase = float(self.procedure.options.get("tolerancia_fase_grados", 11.5))
-                verdicts = {
-                    name: values["desviacion_z_max_pct"] <= tolerance_z and values["desviacion_fase_max_grados"] <= tolerance_phase
-                    for name, values in per_line.items()
-                }
-                summary["red_nominal"] = network
-                summary["tolerancias"] = {"z_pct": tolerance_z, "fase_grados": tolerance_phase}
-                summary["dentro_de_tolerancia"] = verdicts
+                measurements.append(self._measurement_entry(name, path, "touchstone"))
+            if algorithm == "vna_2_puertos":
+                summary = self._summary_2p(f, result.data["DUT"])
+            else:
+                quantities = coupler_quantities(result.data)
+                files.append(write_coupler_csv(folder / f"{self._file_stem('acoplador')}.csv", f, quantities))
+                summary = coupler_summary(quantities)
+                summary["pares"] = [m.title for m in self.plan.measurements]
+        elif algorithm == "vna_transmision":
+            s = result.data["DUT"]
+            uncertainty = result.uncertainty.get("DUT")
+            path = folder / f"{self._file_stem()}.csv"  # the result of the test: S21 and its uncertainty
+            files.append(write_results_csv_s21(path, f, s[:, 1, 0], uncertainty, self._k))
+            if uncertainty:
+                files.append(self._write_uncertainty("DUT", path, f, uncertainty))
+            measurements.append(self._measurement_entry("DUT", path, "csv_s21"))
+            summary = self._summary_s21(f, s[:, 1, 0])
+        else:
+            s = result.data["DUT"]
+            uncertainty = result.uncertainty.get("DUT")
+            path = folder / f"{self._file_stem()}.s1p"
+            port = self.plan.measurements[0].dut_ports[0] if self.plan.measurements and self.plan.measurements[0].dut_ports else None
+            comments = ([f"Puerto del EUT: {port}"] if port else []) + self._uncertainty_comment(path)
+            write_touchstone(path, Touchstone(1, f, s, comments=self._comments(comments)), export.data_format, export.frequency_unit)
+            files.append(path)
+            if export.csv:
+                files.append(write_results_csv_1p(path.with_suffix(".csv"), f, s[:, 0, 0], uncertainty, self._k))
+            if uncertainty:
+                files.append(self._write_uncertainty("DUT", path, f, uncertainty))
+            measurements.append(self._measurement_entry("DUT", path, "touchstone"))
+            summary = self._summary_1p(f, s[:, 0, 0])
         log_path = folder / "registro.txt"
         files.append(log_path)
         record.results = summary
+        record.measurements = measurements
         record.files = [p.name for p in files] + [name for name in record.files if name not in {p.name for p in files}]
         result.files = files
         self._write_log(log_path)
         return "ok", ", ".join(p.name for p in files if p.suffix != ".txt")
+
+    def _measurement_entry(self, name: str, path: Path, data_format: str) -> dict:
+        """Measurement of the record: its file and the ports of the EUT on each path."""
+        assert self.plan is not None
+        entry: dict = {"nombre": name, "fichero": path.name, "formato": data_format}
+        planned = next((m for m in self.plan.measurements if m.name == name), None)
+        paths = self.plan.expanded.paths if self.plan.expanded else []
+        if planned is not None:
+            entry["puertos_eut"] = {path.key: port for path, port in zip(paths, planned.dut_ports)}
+            others = planned.dut_ports[len(paths) :]
+            if self.procedure.algorithm == "vna_acoplador" and others:
+                entry["puertos_en_carga"] = others
+        return entry
 
     @property
     def _k(self) -> float:
@@ -1108,18 +1334,23 @@ class ProcedureRunner:
         }
 
     @staticmethod
-    def _summary_1p(f: np.ndarray, gamma: np.ndarray, network: str | None) -> dict:
+    def _summary_s21(f: np.ndarray, s21: np.ndarray) -> dict:
+        s21_db = _db(s21)
+        phase = np.unwrap(np.angle(s21))
+        delay = -np.polyfit(2 * np.pi * f, phase, 1)[0] if len(f) > 2 else float("nan")
+        return {
+            "perdidas_insercion_db": {"min": round(float(-s21_db.max()), 4), "max": round(float(-s21_db.min()), 4)},
+            "retardo_ns": round(float(delay * 1e9), 4),
+        }
+
+    @staticmethod
+    def _summary_1p(f: np.ndarray, gamma: np.ndarray) -> dict:
         z = gamma_to_impedance(gamma)
-        summary = {
+        return {
             "perdidas_retorno_min_db": round(float(-np.max(_db(gamma))), 2),
             "z_min_ohm": round(float(np.min(np.abs(z))), 3),
             "z_max_ohm": round(float(np.max(np.abs(z))), 3),
         }
-        if network in LISN_NETWORKS:
-            nominal = lisn_impedance(network, f)
-            summary["desviacion_z_max_pct"] = round(float(np.max(np.abs(100 * (np.abs(z) - np.abs(nominal)) / np.abs(nominal)))), 3)
-            summary["desviacion_fase_max_grados"] = round(float(np.max(np.abs(np.degrees(np.angle(z / nominal))))), 3)
-        return summary
 
     def _step_cierre(self) -> tuple[str, str]:
         self._close_instrument()

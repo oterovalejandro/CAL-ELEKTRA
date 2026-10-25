@@ -41,6 +41,8 @@ from calelektra.uncertainty.traces import TraceUncertainty
 
 TRACE_COLORS = {"S11": "#2b7bb9", "S21": "#c0392b", "S12": "#d98a00", "S22": "#2e8b57"}
 DATASET_COLORS = ["#2b7bb9", "#c0392b", "#2e8b57", "#d98a00", "#7b5ea7", "#4f8a8b", "#8d6e63"]
+# several 2-port data sets (e.g. the port pairs of a coupler): one colour per data set, one line style per parameter
+TRACE_STYLES = {"S21": Qt.PenStyle.SolidLine, "S12": Qt.PenStyle.DashDotLine, "S11": Qt.PenStyle.DashLine, "S22": Qt.PenStyle.DotLine}
 MODES = {
     "db": ("Magnitud", "dB"),
     "fase": ("Fase", "°"),
@@ -183,9 +185,11 @@ class SParameterPlot(QWidget):
             n = s.shape[1]
             for i in range(n):
                 for j in range(n):
+                    if not np.isfinite(s[:, i, j]).any():
+                        continue  # not measured (e.g. all but S21 in the transmission test)
                     name = f"S{i + 1}{j + 1}"
                     label = f"{dataset} · {name}" if several else name
-                    color = DATASET_COLORS[index % len(DATASET_COLORS)] if several and n == 1 else TRACE_COLORS.get(name, "#555")
+                    color = DATASET_COLORS[index % len(DATASET_COLORS)] if several else TRACE_COLORS.get(name, "#555")
                     traces.append((label, dataset, name, f, s[:, i, j], color))
         return traces
 
@@ -254,7 +258,8 @@ class SParameterPlot(QWidget):
             u = self._band(dataset, parameter, mode, len(y)) if bands else None
             if u is not None:
                 self._draw_band(np.log10(x) if log_x else x, y, u, color, wrap=mode == "fase")  # view coordinates
-            self.plot.plot(x, y, pen=pg.mkPen(color, width=2), name=label)
+            style = TRACE_STYLES.get(parameter, Qt.PenStyle.SolidLine) if len(self.datasets) > 1 else Qt.PenStyle.SolidLine
+            self.plot.plot(x, y, pen=pg.mkPen(color, width=2, style=style), name=label)
         self._draw_limits(mode, log_x)
 
     def _draw_limits(self, mode: str, log_x: bool) -> None:

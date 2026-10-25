@@ -26,7 +26,7 @@ from calelektra.core.units import format_frequency
 from calelektra.instruments.base import InstrumentError, VectorNetworkAnalyzer
 
 STANDARD_SCPI = {"OPEN": "OPEN", "SHORT": "SHOR", "MATCH": "MATC", "THROUGH": "THR", "UNKNOWN_THROUGH": "UTHR"}
-METHOD_SCPI = {"OSM": "FOP", "TOSM": "TOSM", "UOSM": "UOSM"}
+METHOD_SCPI = {"OSM": "FOP", "TOSM": "TOSM", "UOSM": "UOSM", "normalizacion": "FTR"}  # FTRans: forward transmission normalization
 SWEEP_SCPI = {"lineal": "LIN", "logaritmico": "LOG"}
 STATUS_FROM_SCPI = {"CAL": "CAL", "CAI": "CAI", "CA?": "CA?", "CAV": "CAV", "CAL OFF": "OFF", "": "NONE"}
 TRACE_PREFIX = "CE_"
@@ -263,7 +263,7 @@ class RsZnxVna(VectorNetworkAnalyzer):
         power_range: tuple[float, float] | None = None,
         if_bandwidth_range: tuple[float, float] | None = None,
         max_points: int | None = None,
-        calibration_methods: Sequence[str] = ("OSM", "TOSM", "UOSM"),
+        calibration_methods: Sequence[str] = ("OSM", "TOSM", "UOSM", "normalizacion"),
         transport: ScpiTransport | None = None,
         timeout_ms: int = 10_000,
         channel: int = 1,

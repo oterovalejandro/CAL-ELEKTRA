@@ -1,11 +1,13 @@
 """Test templates (the «test templates» of ELEKTRA).
 
-A test template calls a **hardware setup** (which gives the bench and the
-frequency points) and defines the **EUT** to calibrate (whose model gives the
-S-parameter specifications for pass / fail). It says how to measure:
-algorithm, trace settings (IFBW and averaging, and the smoothing used to
-display the traces, for all traces or per trace), source power, calibration,
-verification, uncertainty and export.
+A test template calls a **hardware setup** (which gives the bench, its paths
+and the frequency points) and defines the **EUT** to calibrate (whose model
+gives the S-parameter specifications for pass / fail, or the nominal values
+of a directional coupler). It says how to measure: algorithm (one per kind
+of hardware setup template), ports of the EUT on each path (or the port
+pairs of a coupler), trace settings (IFBW and averaging, and the smoothing
+used to display the traces, for all traces or per trace), source power,
+calibration, verification, uncertainty and export.
 
 Launching a template in a folder makes a test: the record of that
 measurement (``procedures/record.py``).
@@ -21,18 +23,28 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_serializer
 from calelektra.core.units import format_frequency, parse_frequency
 
 ALGORITHMS = {
-    "vna_2_puertos": "Parámetros S de 2 puertos con VNA (calibración TOSM/UOSM, medida y exportación .s2p)",
-    "vna_1_puerto": "Reflexión en 1 puerto con VNA (calibración OSM, medida, impedancia y exportación .s1p)",
+    "vna_2_puertos": "Camino RF — 2 puertos — Reflexión y transmisión (parámetros S → .s2p)",
+    "vna_transmision": "Camino RF — 2 puertos — Transmisión (parámetro S21 → .csv)",
+    "vna_1_puerto": "Medida de impedancia — Reflexión en 1 puerto (parámetro S11 → .s1p)",
+    "vna_acoplador": "Acoplador direccional — 4 puertos — Reflexión y transmisión (parámetros S → .s2p por par)",
 }
 CALIBRATION_METHODS = {
-    "automatico": "Automático según los conectores (TOSM si los planos se pueden unir; si no, UOSM)",
+    "automatico": "Automático según el setup (TOSM si los planos se pueden unir; si no, UOSM; OSM en 1 puerto; normalización si el setup es de transmisión)",
     "TOSM": "TOSM (through conocido, unión directa de los planos)",
     "UOSM": "UOSM (through desconocido)",
     "OSM": "OSM de 1 puerto",
+    "normalizacion": "Normalización de transmisión (through entre los planos)",
     "existente": "Usar la calibración activa del VNA",
 }
-TRACES = {"vna_2_puertos": ("S11", "S21", "S12", "S22"), "vna_1_puerto": ("S11",)}
-PLANES_NEEDED = {"vna_2_puertos": 2, "vna_1_puerto": 1}
+TRACES = {
+    "vna_2_puertos": ("S11", "S21", "S12", "S22"),
+    "vna_transmision": ("S21",),
+    "vna_1_puerto": ("S11",),
+    "vna_acoplador": ("S11", "S21", "S12", "S22"),
+}
+PLANES_NEEDED = {"vna_2_puertos": 2, "vna_transmision": 2, "vna_1_puerto": 1, "vna_acoplador": 2}
+COUPLER_PORTS = ("ENTRADA", "SALIDA", "ACOPLADO", "AISLADO")
+DEFAULT_COUPLER_PAIRS = (("ENTRADA", "SALIDA"), ("ENTRADA", "ACOPLADO"), ("SALIDA", "ACOPLADO"))
 # keys of earlier formats: the frequencies are now given by the hardware setup and
 # the specifications by the model of the EUT
 OBSOLETE_SWEEP_KEYS = ("modo", "tipo", "mode", "inicio", "fin", "definicion", "puntos", "paso", "fichero_lista")
@@ -119,7 +131,7 @@ class SweepSettings(_Section):
 
 
 class CalibrationSettings(_Section):
-    method: Literal["automatico", "TOSM", "UOSM", "OSM", "existente"] = Field(default="automatico", alias="metodo")
+    method: Literal["automatico", "TOSM", "UOSM", "OSM", "normalizacion", "existente"] = Field(default="automatico", alias="metodo")
     save_on_vna: bool = Field(default=False, alias="guardar_en_vna")
     vna_cal_name: str = Field(default="CALELEKTRA_{ensayo}", alias="nombre_en_vna")
 
@@ -155,9 +167,13 @@ class ProcedureTemplate(BaseModel):
     version: str = "1.0"
     status: str | None = Field(default=None, alias="estado")
     description: str | None = Field(default=None, alias="descripcion")
-    algorithm: Literal["vna_2_puertos", "vna_1_puerto"] = Field(alias="algoritmo")
+    algorithm: Literal["vna_2_puertos", "vna_transmision", "vna_1_puerto", "vna_acoplador"] = Field(alias="algoritmo")
     setup_id: str | None = Field(default=None, alias="hardware_setup")  # configured setup: bench and frequencies
     eut_id: str | None = Field(default=None, alias="eut")  # equipment to calibrate; its model gives the specifications
+    # ports of the EUT on P1, P2… (empty: the order of its category, e.g. A, B of a cable)
+    eut_ports: list[str] = Field(default_factory=list, alias="puertos_eut")
+    # directional coupler: port pairs measured, (port on P1, port on P2); empty: entrada–salida, entrada–acoplado, salida–acoplado
+    pairs: list[tuple[str, str]] = Field(default_factory=list, alias="pares")
     sweep: SweepSettings = Field(default_factory=SweepSettings, alias="barrido")
     calibration: CalibrationSettings = Field(default_factory=CalibrationSettings, alias="calibracion")
     verification: VerificationSettings = Field(default_factory=VerificationSettings, alias="verificacion")
@@ -189,6 +205,12 @@ class ProcedureTemplate(BaseModel):
     @property
     def traces(self) -> tuple[str, ...]:
         return TRACES[self.algorithm]
+
+    def measured_pairs(self) -> list[tuple[str, str]]:
+        """Port pairs of a directional coupler test (the default ones if the template does not say)."""
+        if self.algorithm != "vna_acoplador":
+            return []
+        return [tuple(pair) for pair in self.pairs] or list(DEFAULT_COUPLER_PAIRS)  # type: ignore[misc]
 
     def to_yaml_dict(self) -> dict[str, Any]:
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")

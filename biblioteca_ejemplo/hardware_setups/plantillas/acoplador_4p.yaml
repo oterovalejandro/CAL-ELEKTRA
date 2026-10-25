@@ -1,0 +1,80 @@
+# Acoplador direccional de 4 puertos con un VNA de 2 puertos: reflexión y
+# transmisión por pares de puertos (parámetros S → un .s2p por par). En cada
+# medida el puerto 1 del par va a PR1, el 2 a PR2 y los otros dos puertos del
+# acoplador se terminan con las cargas de 50 Ω del setup. Los pares los elige la
+# plantilla de ensayo (por defecto entrada–salida, entrada–acoplado y
+# salida–acoplado).
+formato: calelektra/plantilla_setup@0.4
+id: acoplador_4p
+nombre: Acoplador direccional — 4 puertos — Reflexión y transmisión (parámetros S → .s2p)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración de los dos planos de referencia, medida de cada par de puertos del
+  acoplador con los otros dos terminados en 50 Ω, pérdidas de inserción,
+  acoplamiento, aislamiento y directividad, y exportación a .s2p por par y CSV.
+algoritmos: [vna_acoplador]
+caminos:
+  P1:
+    etiqueta: Camino P1
+    categorias: [cable_medida, adaptador, path]
+  P2:
+    etiqueta: Camino P2
+    categorias: [cable_medida, adaptador, path]
+roles:
+  vna:
+    categoria: vna
+    etiqueta: VNA
+  kit_cal:
+    categoria: kit_calibracion
+    etiqueta: Kit de calibración
+    cardinalidad: "0..1"
+    descripcion: Opcional. Sin kit asignado se usa el kit seleccionado en el VNA (no queda registrado).
+  dut:
+    categoria: acoplador
+    etiqueta: Acoplador (DUT)
+    es_dut: true
+    requiere_datos_s: false
+  carga_1:
+    categoria: carga
+    etiqueta: Carga 50 Ω (puerto libre 1)
+    tipos: [carga_50]
+  carga_2:
+    categoria: carga
+    etiqueta: Carga 50 Ω (puerto libre 2)
+    tipos: [carga_50]
+calibracion_vna:
+  metodos: [TOSM, UOSM]
+  kit: kit_cal
+requisitos:
+  - id: vna_puertos
+    campo: vna.num_puertos
+    operador: ">="
+    valor: 2
+    mensaje: El VNA debe tener al menos 2 puertos de medida
+  - id: vna_metodos
+    campo: vna.metodos_calibracion
+    operador: contiene_alguno
+    valor: [TOSM, UOSM]
+    mensaje: El VNA debe poder calibrar 2 puertos (TOSM o UOSM)
+  - id: carga_1_50
+    campo: carga_1.impedancia_ohm
+    operador: "=="
+    valor: 50
+    mensaje: Los puertos libres del acoplador se terminan en 50 Ω
+  - id: carga_2_50
+    campo: carga_2.impedancia_ohm
+    operador: "=="
+    valor: 50
+    mensaje: Los puertos libres del acoplador se terminan en 50 Ω
+estados_conexion:
+  calibracion:
+    descripcion: Estándares del kit en los planos PR1 y PR2 (final de los caminos)
+    conexiones: []
+  medida:
+    descripcion: "Primer par: entrada en PR1, salida en PR2; acoplado y aislado en carga (cada par cambia las conexiones)"
+    conexiones:
+      - [P1, dut.#1]
+      - [dut.#2, P2]
+      - [dut.#3, carga_1.P]
+      - [dut.#4, carga_2.P]

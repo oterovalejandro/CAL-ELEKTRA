@@ -146,7 +146,7 @@ def test_expired_e5061b_blocks_the_lisn_test_and_its_file_gives_the_uncertainty(
     record = result.record
     assert record.status == "completado"
     assert record.uncertainty["vna"].startswith("VNA-BF-01 — Keysight E5061B nº MY49408336")
-    assert set(result.uncertainty) == {"L1", "N"} and set(record_uncertainty(record)) == {"L1", "N"}
+    assert set(result.uncertainty) == {"DUT"} and set(record_uncertainty(record)) == {"DUT"}
 
 
 def test_band_segments_break_at_gaps_and_phase_jumps():

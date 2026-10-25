@@ -75,6 +75,8 @@ def main() -> None:
         (client, "Cable 2,92 mm nº 3001", "cable_CAB-DUT-0003", None),
         (client, "Cable N nº 1234", "cable_CAB-DUT-0001", None),
         (library.tests_folder / "2026" / "LISN", "LISN-0001 verificación anual", "lisn_LISN-0001", date(2026, 7, 15)),
+        (client, "Pérdidas cable N nº 1234", "transmision_CAB-DUT-0001", None),
+        (client, "Acoplador nº 9001", "acoplador_ACP-0001", None),
     ):
         result = ProcedureRunner(
             library, library.procedures[template], AutoOperator(), operator_name="Demo", seed=1, folder=folder, name=name, today=today,
@@ -129,10 +131,20 @@ def main() -> None:
     alarm.diagram.fit()
     alarm.bottom_tabs.setCurrentWidget(alarm.checks)
     grab(window, out / "12_setup_conectores_alarma.png")
-    for name in ("componente_292_tosm", "sac_nsa_3m", "lisn_impedancia_VNA-01"):
+    for name in ("componente_292_tosm", "sac_nsa_3m", "lisn_impedancia_VNA-01", "acoplador_N_18G", "transmision_N_18G"):
         other = window.open_setup(name)
         other.diagram.fit()
         grab(window, out / f"13_setup_{name}.png")
+    paths = window.open_setup("acoplador_N_18G")
+    paths.diagram.fit()
+    paths._role_clicked("P1-2")
+    paths.bottom_tabs.setCurrentWidget(paths.checks)
+    grab(window, out / "14_setup_camino_P1.png")
+    transmission = window.open_setup("transmision_N_18G")
+    transmission.diagram.fit()
+    transmission.state_combo.setCurrentIndex(transmission.state_combo.findText("normalizacion"))
+    transmission.bottom_tabs.setCurrentWidget(transmission.calibration_panel)
+    grab(window, out / "14b_setup_transmision_normalizacion.png")
 
     window.show_section("procedimientos")
     window.procedures_view.reload(select="cable_CAB-DUT-0002")
@@ -141,6 +153,8 @@ def main() -> None:
     scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
     grab(window, out / "08_plantilla_trazas.png")
     scroll.verticalScrollBar().setValue(0)
+    window.procedures_view.reload(select="acoplador_ACP-0001")
+    grab(window, out / "07b_plantilla_acoplador.png")
 
     dialog = LaunchTestDialog(library, "cable_CAB-DUT-0002", client, parent=window)
     dialog.show()
@@ -194,6 +208,16 @@ def main() -> None:
     pending = next(r for r in library.tests() if "3001" in r.title)
     window.tests_view.show_test(pending.folder)
     grab(window, out / "27b_explorador_incertidumbre_pendiente.png")
+    coupler = next(r for r in library.tests() if r.template_id == "acoplador_ACP-0001")
+    coupler_window = window._add_test_window(TestWindow(library, record=coupler))
+    coupler_window.tabs.setCurrentIndex(1)
+    grab(window, out / "27c_acoplador_pasa_falla.png")
+    coupler_window.tabs.setCurrentIndex(0)
+    grab(window, out / "27d_acoplador_grafica.png")
+    transmission_record = next(r for r in library.tests() if r.template_id == "transmision_CAB-DUT-0001")
+    transmission_window = window._add_test_window(TestWindow(library, record=transmission_record))
+    transmission_window.tabs.setCurrentIndex(3)
+    grab(window, out / "27e_transmision_resultados.png")
     lisn_window = window._add_test_window(TestWindow(library, record=lisn))
     lisn_window.tabs.setCurrentIndex(0)
     grab(window, out / "28_lisn_incertidumbre.png")
