@@ -6,6 +6,13 @@ import yaml
 
 from calelektra.core.touchstone import read_touchstone
 from calelektra.instruments.dummy_vna import DummyVna
+from calelektra.procedures.coupler import (
+    coupler_quantities,
+    pair_transmission_losses,
+    port_return_losses,
+    return_loss_sources,
+    transmission_symbol,
+)
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, RunListener, prepare_run, suitable_setups
 from calelektra.procedures.results import read_csv_columns
 
@@ -204,8 +211,29 @@ def test_directional_coupler_by_port_pairs(library):
     header, _ = read_csv_columns(record.folder / next(f for f in record.files if f.endswith("_acoplador.csv")))
     assert header[1:] == [
         "Pérdidas de inserción IL (dB)", "Acoplamiento C (dB)", "Aislamiento I (dB)", "Directividad D (dB)", "Pérdidas de retorno RL (dB)",
+        "RL ENTRADA (dB)", "RL SALIDA (dB)", "RL ACOPLADO (dB)",
     ]
     assert {m["medida"] for m in record.uncertainty["medidas"]} == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
+
+
+def test_return_loss_of_each_coupler_port_comes_from_one_pair():
+    names = ["ENTRADA-ACOPLADO", "SALIDA-ACOPLADO", "SALIDA-ENTRADA", "ACOPLADO-AISLADO"]
+    # ENTRADA and SALIDA are in two pairs each: their RL comes from the pair between them, whatever its order
+    assert return_loss_sources(names) == {
+        "ENTRADA": ("SALIDA-ENTRADA", 1), "SALIDA": ("SALIDA-ENTRADA", 0), "ACOPLADO": ("ENTRADA-ACOPLADO", 1), "AISLADO": ("ACOPLADO-AISLADO", 1),
+    }
+    assert return_loss_sources(["ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"])["ENTRADA"] == ("ENTRADA-ACOPLADO", 0)  # without that pair
+    f = np.linspace(1e9, 2e9, 3)
+    data = {name: np.zeros((len(f), 2, 2), dtype=complex) for name in names}
+    data["SALIDA-ENTRADA"][:, 0, 0], data["SALIDA-ENTRADA"][:, 1, 1] = 0.1, 0.01  # RL 20 dB at SALIDA, 40 dB at ENTRADA
+    data["ENTRADA-ACOPLADO"][:, 0, 0] = 0.5  # the other measurement of ENTRADA does not count
+    data["SALIDA-ENTRADA"][:, 1, 0] = 0.9
+    losses = port_return_losses(data)
+    assert np.allclose(losses["ENTRADA"], 40) and np.allclose(losses["SALIDA"], 20)
+    quantities = {q.symbol: q.values for q in coupler_quantities(data)}
+    assert np.allclose(quantities["RL"], 20)  # the worst of ENTRADA and SALIDA
+    assert np.allclose(pair_transmission_losses(data)["SALIDA-ENTRADA"], -20 * np.log10(0.9))
+    assert transmission_symbol("SALIDA-ENTRADA") == "IL" and transmission_symbol("ACOPLADO-AISLADO") is None
 
 
 def test_coupler_pairs_are_checked(library):

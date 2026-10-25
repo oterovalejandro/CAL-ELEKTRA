@@ -103,6 +103,10 @@ class TestRecord(BaseModel):
     def template_id(self) -> str | None:
         return self.procedure.get("id") or self.template.get("id")
 
+    @property
+    def algorithm(self) -> str | None:
+        return self.procedure.get("algoritmo") or self.template.get("algoritmo")
+
     def launched_template(self) -> ProcedureTemplate | None:
         """The test template as it was launched (``None`` if the record does not keep it)."""
         if not self.template:

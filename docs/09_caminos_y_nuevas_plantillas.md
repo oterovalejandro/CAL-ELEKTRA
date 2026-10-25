@@ -98,11 +98,12 @@ En los setups de cámara, el preamplificador va dentro del camino de recepción 
   - En cada par, el primer puerto va en PR1, el segundo en PR2 y los otros dos en las cargas de 50 Ω del setup. El operador recibe la conexión exacta de cada par.
   - Resultados: pérdidas de inserción (IL), acoplamiento (C), aislamiento (I, de salida a acoplado o de entrada a aislado), directividad (D = I − C) y pérdidas de retorno (RL).
   - Pasa / falla: frente a los **valores nominales del modelo**. La categoría nueva «acoplador» tiene los campos de acoplamiento nominal ± tolerancia, IL máxima, aislamiento mínimo, directividad mínima y RL mínima.
-  - Ficheros: un .s2p (y CSV) por par y `<EUT>_<fecha>_acoplador.csv` con IL, C, I, D y RL.
+  - Ficheros: un .s2p (y CSV) por par y `<EUT>_<fecha>_acoplador.csv` con IL, C, I, D y RL, y el RL de cada puerto (desde 0.8.2).
+  - Gráfica: dos gráficos, el RL de cada puerto y el TL de cada medida (ver la sección 8).
 
 | | |
 |---|---|
-| ![Pasa / falla del acoplador frente a sus valores nominales](capturas/v08/27c_acoplador_pasa_falla.png) | ![Las trazas de cada par: color por par, línea por parámetro](capturas/v08/27d_acoplador_grafica.png) |
+| ![Pasa / falla del acoplador frente a sus valores nominales](capturas/v08/27c_acoplador_pasa_falla.png) | ![RL de cada puerto y TL de cada medida](capturas/v08/27d_acoplador_grafica.png) |
 | ![Plantilla de ensayo del acoplador: pares de puertos](capturas/v08/07b_plantilla_acoplador.png) | ![Setup de transmisión en el estado de normalización](capturas/v08/14b_setup_transmision_normalizacion.png) |
 
 ## 4. Lo que queda en los registros
@@ -166,7 +167,25 @@ Plantillas de ensayo nuevas: `transmision_CAB-DUT-0001` y `acoplador_ACP-0001`. 
 
   El registro de un ensayo ya hecho no cambia: conserva lo que se usó.
 
-## 8. Ficheros del código
+## 8. Versión 0.8.2: gráficas del acoplador
+
+Las trazas del ensayo del acoplador direccional se reparten en dos gráficos, en pérdidas (dB, positivas):
+
+- **Pérdidas de retorno (RL) de cada puerto.** Una traza por puerto medido, sacada de una sola medida:
+  - ENTRADA y SALIDA se miden dos veces (en ENTRADA–SALIDA y en ENTRADA–ACOPLADO o SALIDA–ACOPLADO). Su RL sale siempre de la medida **ENTRADA–SALIDA**: S11 para el puerto en P1 y S22 para el de P2.
+  - ACOPLADO (y AISLADO, si se mide) sale de la primera medida que lo tiene.
+  - La leyenda dice de dónde sale cada traza, p. ej. «SALIDA (ENTRADA-SALIDA, S22)».
+- **Pérdidas de transmisión (TL) de cada medida.** Una traza por par: −|S21|, del puerto en P1 al puerto en P2. La leyenda lleva la magnitud del acoplador que da: «ENTRADA → SALIDA · IL», «ENTRADA → ACOPLADO · C», «SALIDA → ACOPLADO · I».
+
+Cada traza tiene su incertidumbre (la del parámetro S del que sale) y el suavizado de la plantilla (el de S11 / S22 para el RL y el de S21 para el TL). Las casillas de frecuencia logarítmica, suavizado e incertidumbre valen para los dos gráficos. Durante el ensayo, la verificación de la calibración se sigue viendo como parámetros S.
+
+Lo mismo se ve en la pestaña del ensayo y en el explorador. Las pérdidas de retorno del veredicto (RL) son la peor de ENTRADA y SALIDA, ahora tomadas de la medida ENTRADA–SALIDA; antes se tomaba la peor de las cuatro reflexiones medidas en esos puertos. El CSV del acoplador añade una columna «RL <puerto> (dB)» por puerto.
+
+| | |
+|---|---|
+| ![RL de cada puerto y TL de cada medida en la pestaña del ensayo](capturas/v08/27d_acoplador_grafica.png) | ![Las dos gráficas en el explorador de ensayos](capturas/v08/27f_explorador_acoplador.png) |
+
+## 9. Ficheros del código
 
 | Fichero | Contenido |
 |---|---|
@@ -175,9 +194,10 @@ Plantillas de ensayo nuevas: `transmision_CAB-DUT-0001` y `acoplador_ACP-0001`. 
 | `setups/analysis.py` | Validación sobre el setup expandido; grupo «Camino» y conectores de DUT admitidos |
 | `setups/connections.py` | Normalización de transmisión (through plano o through del setup) |
 | `procedures/engine.py` | Puertos del EUT por camino, pares del acoplador, normalización, mensajes al operador con los planos, exportación de los cuatro algoritmos, caminos en el registro |
-| `procedures/coupler.py` | IL, C, I, D y RL del acoplador y su pasa / falla frente a los valores nominales |
+| `procedures/coupler.py` | IL, C, I, D y RL del acoplador, RL de cada puerto (`return_loss_sources`, `port_return_losses`), TL de cada par y su pasa / falla frente a los valores nominales |
 | `procedures/results.py` | CSV de S21 (escritura y lectura), CSV del acoplador |
 | `instruments/` | Método `normalizacion` en el VNA simulado y en el adaptador R&S; acoplador simulado |
 | `gui/setup_diagram.py`, `gui/setup_editor.py` | Diagrama con la estructura común y panel de edición de caminos |
 | `gui/procedures_view.py` | Puertos del EUT y pares del acoplador en la plantilla de ensayo |
+| `gui/plots.py` | `CouplerPlots` (RL de cada puerto y TL de cada medida) y `ResultPlots`, que elige la gráfica según el algoritmo del ensayo |
 | `tests/test_paths.py`, `tests/test_engine.py`, `tests/test_gui.py` | Caminos, ensayos de transmisión y acoplador, editor |

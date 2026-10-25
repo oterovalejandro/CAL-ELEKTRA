@@ -109,12 +109,15 @@ def read_results_csv_s21(path: Path) -> tuple[np.ndarray, np.ndarray]:
     return columns[0], s
 
 
-def write_coupler_csv(path: Path, f: np.ndarray, quantities: list) -> Path:
-    """Insertion loss, coupling, isolation, directivity and return loss of a directional coupler (dB)."""
+def write_coupler_csv(path: Path, f: np.ndarray, quantities: list, port_return_losses: dict[str, np.ndarray] | None = None) -> Path:
+    """Insertion loss, coupling, isolation, directivity and return loss of a directional coupler (dB), and the RL of each port."""
     header, columns = ["Frecuencia (Hz)"], [f]
     for quantity in quantities:
         if quantity.values is not None:
             header.append(f"{quantity.name} {quantity.symbol} (dB)")
             columns.append(quantity.values)
+    for port, values in (port_return_losses or {}).items():
+        header.append(f"RL {port} (dB)")
+        columns.append(values)
     write_csv(path, header, columns)
     return path

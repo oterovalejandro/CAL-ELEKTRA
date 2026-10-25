@@ -47,7 +47,7 @@ from calelektra.core.issues import Severity
 from calelektra.gui import style
 from calelektra.gui.icons import icon
 from calelektra.gui.illustrations import illustration
-from calelektra.gui.plots import SParameterPlot
+from calelektra.gui.plots import ResultPlots
 from calelektra.gui.setup_diagram import SetupDiagramView
 from calelektra.gui.test_common import (
     SETTINGS,
@@ -490,13 +490,14 @@ class TestWindow(QWidget):
         left_layout.addWidget(plan_card, 3)
 
         self.tabs = QTabWidget()
-        self.plot = SParameterPlot()
+        self.plots = ResultPlots()  # S-parameters, or RL and TL of a directional coupler
+        self.plot = self.plots.s_parameters
         self.spec_table = style.make_table(SPEC_COLUMNS)
         self.diagram = SetupDiagramView()
         self.results = style.make_table(["Resultado", "Valor"], stretch_column=1)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        self.tabs.addTab(self.plot, icon("grafica", style.PRIMARY.name()), "Gráfica")
+        self.tabs.addTab(self.plots, icon("grafica", style.PRIMARY.name()), "Gráfica")
         self.tabs.addTab(self.spec_table, icon("veredicto", style.PRIMARY.name()), "Pasa / falla")
         self.tabs.addTab(self.diagram, icon("setups", style.PRIMARY.name()), "Hardware setup")
         self.tabs.addTab(self.results, icon("ok", style.PRIMARY.name()), "Resultados")
@@ -565,7 +566,8 @@ class TestWindow(QWidget):
         self._set_chips(None)
         self.plan_label.setText(plan_html(self.library, self.plan))
         self._show_diagram()
-        self.plot.clear()
+        self.plots.clear()
+        self.plot = self.plots.for_algorithm(self.procedure.algorithm)
         self.results.setRowCount(0)
         self.spec_table.setRowCount(0)
         self.log_view.clear()
@@ -622,7 +624,8 @@ class TestWindow(QWidget):
         self.progress.setValue(1000 if record.status in ("completado", "verificacion_fallida") else self.progress.value())
         self.progress_label.setText(record.status_name)
         self.badge.set_state(record.status_name, style.status_color(record.status))
-        self.plot.clear()
+        self.plots.clear()
+        self.plot = self.plots.for_algorithm(record.algorithm)
         for label, frequencies_hz, s in record_datasets(record):
             self.plot.set_data(label, frequencies_hz, s, log_x=is_logarithmic(record))
         for label, bands in record_uncertainty(record).items():
@@ -693,7 +696,8 @@ class TestWindow(QWidget):
                 return
         assert self.procedure is not None
         self.result = None
-        self.plot.clear()
+        self.plots.clear()
+        self.plot = self.plots.for_algorithm(self.procedure.algorithm)
         self.plot.set_smoothing(self.procedure.sweep.smoothing(self.procedure.traces))
         self.results.setRowCount(0)
         self.spec_table.setRowCount(0)
@@ -795,9 +799,12 @@ class TestWindow(QWidget):
 
     def _data(self, name: str, frequencies, s) -> None:
         log_x = self.plan is not None and self.plan.frequency_plan is not None and self.plan.frequency_plan.mode == "logaritmico"
-        self.plot.set_data(name, frequencies, s, log_x=log_x)
-        if not name.startswith("Verificación"):
-            self.tabs.setCurrentWidget(self.plot)
+        verification = name.startswith("Verificación")
+        plot = self.plots.s_parameters if verification else self.plot  # a coupler shows its verification as S-parameters
+        plot.set_data(name, frequencies, s, log_x=log_x)
+        self.plots.setCurrentWidget(plot)
+        if not verification:
+            self.tabs.setCurrentWidget(self.plots)
 
     def _uncertainty(self, name: str, traces) -> None:
         self.plot.set_uncertainty(name, traces, self.procedure.uncertainty.coverage_factor if self.procedure else 2.0)
@@ -820,7 +827,7 @@ class TestWindow(QWidget):
             self.plot.set_limits(record_spec_curves(record))
             self.plot.set_smoothing(record_smoothing(record))
         if record.spec_results:
-            self.tabs.setCurrentWidget(self.spec_table if record.verdict == "FALLA" else self.plot)
+            self.tabs.setCurrentWidget(self.spec_table if record.verdict == "FALLA" else self.plots)
         self.finished.emit(str(record.folder))
 
     def _fill_specs(self, record: TestRecord) -> None:

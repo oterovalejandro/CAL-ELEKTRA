@@ -72,6 +72,7 @@ from calelektra.procedures.coupler import (
     coupler_verdict,
     evaluate_coupler,
     pair_name,
+    port_return_losses,
 )
 from calelektra.procedures.model import ALGORITHMS, COUPLER_PORTS, PLANES_NEEDED, ProcedureTemplate
 from calelektra.procedures.record import SETUP_SNAPSHOT, TEMPLATE_SNAPSHOT, StepRecord, TestRecord
@@ -1256,7 +1257,7 @@ class ProcedureRunner:
                 summary = self._summary_2p(f, result.data["DUT"])
             else:
                 quantities = coupler_quantities(result.data)
-                files.append(write_coupler_csv(folder / f"{self._file_stem('acoplador')}.csv", f, quantities))
+                files.append(write_coupler_csv(folder / f"{self._file_stem('acoplador')}.csv", f, quantities, port_return_losses(result.data)))
                 summary = coupler_summary(quantities)
                 summary["pares"] = [m.title for m in self.plan.measurements]
         elif algorithm == "vna_transmision":

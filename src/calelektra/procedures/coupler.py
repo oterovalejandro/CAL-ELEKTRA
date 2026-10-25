@@ -8,7 +8,12 @@ port on P2) gives a 2 × 2 S matrix with the other two ports terminated in
 * acoplamiento           C  = −|S(ACOPLADO ← ENTRADA)|
 * aislamiento            I  = −|S(ACOPLADO ← SALIDA)| (or −|S(AISLADO ← ENTRADA)| if that pair is measured instead)
 * directividad           D  = I − C
-* pérdidas de retorno    RL = the worst of the reflections measured at ENTRADA and SALIDA
+* pérdidas de retorno    RL = the worst of the return losses of ENTRADA and SALIDA
+
+The return loss of each port comes from one measurement: ENTRADA and SALIDA
+from the ENTRADA–SALIDA pair (each of them is measured in two pairs), the
+other ports from the first pair that measures them. The transmission loss
+(TL) of each pair is −|S21|: from its port on P1 to its port on P2.
 
 The nominal values come from the fields of the model of the coupler
 (``acoplamiento_nominal_db`` ± ``tolerancia_acoplamiento_db``,
@@ -50,15 +55,54 @@ def _transmission(data: dict[str, np.ndarray], source: str, target: str) -> np.n
     return None
 
 
-def _reflections(data: dict[str, np.ndarray], port: str) -> list[np.ndarray]:
-    found = []
-    for name, s in data.items():
-        first, _, second = name.partition("-")
-        if first == port:
-            found.append(s[:, 0, 0])
-        elif second == port:
-            found.append(s[:, 1, 1])
-    return found
+def pair_ports(name: str) -> tuple[str, str]:
+    first, _, second = name.partition("-")
+    return first, second
+
+
+def return_loss_sources(names: list[str]) -> dict[str, tuple[str, int]]:
+    """Port → (pair, 0 or 1: its position in the pair) whose reflection gives the return loss of the port.
+
+    ENTRADA and SALIDA come from the ENTRADA–SALIDA pair when it is measured; every other port (and
+    ENTRADA or SALIDA without that pair) from the first measured pair that has it.
+    """
+    from calelektra.procedures.model import COUPLER_PORTS
+
+    through = next((name for name in names if set(pair_ports(name)) == {"ENTRADA", "SALIDA"}), None)
+    sources: dict[str, tuple[str, int]] = {}
+    for port in COUPLER_PORTS:
+        candidates = [name for name in names if port in pair_ports(name)]
+        if port in ("ENTRADA", "SALIDA") and through is not None:
+            candidates.insert(0, through)
+        if candidates:
+            sources[port] = (candidates[0], pair_ports(candidates[0]).index(port))
+    return sources
+
+
+def port_return_losses(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Return loss (dB, positive) of each port measured, from the pair given by :func:`return_loss_sources`."""
+    losses = {}
+    for port, (name, index) in return_loss_sources(list(data)).items():
+        losses[port] = -db(data[name][:, index, index])
+    return losses
+
+
+TRANSMISSION_SYMBOLS = {
+    frozenset({"ENTRADA", "SALIDA"}): "IL",
+    frozenset({"ENTRADA", "ACOPLADO"}): "C",
+    frozenset({"SALIDA", "ACOPLADO"}): "I",
+    frozenset({"ENTRADA", "AISLADO"}): "I",
+}
+
+
+def transmission_symbol(name: str) -> str | None:
+    """IL, C or I: the quantity of the coupler given by the transmission of the pair (``None``: none)."""
+    return TRANSMISSION_SYMBOLS.get(frozenset(pair_ports(name)))
+
+
+def pair_transmission_losses(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Transmission loss (dB, positive) of each pair: −|S21|, from its port on P1 to its port on P2."""
+    return {name: -db(s[:, 1, 0]) for name, s in data.items()}
 
 
 def coupler_quantities(data: dict[str, np.ndarray]) -> list[CouplerQuantity]:
@@ -73,8 +117,9 @@ def coupler_quantities(data: dict[str, np.ndarray]) -> list[CouplerQuantity]:
     if isolation is None:
         isolation = loss(_transmission(data, "ENTRADA", "AISLADO"))
     directivity = isolation - coupling if isolation is not None and coupling is not None else None
-    reflections = _reflections(data, "ENTRADA") + _reflections(data, "SALIDA")
-    return_loss = np.min([-db(r) for r in reflections], axis=0) if reflections else None
+    ports = port_return_losses(data)
+    reflections = [ports[port] for port in ("ENTRADA", "SALIDA") if port in ports]
+    return_loss = np.min(reflections, axis=0) if reflections else None
     return [
         CouplerQuantity("perdidas_insercion", "Pérdidas de inserción", "IL", insertion),
         CouplerQuantity("acoplamiento", "Acoplamiento", "C", coupling),

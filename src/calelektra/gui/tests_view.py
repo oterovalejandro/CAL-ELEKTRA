@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from calelektra.catalog.library import Library, LibraryError
 from calelektra.gui import style
 from calelektra.gui.icons import icon
-from calelektra.gui.plots import SParameterPlot
+from calelektra.gui.plots import ResultPlots
 from calelektra.gui.test_common import (
     is_logarithmic,
     load_conditions,
@@ -84,9 +84,10 @@ class TestDetail(QWidget):
         self.header.body.addLayout(top)
         self.header.body.addWidget(self.subtitle)
         self.plot_card = style.Card("Resultado", icon_name="grafica")
-        self.plot = SParameterPlot()
-        self.plot.setMinimumHeight(300)
-        self.plot_card.body.addWidget(self.plot)
+        self.plots = ResultPlots()  # S-parameters, or RL and TL of a directional coupler
+        self.plot = self.plots.s_parameters
+        self.plots.setMinimumHeight(300)
+        self.plot_card.body.addWidget(self.plots)
         self.specs_card = style.Card("Pasa / falla", icon_name="veredicto")
         self.specs = QLabel()
         self.specs.setWordWrap(True)
@@ -142,7 +143,9 @@ class TestDetail(QWidget):
         self._show_specs(record)
         self.info.setText(self._info_html(record) or "Sin datos")
         self.files.clear()
-        self.plot.clear()
+        self.plots.clear()
+        self.plot = self.plots.for_algorithm(record.algorithm)
+        self.plots.setMinimumHeight(560 if self.plot is self.plots.coupler else 300)  # two charts
         folder = record.folder
         for name in record.files:
             lower = name.lower()

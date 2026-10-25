@@ -7,6 +7,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pyqtgraph as pg
 import pytest
 import yaml
 from PySide6.QtCore import Qt
@@ -464,8 +465,6 @@ def close_messages(widget) -> list[str]:
 
 
 def test_uncertainty_bands_in_the_test_window_and_explorer(window, qapp, tmp_path):
-    import pyqtgraph as pg
-
     library = window.library
     test = window._add_test_window(
         TestWindow(library, library.procedures["cable_CAB-DUT-0002"], library.tests_folder, "Cable con U", "prueba", automatic=True)
@@ -591,12 +590,35 @@ def test_transmission_and_coupler_tests_in_the_window(window, qapp):
     assert coupler.record.verdict == "PASA" and set(coupler.plot.datasets) == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
     assert set(coupler.plot.uncertainty) == set(coupler.plot.datasets)
     assert coupler.spec_table.rowCount() == 5 and coupler.tabs.tabText(1) == "Pasa / falla — PASA"
+    # two charts: the RL of each port (ENTRADA and SALIDA from the ENTRADA–SALIDA pair) and the TL of each pair
+    plots = coupler.plot
+    assert plots is coupler.plots.coupler and coupler.plots.currentWidget() is plots
+    assert plots.return_loss.labels() == [
+        "ENTRADA (ENTRADA-SALIDA, S11)", "SALIDA (ENTRADA-SALIDA, S22)", "ACOPLADO (ENTRADA-ACOPLADO, S22)",
+    ]
+    assert plots.transmission.labels() == ["ENTRADA → SALIDA · IL", "ENTRADA → ACOPLADO · C", "SALIDA → ACOPLADO · I"]
+    plots.smooth_box.setChecked(False)
+    _, s = plots.datasets["ENTRADA-SALIDA"]
+    rl = {trace.label.split(" ")[0]: trace for trace in plots.return_loss_traces()}
+    assert np.allclose(rl["SALIDA"].losses, -20 * np.log10(np.abs(s[:, 1, 1])))
+    assert np.allclose(rl["SALIDA"].uncertainty, plots.uncertainty["ENTRADA-SALIDA"]["S22"][0])
+    _, s = plots.datasets["SALIDA-ACOPLADO"]
+    assert np.allclose(plots.transmission_traces()[2].losses, -20 * np.log10(np.abs(s[:, 1, 0])))
+    for chart in (plots.return_loss, plots.transmission):
+        assert [item for item in chart.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)]
+    plots.return_loss.trace_boxes.itemAt(1).widget().setChecked(False)
+    assert len(plots.return_loss.plot.getPlotItem().listDataItems()) == 2
     window.show_section("ensayos")
     window.tests_view.show_test(coupler.record.folder)
     process(qapp)
     detail = window.tests_view.detail
     assert set(detail.plot.datasets) == {"ENTRADA-SALIDA", "ENTRADA-ACOPLADO", "SALIDA-ACOPLADO"}
+    assert detail.plot is detail.plots.coupler and len(detail.plot.transmission.labels()) == 3
     assert "Caminos y medidas" in detail.info.text() and "Medida ENTRADA-ACOPLADO" in detail.info.text()
+    window.tests_view.show_test(transmission.record.folder)
+    process(qapp)
+    assert detail.plots.currentWidget() is detail.plot is detail.plots.s_parameters and list(detail.plot.datasets) == ["DUT"]
+    assert detail.plots.sizeHint() == detail.plot.sizeHint()  # not the size of the two coupler charts
 
 
 def test_equipment_already_used_in_the_setup_is_not_offered(window, qapp):

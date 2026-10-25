@@ -10,7 +10,7 @@ Ejemplos de lo que cubre:
 
 ## Estado
 
-**Versión 0.8.1** — funcional con el VNA simulado:
+**Versión 0.8.2** — funcional con el VNA simulado:
 
 - **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**.
 - **Hardware setups con una estructura común**: el VNA a la izquierda, una línea que se divide en sus puertos (P1, P2…) y, de cada puerto, un **camino** (cables de medida, adaptadores, paths, preamplificadores…, en orden) que lleva el plano de referencia hasta el puerto del DUT. El conector del final de cada camino dice **qué conectores de DUT se pueden calibrar** con el setup. Cada setup tiene sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** de cada unión y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM; OSM en 1 puerto; normalización de transmisión). Ver [`docs/09_caminos_y_nuevas_plantillas.md`](docs/09_caminos_y_nuevas_plantillas.md).
@@ -20,7 +20,7 @@ Ejemplos de lo que cubre:
   - Camino RF de 2 puertos, **reflexión y transmisión** (S → .s2p);
   - Camino RF de 2 puertos, **transmisión** (S21 → .csv, con normalización);
   - **medida de impedancia** en 1 puerto (S11 → .s1p);
-  - **acoplador direccional** de 4 puertos (un .s2p por par de puertos, con los otros dos en 50 Ω; pasa / falla frente a sus valores nominales).
+  - **acoplador direccional** de 4 puertos (un .s2p por par de puertos, con los otros dos en 50 Ω; pasa / falla frente a sus valores nominales; gráficas del RL de cada puerto y del TL de cada medida).
 
   Las otras dos son **SAC — NSA** y **SAC — S_VSWR**: caminos que terminan en las antenas, todavía sin algoritmo de ensayo.
 - **VNA simulado** realista (errores sistemáticos, calibración OSM/TOSM/UOSM, CAL/CAI) y **adaptador del R&S ZNB43** sobre los comandos del driver RsZnx, con barrido segmentado para las listas (pendiente de probar con el equipo).
