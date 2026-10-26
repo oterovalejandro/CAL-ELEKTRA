@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QMessageBox
 
 from calelektra.catalog.library import Library
 from calelektra.gui.app import EXAMPLE_LIBRARY
@@ -73,6 +73,7 @@ def main() -> None:
     client = library.tests_folder / "2026" / "Cliente ACME"
     lisn = None
     records = []
+    operators = {}
     for folder, name, template, today in (
         (client, "Cable 2,92 mm nº 2001", "cable_CAB-DUT-0002", None),
         (client, "Cable 2,92 mm nº 3001", "cable_CAB-DUT-0003", None),
@@ -81,9 +82,11 @@ def main() -> None:
         (client, "Pérdidas cable N nº 1234", "transmision_CAB-DUT-0001", None),
         (client, "Acoplador nº 9001", "acoplador_ACP-0001", None),
         (client, "Cable 2,92 mm nº 4001 (por fórmula)", "cable_CAB-DUT-0004", None),
+        (client, "Cable SUCOFLEX_118_A nº 5001", "cable_CAB-DUT-0005", None),
     ):
+        operators[template] = AutoOperator()
         result = ProcedureRunner(
-            library, library.procedures[template], AutoOperator(), operator_name="Demo", seed=1, folder=folder, name=name, today=today,
+            library, library.procedures[template], operators[template], operator_name="Demo", seed=1, folder=folder, name=name, today=today,
         ).run()
         records.append(result.record)
         if template.startswith("lisn"):
@@ -174,6 +177,13 @@ def main() -> None:
     model_scroll.verticalScrollBar().setValue(model_scroll.verticalScrollBar().maximum())
     grab(model_dialog, out / "05c_modelo_cable_formula.png")
     model_dialog.close()
+    model_dialog = ModelDialog(library, library.models["hs_sucoflex_118_a"], parent=window)
+    model_dialog.show()
+    grab(model_dialog, out / "05d_modelo_cable_hoja_datos_rf.png")
+    model_scroll = model_dialog.fields_holder.parentWidget().parentWidget()
+    model_scroll.verticalScrollBar().setValue(model_scroll.verticalScrollBar().maximum() // 2)
+    grab(model_dialog, out / "05e_modelo_cable_hoja_datos_mecanica.png")
+    model_dialog.close()
 
     dialog = LaunchTestDialog(library, "cable_CAB-DUT-0002", client, parent=window)
     dialog.show()
@@ -193,6 +203,10 @@ def main() -> None:
     )
     prompt.show()
     grab(prompt, out / "21_peticion_operador.png")
+    prompt.close()
+    prompt = PromptDialog(next(r for r in operators["cable_CAB-DUT-0005"].requests if r.step == "medida"), window)
+    prompt.show()
+    grab(prompt, out / "21b_peticion_radio_curvatura.png")
     prompt.close()
 
     test = window._add_test_window(
@@ -251,6 +265,17 @@ def main() -> None:
     formula_window.plot.mode.setCurrentIndex(formula_window.plot.mode.findData("db"))
     formula_window.tabs.setCurrentIndex(1)
     grab(window, out / "27j_cable_formula_pasa_falla.png")
+    window._add_test_window(
+        TestWindow(library, library.procedures["cable_CAB-DUT-0005"], client, "Cable SUCOFLEX_118_A nº 5001 (recalibración)", "Demo", automatic=True)
+    )
+    grab(window, out / "27k_cable_retardo_comprobacion.png")
+    delay = next(r for r in library.tests() if r.template_id == "cable_CAB-DUT-0005")
+    delay_window = window._add_test_window(TestWindow(library, record=delay))
+    delay_window.tabs.setCurrentIndex(3)
+    table = delay_window.results
+    last = max(row for row in range(table.rowCount()) if table.item(row, 0).text().startswith("retardo nominal"))
+    table.scrollToItem(table.item(last, 0), QAbstractItemView.ScrollHint.PositionAtBottom)
+    grab(window, out / "27l_cable_retardo_resultados.png")
     transmission_record = next(r for r in library.tests() if r.template_id == "transmision_CAB-DUT-0001")
     transmission_window = window._add_test_window(TestWindow(library, record=transmission_record))
     transmission_window.tabs.setCurrentIndex(3)

@@ -16,6 +16,7 @@ import numpy as np
 
 from calelektra.core.networks import LISN_NETWORKS, impedance_to_gamma, lisn_impedance
 from calelektra.core.touchstone import Touchstone
+from calelektra.procedures.cable_specs import CABLE_FIELDS, cable_specification
 
 TwoPortModel = Callable[[np.ndarray], np.ndarray]
 OnePortModel = Callable[[np.ndarray], np.ndarray]
@@ -52,15 +53,25 @@ def touchstone_model(data: Touchstone) -> TwoPortModel:
     return model
 
 
-def cable_model(length_m: float, attenuation_db_m_1ghz: float, return_loss_db: float = 28.0, velocity: float = 0.7, seed: int = 0) -> TwoPortModel:
-    """Coaxial cable: loss ∝ √f (scaled from the 1 GHz value), delay and small end reflections."""
+def cable_model(
+    length_m: float,
+    attenuation_db_m_1ghz: float,
+    return_loss_db: float = 28.0,
+    velocity: float = 0.7,
+    seed: int = 0,
+    loss: Callable[[np.ndarray], np.ndarray] | None = None,
+) -> TwoPortModel:
+    """Coaxial cable: loss ∝ √f (scaled from the 1 GHz value) or the given ``loss(f)`` in dB, delay and small end reflections."""
     delay = length_m / (velocity * C0)
     rng = np.random.default_rng(seed)
     phase1, phase2 = rng.uniform(-np.pi, np.pi, 2)
 
     def model(f: np.ndarray) -> np.ndarray:
         f_ghz = np.maximum(f, 0) / 1e9
-        loss_db = attenuation_db_m_1ghz * length_m * (0.9 * np.sqrt(f_ghz) + 0.1 * f_ghz)
+        if loss is not None:
+            loss_db = loss(f)
+        else:
+            loss_db = attenuation_db_m_1ghz * length_m * (0.9 * np.sqrt(f_ghz) + 0.1 * f_ghz)
         transmission = 10 ** (-loss_db / 20) * np.exp(-2j * np.pi * f * delay)
         gamma = 10 ** (-(return_loss_db - 0.3 * f_ghz) / 20)
         s = np.empty((len(f), 2, 2), dtype=complex)
@@ -167,8 +178,19 @@ def simulated_dut(library, equipment, line_index: int = 0) -> tuple[int, Callabl
     seed = sum(map(ord, equipment.id)) % 997
     if category in ("cable", "cable_medida", "path"):
         length = float(library.field(equipment, "longitud_m", 1.0) or 1.0)
-        attenuation = float(library.field(equipment, "atenuacion_db_m_1ghz", 0.5) or 0.5)
-        return 2, cable_model(length, attenuation, seed=seed)
+        # the cable propagates at the velocity of its datasheet, or with its nominal delay
+        if velocity_pct := library.field(equipment, "velocidad_propagacion_pct"):
+            velocity = float(velocity_pct) / 100
+        elif delay_ns_m := library.field(equipment, "retardo_ns_m"):
+            velocity = 1e9 / (float(delay_ns_m) * C0)
+        else:
+            velocity = 0.7
+        fields = {key: library.field(equipment, key) for key in CABLE_FIELDS}
+        typical = library.field(equipment, "atenuacion_db_m_1ghz")
+        spec = cable_specification(fields, 0, 0, None) if typical is None else None
+        if spec is not None and spec.has_attenuation:  # its nominal attenuation (K1, K2)
+            return 2, cable_model(length, 0.0, velocity=velocity, seed=seed, loss=spec.nominal_attenuation)
+        return 2, cable_model(length, float(typical or 0.5), velocity=velocity, seed=seed)
     if category == "adaptador":
         return 2, cable_model(0.03, 0.4, return_loss_db=32.0, velocity=0.8, seed=seed)
     if category == "lisn":

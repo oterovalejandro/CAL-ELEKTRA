@@ -122,6 +122,8 @@ def plan_html(library: Library, plan: RunPlan) -> str:
         lines.append("<b>Valores nominales:</b> el modelo del acoplador no tiene (sin veredicto pasa / falla)")
     elif plan.dut is not None:
         lines.append("<b>Especificaciones:</b> el modelo del EUT no tiene (sin veredicto pasa / falla)")
+    if plan.cable_delay is not None:
+        lines.append(f"<b>Retardo nominal</b> (informativo, se compara con el medido): {html.escape(plan.cable_delay.text())}")
     if procedure.uncertainty.active and plan.vna is not None:
         if plan.vna.uncertainty_file:
             k = f"{procedure.uncertainty.coverage_factor:g}"

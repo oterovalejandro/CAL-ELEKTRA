@@ -1,0 +1,13 @@
+# EUT de ejemplo: conjunto de cable SUCOFLEX_118_A de 3 m con conectores N
+# macho. El modelo da la atenuación nominal (K1, K2 de su hoja de datos), el
+# retardo nominal (4,3 ns/m) y el radio de curvatura que se recuerda al conectarlo.
+formato: calelektra/equipo@0.3
+id: CAB-DUT-0005
+modelo: hs_sucoflex_118_a
+estado: en_servicio
+numero_serie: CLIENTE-5001
+descripcion: Cable de cliente a calibrar (SUCOFLEX 118, conectores N macho)
+campos:
+  longitud_m: 3.0
+  conector_a: { familia: N, genero: macho }
+  conector_b: { familia: N, genero: macho }

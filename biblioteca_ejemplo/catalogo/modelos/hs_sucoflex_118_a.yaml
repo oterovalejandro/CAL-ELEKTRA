@@ -1,0 +1,35 @@
+# HUBER+SUHNER SUCOFLEX_118_A: cable de alta flexibilidad, 50 Ω, 18 GHz, 85 °C,
+# ø13,2 mm, cubierta PUR y armadura de acero. Datos de su hoja de datos
+# (PRELIMINARY DATA SHEET, documento PIM-P44906 de 02/10/2026).
+#   - La atenuación típica de la hoja, a·√f + b·f con f en GHz y en dB/m
+#     (a = 0,15, b = 0,0071), es la especificación por fórmula: K1 = a, K2 = b.
+#   - Es el cable: los conectores (grupo U98) y su VSWR son de cada conjunto,
+#     así que el conector de cada extremo va en cada equipo.
+formato: calelektra/modelo@0.3
+id: hs_sucoflex_118_a
+categoria: cable
+fabricante: HUBER+SUHNER
+modelo: SUCOFLEX_118_A
+descripcion: Cable de alta flexibilidad, 50 Ω, 18 GHz, 85 °C, ø13,2 mm, cubierta PUR
+campos:
+  rango_frecuencia: [DC, 18 GHz]
+  tipo_cable: alta flexibilidad; conductor central de cobre plateado, dieléctrico PTFE, armadura de acero, cubierta PUR
+  k1_atenuacion: 0.15              # a de la hoja: dB/m por √GHz
+  k2_atenuacion: 0.0071            # b de la hoja: dB/m por GHz
+  unidad_frecuencia_k: GHz
+  longitud_normalizacion_k: 1 m
+  impedancia_nominal_ohm: 50
+  tolerancia_impedancia_ohm: 1
+  retardo_ns_m: 4.3
+  velocidad_propagacion_pct: 77
+  capacidad_pf_m: 87
+  apantallamiento_db: 90           # de 1 GHz a 18 GHz
+  potencia_cw_1ghz_w: 1000         # a 40 °C de ambiente; P(f) = 1000 W / √f[GHz]
+  diametro_mm: 13.2
+  radio_curvatura_estatico_mm: 50
+  radio_curvatura_dinamico_mm: 70
+  peso_g_m: 215
+  temperatura_operacion_c: [-40, 85]
+  grupo_conectores: U98
+documentos:
+  - { tipo: datasheet, referencia: "HUBER+SUHNER SUCOFLEX_118_A, Preliminary data sheet, PIM-P44906 (02.10.2026)" }

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from conftest import TODAY
+from conftest import TODAY, renew_calibration
 
 from calelektra.core.frequency import FrequencyRange
+from calelektra.core.networks import transmission_delay
 from calelektra.procedures.cable_specs import (
     CableSpecification,
+    cable_delay,
     cable_specification,
     gamma_of_vswr,
 )
@@ -104,3 +106,58 @@ def test_tolerances_in_the_template_yaml():
     assert "tolerancias_cable" not in ProcedureTemplate.model_validate({**data, "tolerancias_cable": {}}).to_yaml_dict()
     with pytest.raises(ValueError):
         ProcedureTemplate.model_validate({**data, "tolerancias_cable": {"vswr_pct": -1}})
+
+
+def test_delay_of_a_transmission_with_a_coarse_list_of_frequencies():
+    # the list of the N setup: 10 MHz steps up to 1 GHz, then 100 MHz: a long cable turns > 180° between points
+    f = np.concatenate([np.arange(30e6, 1000e6, 10e6), np.arange(1000e6, 18000e6 + 1, 100e6)])
+    for tau in (2.4e-9, 9.53e-9, 40e-9):
+        s21 = 0.8 * np.exp(-2j * np.pi * f * tau + 0.4j)
+        assert transmission_delay(f, s21) == pytest.approx(tau, rel=1e-9)
+    # a uniform grid too coarse for the delay: ambiguous by 1/Δf; the nominal picks the turn
+    grid = np.arange(1, 801) * 50e6
+    s21 = np.exp(-2j * np.pi * grid * 12.996e-9)
+    assert transmission_delay(grid, s21) == pytest.approx(12.996e-9 - 20e-9)
+    assert transmission_delay(grid, s21, nominal=12.9e-9) == pytest.approx(12.996e-9)
+    short = np.exp(-2j * np.pi * grid * 2.38e-9)
+    assert transmission_delay(grid, short, nominal=3e-9) == pytest.approx(2.38e-9)  # resolved: the nominal is not used
+
+
+def test_nominal_delay_from_the_datasheet():
+    delay = cable_delay({"retardo_ns_m": 4.3, "velocidad_propagacion_pct": 77, "longitud_m": 3.0})
+    assert delay.nominal_ns == pytest.approx(12.9) and delay.source == "retardo nominal" and not delay.problems
+    from_velocity = cable_delay({"retardo_ns_m": None, "velocidad_propagacion_pct": 77, "longitud_m": 3.0})
+    assert from_velocity.per_metre_ns == pytest.approx(1e9 / (0.77 * 299792458)) == pytest.approx(4.332, abs=1e-3)
+    assert "velocidad de propagación 77 %" in from_velocity.text()
+    mismatch = cable_delay({"retardo_ns_m": 4.0, "velocidad_propagacion_pct": 77, "longitud_m": 1})
+    assert "no concuerda" in mismatch.problems[0]
+    assert cable_delay({"retardo_ns_m": 4.3, "longitud_m": None}) is None
+    summary = delay.summary(12.996)
+    assert summary["diferencia_ns"] == pytest.approx(0.096) and summary["longitud_estimada_m"] == pytest.approx(3.0223, abs=1e-4)
+
+
+def test_sucoflex_from_its_datasheet(library):
+    template = library.procedures["cable_CAB-DUT-0005"]
+    renew_calibration(library, "KIT-N-01")
+    plan = prepare_run(library, template, TODAY)
+    assert plan.ok and plan.cable_delay.nominal_ns == pytest.approx(12.9)
+    assert plan.cable_spec.has_attenuation and not plan.cable_spec.has_return_loss  # the datasheet has no connector VSWR
+    assert plan.cable_spec.nominal_attenuation(np.array([1e9, 18e9])) == pytest.approx([0.157 * 3, 0.764 * 3], abs=2e-3)  # its table
+    operator = AutoOperator()
+    record = ProcedureRunner(library, template, operator, today=TODAY, seed=1).run().record
+    assert record.verdict == "PASA" and len(record.spec_results) == 1
+    delay = record.results["retardo_nominal"]
+    assert record.results["retardo_ns"] == pytest.approx(12.996, abs=1e-3)  # the simulated cable propagates at 77 %
+    assert delay["nominal_ns"] == 12.9 and delay["diferencia_ns"] == pytest.approx(0.096, abs=1e-3)
+    assert [r.details for r in operator.requests if r.step == "medida"] == [["Radio de curvatura mínimo del cable: 70 mm al moverlo, 50 mm fijo"]]
+    # the delay of the N cable measured on the same list (10 MHz, then 100 MHz steps) is no longer aliased
+    record = ProcedureRunner(library, library.procedures["cable_CAB-DUT-0001"], AutoOperator(), today=TODAY, seed=1).run().record
+    assert record.results["retardo_ns"] == pytest.approx(2.0 / (0.7 * 299792458) * 1e9, abs=1e-3)
+
+
+def test_impedance_of_the_cable_against_the_vna(library):
+    model = library.models["hs_sucoflex_118_a"]
+    model.values["impedancia_nominal_ohm"] = 75.0
+    library.save_model(model)
+    plan = prepare_run(library, library.procedures["cable_CAB-DUT-0005"], TODAY)
+    assert any(i.code == "ensayo.impedancia" and "75 Ω" in i.message and "50 Ω" in i.message for i in plan.issues)

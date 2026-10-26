@@ -1,4 +1,4 @@
-# Especificación de cables por fórmula (K1, K2 y VSWR de los conectores) — versión 0.9
+# Especificación de cables por fórmula (K1, K2 y VSWR de los conectores) y datos de la hoja — versiones 0.9 y 0.9.1
 
 Hasta ahora, el pasa / falla de un cable se daba con **ficheros S2P** del modelo: la máscara de las pérdidas de inserción máximas y de las pérdidas de retorno mínimas, siempre en negativo (|S21| ≥ máscara, |S11| ≤ máscara).
 
@@ -157,14 +157,146 @@ Sin tolerancias **FALLA**, porque la pérdida medida queda unas centésimas por 
 | ![Gráfica con los límites de la fórmula](capturas/v09/27h_cable_formula_grafica.png) | ![Pasa / falla por fórmula](capturas/v09/27j_cable_formula_pasa_falla.png) |
 | ![Tolerancias en la plantilla de ensayo](capturas/v09/07c_plantilla_cable_formula.png) | ![Las mismas curvas en «VSWR, Magnitud (dB)»](capturas/v09/27i_cable_formula_vswr.png) |
 
-## 6. Ficheros del código
+## 6. Datos de la hoja del cable (versión 0.9.1)
+
+El modelo de un cable puede llevar más datos de su hoja de datos. Son los que da, por ejemplo, la del HUBER+SUHNER SUCOFLEX_118_A (*Preliminary data sheet*, documento PIM-P44906 de 02/10/2026). El PDF no se guarda en la biblioteca: el modelo lo cita en sus `documentos`.
+
+Son campos nuevos de la categoría «cable», todos del **modelo** (`nivel: modelo`):
+
+| Campo | Clave YAML | Grupo | Uso |
+|---|---|---|---|
+| Impedancia nominal (Ω) | `impedancia_nominal_ohm` | RF | Aviso si no es la impedancia de referencia del VNA (§ 6.3) |
+| Tolerancia de la impedancia (± Ω) | `tolerancia_impedancia_ohm` | RF | Margen de ese aviso |
+| Retardo nominal (ns/m) | `retardo_ns_m` | RF | Retardo nominal del cable, que se compara con el medido (§ 6.1) |
+| Velocidad de propagación (%) | `velocidad_propagacion_pct` | RF | Da el retardo nominal si falta el anterior; si están los dos, se comprueba que concuerden |
+| Capacidad (pF/m) | `capacidad_pf_m` | RF | Informativo |
+| Eficacia de apantallamiento (dB) | `apantallamiento_db` | RF | Informativo |
+| Potencia CW máxima a 1 GHz (W) | `potencia_cw_1ghz_w` | RF | Informativo; como en las hojas, P(f) = P(1 GHz) / √f[GHz] |
+| Diámetro exterior (mm) | `diametro_mm` | Mecánica | Informativo |
+| Radio de curvatura mínimo, fijo y en movimiento (mm) | `radio_curvatura_estatico_mm`, `radio_curvatura_dinamico_mm` | Mecánica | Se recuerda al operador al conectar el cable (§ 6.4) |
+| Peso (g/m) | `peso_g_m` | Mecánica | Informativo |
+| Temperatura de operación (°C) | `temperatura_operacion_c` | Entorno | Informativo (rango) |
+| Grupo de conectores | `grupo_conectores` | Conectores | Informativo: los conectores que admite el cable según su fabricante (p. ej. U98) |
+
+La **atenuación típica** de la hoja, a·√f + b·f, es la especificación por fórmula del apartado 3.1, con K1 = a y K2 = b en sus unidades. En el SUCOFLEX_118_A son a = 0,15 y b = 0,0071 dB/m con f en GHz:
+
+```yaml
+# catalogo/modelos/hs_sucoflex_118_a.yaml (extracto)
+campos:
+  k1_atenuacion: 0.15              # a de la hoja: dB/m por √GHz
+  k2_atenuacion: 0.0071            # b de la hoja: dB/m por GHz
+  unidad_frecuencia_k: GHz
+  longitud_normalizacion_k: 1 m
+  impedancia_nominal_ohm: 50
+  tolerancia_impedancia_ohm: 1
+  retardo_ns_m: 4.3
+  velocidad_propagacion_pct: 77
+  radio_curvatura_estatico_mm: 50
+  radio_curvatura_dinamico_mm: 70
+```
+
+La hoja es la del cable: los conectores de cada extremo y su VSWR son de cada conjunto (del grupo U98), así que van en cada equipo. Sin el VSWR de los conectores no se evalúan las pérdidas de retorno.
+
+### 6.1 Retardo nominal (informativo)
+
+```
+τ'    = retardo_ns_m                                 [ns/m]
+τ'    = 10⁹ / (v/100 · c) = 333,564 / v              (sin retardo, con la velocidad de propagación v en %)
+τ_nom = τ' · L                                       [ns]
+```
+
+| Símbolo | Significado |
+|---|---|
+| τ' | Retardo nominal por metro |
+| v | Velocidad de propagación (% de c) |
+| c | 299 792 458 m/s |
+| L | Longitud del cable (`longitud_m`) |
+
+- **Ambos datos.** Si el modelo da el retardo y la velocidad, manda el retardo. La comprobación previa avisa si difieren en más de un 2 %. Ejemplo de aviso: «Retardo nominal de «CAB-…»: el retardo nominal (4 ns/m) no concuerda con la velocidad de propagación (77 % → 4,332 ns/m)». En el SUCOFLEX_118_A, 4,3 ns/m y 77 % (→ 4,332 ns/m) difieren un 0,7 %, así que concuerdan.
+- **Sin retardo nominal.** No lo hay si falta la longitud, o si faltan a la vez el retardo y la velocidad.
+- **Ensayos.** Vale para los de parámetros S (`vna_2_puertos`) y los de transmisión (`vna_transmision`).
+- **Veredicto.** Es **solo informativo**: no entra en el pasa / falla.
+
+El registro del ensayo guarda en `resultados`:
+
+| Clave | Contenido |
+|---|---|
+| `retardo_ns` | Retardo medido τ_med (§ 6.2) |
+| `retardo_nominal.ns_por_metro` | τ' |
+| `retardo_nominal.origen` | «retardo nominal» o «velocidad de propagación v %» |
+| `retardo_nominal.longitud_m` | L |
+| `retardo_nominal.nominal_ns` | τ_nom |
+| `retardo_nominal.diferencia_ns` | τ_med − τ_nom |
+| `retardo_nominal.diferencia_pct` | 100 · (τ_med − τ_nom) / τ_nom |
+| `retardo_nominal.longitud_estimada_m` | τ_med / τ': la longitud que corresponde al retardo medido con el τ' de la hoja |
+
+La comprobación de la plantilla y la ventana del ensayo lo anuncian en la línea «Retardo nominal (informativo, se compara con el medido): 4.3 ns/m (retardo nominal) × 3 m = 12.900 ns». La tabla de resultados lo muestra en las filas «retardo nominal · …».
+
+### 6.2 Retardo medido
+
+El retardo medido es la pendiente de la fase de S21, τ = −dφ/dω. Se ajusta por mínimos cuadrados en toda la banda.
+
+Hasta la versión 0.9.0, la fase se desenvolvía punto a punto en toda la banda. Con una lista de frecuencias de pasos grandes, un cable largo gira más de media vuelta entre dos puntos; con pasos de 100 MHz, eso pasa a partir de 5 ns. El desenvolvimiento se confundía (*aliasing*). Por ejemplo, el cable N de 2 m del ejemplo daba −0,16 ns en lugar de 9,53 ns: lo mide el setup «Cables N hasta 18 GHz (lista de frecuencias)», con pasos de 10 MHz hasta 1 GHz y de 100 MHz después.
+
+Ahora `transmission_delay` (`core/networks.py`) calcula el retardo así:
+
+1. **Primer retardo τ₁.** Se ajusta en el tramo más largo de puntos con el paso más fino Δf. Resuelve retardos de hasta 1/(2·Δf): 50 ns con pasos de 10 MHz.
+2. **Corrección.** Se quita τ₁ a toda la banda y se desenvuelve la fase que queda, que ya cambia poco de un punto a otro. Su pendiente corrige τ₁.
+3. **Paso demasiado grueso.** Si ni el paso más fino basta, el retardo es ambiguo en múltiplos de 1/Δf. Cuando el retardo nominal es mayor que 0,4/Δf, se toma el candidato más cercano a él.
+
+Con una rejilla uniforme de pasos finos, el resultado es el de antes. Los ensayos ya guardados no cambian.
+
+### 6.3 Impedancia nominal
+
+La comprobación previa avisa si `impedancia_nominal_ohm` difiere de la impedancia de referencia del VNA (`impedancia_ref_ohm`) en más de la tolerancia (`tolerancia_impedancia_ohm`; 0 si no se da). El aviso no impide el ensayo:
+
+> «CAB-…» es de 75 Ω y el VNA mide con 50 Ω: las pérdidas de retorno medidas incluyen el desajuste de impedancias
+
+Por ejemplo, un cable de 75 Ω perfecto medido en 50 Ω refleja |Γ| = 25/125 = 0,2 en cada extremo (VSWR 1,5).
+
+### 6.4 Radio de curvatura
+
+La petición «Conectar el DUT» añade el radio de curvatura mínimo del modelo: «Radio de curvatura mínimo del cable: 70 mm al moverlo, 50 mm fijo».
+
+### 6.5 Simulación
+
+Con el VNA simulado, el cable:
+- se propaga a su velocidad de propagación, o a la de su retardo nominal; si no tiene ninguno de los dos, al 70 %;
+- pierde la atenuación nominal A(f) de K1 y K2 si el modelo no da la atenuación típica a 1 GHz (`atenuacion_db_m_1ghz`).
+
+Así, el SUCOFLEX_118_A simulado se propaga al 77 % (4,332 ns/m), un poco más lento que los 4,3 ns/m de su hoja, y se ve la diferencia.
+
+### 6.6 Ejemplo: SUCOFLEX_118_A
+
+| Pieza | Fichero |
+|---|---|
+| Modelo | `catalogo/modelos/hs_sucoflex_118_a.yaml`: hasta 18 GHz, 50 ± 1 Ω, 4,3 ns/m, 77 %, 87 pF/m, apantallamiento de 90 dB, 1000 W a 1 GHz, ø13,2 mm, curvatura mínima de 50 mm fijo y 70 mm en movimiento, 215 g/m, de −40 °C a +85 °C, conectores U98; K1 = 0,15 y K2 = 0,0071 dB/m con f en GHz |
+| Unidad | `catalogo/equipos/CAB-DUT-0005.yaml`: 3 m, N macho – N macho |
+| Plantilla | `procedimientos/cable_CAB-DUT-0005.yaml`: setup «Cables N hasta 18 GHz (lista de frecuencias)»; IL máx. = A(f) + 0,3 dB |
+
+La fórmula reproduce la tabla de atenuación de la hoja: A = 0,157 dB/m a 1 GHz y 0,764 dB/m a 18 GHz.
+
+Con el VNA simulado, el ensayo **PASA**:
+- pérdidas de inserción con un margen mínimo de +0,30 dB (S21 a 9,4 GHz);
+- no se evalúan las pérdidas de retorno, porque la hoja no da el VSWR de los conectores;
+- retardo medido de 12,996 ns frente a 12,900 ns nominales (4,3 ns/m × 3 m): +0,096 ns (+0,74 %), longitud estimada de 3,022 m.
+
+| | |
+|---|---|
+| ![Datos RF de la hoja en el modelo](capturas/v09/05d_modelo_cable_hoja_datos_rf.png) | ![Datos mecánicos y de entorno de la hoja](capturas/v09/05e_modelo_cable_hoja_datos_mecanica.png) |
+| ![Comprobación con el retardo nominal](capturas/v09/27k_cable_retardo_comprobacion.png) | ![Retardo medido y nominal en los resultados](capturas/v09/27l_cable_retardo_resultados.png) |
+| ![Petición con el radio de curvatura](capturas/v09/21b_peticion_radio_curvatura.png) | |
+
+## 7. Ficheros del código
 
 | Fichero | Contenido |
 |---|---|
-| `procedures/cable_specs.py` | `CableSpecification`: atenuación nominal, VSWR del cable, límites, curvas, evaluación y registro; `cable_specification` a partir de los campos |
+| `procedures/cable_specs.py` | `CableSpecification`: atenuación nominal, VSWR del cable, límites, curvas, evaluación y registro; `cable_specification` a partir de los campos. `CableDelay` y `cable_delay`: retardo nominal y su comparación con el medido |
+| `core/networks.py` | `transmission_delay`: retardo medido de una transmisión (§ 6.2) |
 | `procedures/model.py` | `CableTolerances` (`tolerancias_cable` de la plantilla) |
-| `procedures/engine.py` | Comprobación previa (`RunPlan.cable_spec`) y paso «Evaluación pasa / falla» |
+| `procedures/engine.py` | Comprobación previa (`RunPlan.cable_spec`, `RunPlan.cable_delay`, aviso de impedancia), paso «Evaluación pasa / falla», radio de curvatura en la petición al operador y `retardo_nominal` del registro |
+| `instruments/simulation.py` | Cable simulado con su velocidad de propagación y su atenuación nominal |
 | `procedures/specs.py` | `entries_verdict`: veredicto de todas las evaluaciones del registro |
 | `gui/procedures_view.py` | Tolerancias en el editor de plantillas |
 | `gui/test_common.py` | Línea de la comprobación y curvas límite (del plan y del registro) |
-| `tests/test_cable_specs.py` | Unidades, suma de reflexiones, datos que faltan, evaluación y ensayo de ejemplo |
+| `tests/test_cable_specs.py` | Unidades, suma de reflexiones, datos que faltan, evaluación, ensayo de ejemplo, retardo medido y nominal, ejemplo SUCOFLEX_118_A y aviso de impedancia |

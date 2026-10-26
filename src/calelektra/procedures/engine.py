@@ -51,7 +51,7 @@ from calelektra.catalog.model import Equipment
 from calelektra.core.connectors import FAMILIES, GENDERS, Connector
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.issues import Issue, Severity, has_errors
-from calelektra.core.networks import gamma_to_impedance
+from calelektra.core.networks import gamma_to_impedance, transmission_delay
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone, write_touchstone
 from calelektra.core.units import format_frequency
 from calelektra.instruments.base import (
@@ -65,7 +65,14 @@ from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import driver_description, open_vna
 from calelektra.instruments.simulation import pair_model, simulated_dut, unknown_through_model
 from calelektra.catalog.model import SpecFile
-from calelektra.procedures.cable_specs import CABLE_FIELDS, CableSpecification, cable_specification
+from calelektra.procedures.cable_specs import (
+    CABLE_FIELDS,
+    DELAY_FIELDS,
+    CableDelay,
+    CableSpecification,
+    cable_delay,
+    cable_specification,
+)
 from calelektra.procedures.coupler import (
     CouplerLimit,
     coupler_limits,
@@ -232,6 +239,7 @@ class RunPlan:
     coupler_limits: dict[str, CouplerLimit] = field(default_factory=dict)  # nominal values of a coupler
     coupler_range: FrequencyRange | None = None  # where they apply: nominal range of the coupler
     cable_spec: CableSpecification | None = None  # cable by formula: K1, K2 and the VSWR of its connectors
+    cable_delay: CableDelay | None = None  # nominal delay of a cable (informative)
 
     @property
     def ok(self) -> bool:
@@ -483,9 +491,24 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
                 )
             if cable_spec is not None and algorithm == "vna_transmision" and cable_spec.has_return_loss:
                 warning("Especificación por fórmula: solo se evalúan las pérdidas de inserción (el ensayo de transmisión solo mide S21)", "ensayo.especificacion")
+    delay = None
+    if dut is not None and algorithm in ("vna_2_puertos", "vna_transmision"):
+        delay = cable_delay({key: library.field(dut, key) for key in DELAY_FIELDS})
+        for problem in delay.problems if delay is not None else []:
+            warning(f"Retardo nominal de «{dut.id}»: {problem}", "ensayo.retardo")
+        impedance = library.field(dut, "impedancia_nominal_ohm")
+        reference = library.field(vna, "impedancia_ref_ohm") if vna is not None else None
+        if impedance is not None and reference is not None:
+            tolerance = float(library.field(dut, "tolerancia_impedancia_ohm") or 0.0)
+            if abs(float(impedance) - float(reference)) > tolerance + 1e-9:
+                warning(
+                    f"«{dut.id}» es de {float(impedance):g} Ω y el VNA mide con {float(reference):g} Ω: las pérdidas de retorno "
+                    "medidas incluyen el desajuste de impedancias",
+                    "ensayo.impedancia",
+                )
     return RunPlan(
         procedure, effective, template, analysis, design, vna, dut, dut_role, frequency_plan, specs, measurements, issues, expanded, limits,
-        nominal_range, cable_spec,
+        nominal_range, cable_spec, delay,
     )
 
 
@@ -1042,7 +1065,7 @@ class ProcedureRunner:
                 self.listener.progress(index / total, f"Par {measurement.title}")
             title = "Conectar el DUT" if total == 1 else f"Par {measurement.title} ({index + 1}/{total})"
             simulate = self._simulated_connection(model, n_ports, category_ports, measurement, ports)
-            self._ask(title, self._connection_text(measurement), image="dut", simulate=simulate, step="medida")
+            self._ask(title, self._connection_text(measurement), details=self._handling_details(), image="dut", simulate=simulate, step="medida")
             f, s = self._measure_dut(ports, traces)
             result.frequencies, result.data[measurement.name] = f, s
             self.listener.data(measurement.name, f, s)
@@ -1052,6 +1075,20 @@ class ProcedureRunner:
         if total > 1:
             text = f"{total} pares de puertos, " + text
         return "ok", f"{text} ({CALIBRATION_STATUS[status]})"
+
+    def _handling_details(self) -> list[str]:
+        """What the operator must keep in mind while connecting the EUT: the bend radius of a cable."""
+        assert self.plan is not None and self.plan.dut is not None
+        dynamic = self.library.field(self.plan.dut, "radio_curvatura_dinamico_mm")
+        static = self.library.field(self.plan.dut, "radio_curvatura_estatico_mm")
+        if dynamic is None and static is None:
+            return []
+        parts = []
+        if dynamic is not None:
+            parts.append(f"{float(dynamic):g} mm al moverlo")
+        if static is not None:
+            parts.append(f"{float(static):g} mm fijo")
+        return [f"Radio de curvatura mínimo del cable: {', '.join(parts)}"]
 
     def _connection_text(self, measurement: PlannedMeasurement) -> str:
         """Where each port of the EUT goes: the plane at the end of a path, or a load of the setup."""
@@ -1298,7 +1335,7 @@ class ProcedureRunner:
                     files.append(self._write_uncertainty(name, path, f, uncertainty))
                 measurements.append(self._measurement_entry(name, path, "touchstone"))
             if algorithm == "vna_2_puertos":
-                summary = self._summary_2p(f, result.data["DUT"])
+                summary = self._delay_summary(self._summary_2p(result.data["DUT"]), f, result.data["DUT"][:, 1, 0])
             else:
                 quantities = coupler_quantities(result.data)
                 files.append(write_coupler_csv(folder / f"{self._file_stem('acoplador')}.csv", f, quantities, port_return_losses(result.data)))
@@ -1312,7 +1349,7 @@ class ProcedureRunner:
             if uncertainty:
                 files.append(self._write_uncertainty("DUT", path, f, uncertainty))
             measurements.append(self._measurement_entry("DUT", path, "csv_s21"))
-            summary = self._summary_s21(f, s[:, 1, 0])
+            summary = self._delay_summary(self._summary_s21(s[:, 1, 0]), f, s[:, 1, 0])
         else:
             s = result.data["DUT"]
             uncertainty = result.uncertainty.get("DUT")
@@ -1372,28 +1409,30 @@ class ProcedureRunner:
                 entry["fichero"] = path.name
         return path
 
+    def _delay_summary(self, summary: dict, f: np.ndarray, s21: np.ndarray) -> dict:
+        """Measured delay of S21 (``retardo_ns``) and, for a cable with a nominal delay, the comparison (informative)."""
+        assert self.plan is not None
+        nominal = self.plan.cable_delay
+        delay = transmission_delay(f, s21, nominal.nominal_ns * 1e-9 if nominal is not None else None) * 1e9
+        summary["retardo_ns"] = round(float(delay), 4)
+        if nominal is not None:
+            summary["retardo_nominal"] = nominal.summary(delay)
+        return summary
+
     @staticmethod
-    def _summary_2p(f: np.ndarray, s: np.ndarray) -> dict:
+    def _summary_2p(s: np.ndarray) -> dict:
         s21_db = _db(s[:, 1, 0])
         return_loss = -np.maximum(_db(s[:, 0, 0]), _db(s[:, 1, 1]))
-        phase = np.unwrap(np.angle(s[:, 1, 0]))
-        delay = -np.polyfit(2 * np.pi * f, phase, 1)[0] if len(f) > 2 else float("nan")
         return {
             "perdidas_insercion_db": {"min": round(float(-s21_db.max()), 4), "max": round(float(-s21_db.min()), 4)},
             "perdidas_retorno_min_db": round(float(return_loss.min()), 2),
-            "retardo_ns": round(float(delay * 1e9), 4),
             "reciprocidad_max_db": round(float(np.max(np.abs(s21_db - _db(s[:, 0, 1])))), 4),
         }
 
     @staticmethod
-    def _summary_s21(f: np.ndarray, s21: np.ndarray) -> dict:
+    def _summary_s21(s21: np.ndarray) -> dict:
         s21_db = _db(s21)
-        phase = np.unwrap(np.angle(s21))
-        delay = -np.polyfit(2 * np.pi * f, phase, 1)[0] if len(f) > 2 else float("nan")
-        return {
-            "perdidas_insercion_db": {"min": round(float(-s21_db.max()), 4), "max": round(float(-s21_db.min()), 4)},
-            "retardo_ns": round(float(delay * 1e9), 4),
-        }
+        return {"perdidas_insercion_db": {"min": round(float(-s21_db.max()), 4), "max": round(float(-s21_db.min()), 4)}}
 
     @staticmethod
     def _summary_1p(f: np.ndarray, gamma: np.ndarray) -> dict:

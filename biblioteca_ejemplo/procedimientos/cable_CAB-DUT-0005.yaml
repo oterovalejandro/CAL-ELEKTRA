@@ -1,0 +1,36 @@
+# Plantilla de ensayo: calibración del cable SUCOFLEX_118_A CAB-DUT-0005 (3 m,
+# N macho – N macho) con el setup de cables N de la lista de frecuencias.
+#   - Pasa / falla por fórmula: pérdidas de inserción máximas = atenuación
+#     nominal de la hoja de datos + 0,3 dB. La hoja no da el VSWR de los
+#     conectores (es del conjunto): no se evalúan las pérdidas de retorno.
+#   - Retardo: el nominal (4,3 ns/m × 3 m) se muestra junto al medido.
+formato: calelektra/procedimiento@0.3
+id: cable_CAB-DUT-0005
+nombre: Calibración cable SUCOFLEX_118_A CAB-DUT-0005 (CLIENTE-5001)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Medida de los parámetros S del cable SUCOFLEX_118_A en las frecuencias de la
+  lista del setup, pasa / falla de las pérdidas de inserción frente a la
+  atenuación nominal de su hoja de datos y retardo medido frente al nominal.
+algoritmo: vna_2_puertos
+hardware_setup: cable_N_18G
+eut: CAB-DUT-0005
+barrido:
+  potencia_dbm: -10
+  ifbw: 300 Hz
+  promedios: 2
+  suavizado_pct: 0
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1
+  s11_max_db: -30
+tolerancias_cable:
+  perdidas_insercion_db: 0.3   # IL máx. = A(f) + 0,3 dB
+exportacion:
+  formato: RI
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

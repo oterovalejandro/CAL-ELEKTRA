@@ -25,6 +25,11 @@ With the tolerances of the test template (``tolerancias_cable``):
 The second connector returns its reflection in full: the cable is assumed to
 let it through (no attenuation on the way back), the worst case. The limits
 are evaluated inside the nominal range of the cable.
+
+The nominal delay of the cable (``CableDelay``) is only informative: the delay
+per metre of the datasheet (``retardo_ns_m``) or, without it, the one of its
+velocity of propagation (``velocidad_propagacion_pct``: 1/(v·c)), times its
+length, next to the delay measured from the phase of S21.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import format_frequency
 from calelektra.procedures.specs import ParameterResult, SpecCurve
 
+C0 = 299_792_458.0  # m/s
 FREQUENCY_UNITS = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}
 LENGTH_UNITS = {"1 m": 1.0, "100 m": 100.0, "1 ft": 0.3048, "100 ft": 30.48, "1 in": 0.0254}  # metres
 CABLE_FIELDS = (
@@ -227,6 +233,65 @@ class CableSpecification:
             parameters = [_compare(p, frequencies, s, limit, "maximo", inside) for p in ("S11", "S22") if p in traces]
             entries.append(_entry(RETURN_LOSS, self.return_loss_criterion(), parameters))
         return entries
+
+
+DELAY_FIELDS = ("retardo_ns_m", "velocidad_propagacion_pct", "longitud_m")
+
+
+def delay_of_velocity(velocity_pct: float) -> float:
+    """Delay per metre (ns/m) of a velocity of propagation (% of c)."""
+    return 1e9 / (velocity_pct / 100 * C0)
+
+
+@dataclass
+class CableDelay:
+    """Nominal delay of a cable (informative): delay per metre × length."""
+
+    per_metre_ns: float
+    source: str  # where the delay per metre comes from
+    length_m: float
+    problems: list[str] = field(default_factory=list)
+
+    @property
+    def nominal_ns(self) -> float:
+        return self.per_metre_ns * self.length_m
+
+    def text(self) -> str:
+        return f"{self.per_metre_ns:g} ns/m ({self.source}) × {self.length_m:g} m = {self.nominal_ns:.3f} ns"
+
+    def summary(self, measured_ns: float | None) -> dict[str, Any]:
+        """``resultados.retardo_nominal`` of the record: nominal, difference and the length the measured delay gives."""
+        data: dict[str, Any] = {
+            "ns_por_metro": round(self.per_metre_ns, 4),
+            "origen": self.source,
+            "longitud_m": self.length_m,
+            "nominal_ns": round(self.nominal_ns, 4),
+        }
+        if measured_ns is not None and math.isfinite(measured_ns):
+            data["diferencia_ns"] = round(measured_ns - self.nominal_ns, 4) + 0.0  # no «-0.0»
+            data["diferencia_pct"] = round(100 * (measured_ns - self.nominal_ns) / self.nominal_ns, 3) + 0.0
+            data["longitud_estimada_m"] = round(measured_ns / self.per_metre_ns, 4)
+        return data
+
+
+def cable_delay(fields: dict[str, Any]) -> CableDelay | None:
+    """The nominal delay of a cable from its fields (``None`` without delay, velocity or length)."""
+    delay, velocity, length = (_number(fields.get(key)) for key in DELAY_FIELDS)
+    if length is None or (delay is None and not velocity):
+        return None
+    problems = []
+    if delay is not None:
+        per_metre, source = delay, "retardo nominal"
+        if velocity:
+            from_velocity = delay_of_velocity(velocity)
+            if abs(from_velocity - delay) > 0.02 * delay:
+                problems.append(
+                    f"el retardo nominal ({delay:g} ns/m) no concuerda con la velocidad de propagación "
+                    f"({velocity:g} % → {from_velocity:.3f} ns/m)"
+                )
+    else:
+        per_metre, source = delay_of_velocity(float(velocity)), f"velocidad de propagación {velocity:g} %"
+    return CableDelay(per_metre, source, length, problems)
 
 
 def cable_specification(

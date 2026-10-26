@@ -14,13 +14,62 @@ campos:
   conector_b: { etiqueta: Conector extremo B, tipo: conector, nivel: ambos, obligatorio: true, grupo: Conectores }
   longitud_m: { etiqueta: Longitud, tipo: numero, unidad: m, nivel: ambos, grupo: Mecánica }
   tipo_cable: { etiqueta: Tipo de cable, tipo: texto, nivel: ambos, grupo: Mecánica }
+  # datos de la hoja del cable (informativos; el retardo se compara con el medido y el radio de
+  # curvatura se recuerda al operador)
+  impedancia_nominal_ohm: { etiqueta: Impedancia nominal, tipo: numero, unidad: Ω, nivel: modelo, grupo: RF }
+  tolerancia_impedancia_ohm: { etiqueta: Tolerancia de la impedancia (±), tipo: numero, unidad: Ω, nivel: modelo, grupo: RF }
+  retardo_ns_m:
+    etiqueta: Retardo nominal
+    tipo: numero
+    unidad: ns/m
+    nivel: modelo
+    grupo: RF
+    descripcion: >-
+      Retardo de la señal por metro (hoja de datos). Con la longitud da el retardo nominal del
+      cable, que el ensayo muestra junto al medido (informativo). Si falta, sale de la velocidad
+      de propagación.
+  velocidad_propagacion_pct:
+    etiqueta: Velocidad de propagación
+    tipo: numero
+    unidad: "%"
+    nivel: modelo
+    grupo: RF
+    descripcion: "Respecto a la de la luz: retardo = 1 / (v·c) = 3,336 ns/m · 100 / v."
+  capacidad_pf_m: { etiqueta: Capacidad, tipo: numero, unidad: pF/m, nivel: modelo, grupo: RF }
+  apantallamiento_db: { etiqueta: Eficacia de apantallamiento, tipo: numero, unidad: dB, nivel: modelo, grupo: RF }
+  potencia_cw_1ghz_w:
+    etiqueta: Potencia CW máxima a 1 GHz
+    tipo: numero
+    unidad: W
+    nivel: modelo
+    grupo: RF
+    descripcion: "Como en las hojas de datos: P(f) = P(1 GHz) / √f[GHz]."
+  diametro_mm: { etiqueta: Diámetro exterior, tipo: numero, unidad: mm, nivel: modelo, grupo: Mecánica }
+  radio_curvatura_estatico_mm: { etiqueta: Radio de curvatura mínimo (fijo), tipo: numero, unidad: mm, nivel: modelo, grupo: Mecánica }
+  radio_curvatura_dinamico_mm:
+    etiqueta: Radio de curvatura mínimo (en movimiento)
+    tipo: numero
+    unidad: mm
+    nivel: modelo
+    grupo: Mecánica
+    descripcion: Se recuerda al operador cuando conecta el cable en el ensayo.
+  peso_g_m: { etiqueta: Peso, tipo: numero, unidad: g/m, nivel: modelo, grupo: Mecánica }
+  temperatura_operacion_c: { etiqueta: Temperatura de operación, tipo: rango_numero, unidad: °C, nivel: modelo, grupo: Entorno }
+  grupo_conectores:
+    etiqueta: Grupo de conectores (fabricante)
+    tipo: texto
+    nivel: modelo
+    grupo: Conectores
+    descripcion: Conectores que admite el cable según su fabricante (p. ej. U98 de HUBER+SUHNER).
   atenuacion_db_m_1ghz:
     etiqueta: Atenuación típica a 1 GHz
     tipo: numero
     unidad: dB/m
     nivel: modelo
     grupo: RF
-    descripcion: Dato del fabricante; solo lo usa la simulación cuando no hay datos S.
+    descripcion: >-
+      Dato del fabricante; solo lo usa la simulación cuando no hay datos S (si falta, la simulación
+      usa la atenuación nominal de K1 y K2).
   # especificación por fórmula (otra forma de dar el pasa / falla, además de los ficheros S2P):
   # A = K1·√f + K2·f por la longitud de referencia; las tolerancias las da la plantilla de ensayo
   k1_atenuacion:
