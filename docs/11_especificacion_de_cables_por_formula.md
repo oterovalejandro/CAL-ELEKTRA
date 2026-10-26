@@ -195,7 +195,7 @@ campos:
   radio_curvatura_dinamico_mm: 70
 ```
 
-La hoja es la del cable: los conectores de cada extremo y su VSWR son de cada conjunto (del grupo U98), así que van en cada equipo. Sin el VSWR de los conectores no se evalúan las pérdidas de retorno.
+La hoja es la del cable: los conectores de cada extremo son de cada conjunto (del grupo U98), así que van en cada equipo. La hoja tampoco da su VSWR, que es un dato del modelo (`vswr_conector_a`, `vswr_conector_b`). Sin él no se evalúan las pérdidas de retorno.
 
 ### 6.1 Retardo nominal (informativo)
 
