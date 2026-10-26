@@ -2,7 +2,7 @@
 # N macho – N macho) con el setup de cables N de la lista de frecuencias.
 #   - Pasa / falla por fórmula: pérdidas de inserción máximas = atenuación
 #     nominal de la hoja de datos + 0,3 dB. La hoja no da el VSWR de los
-#     conectores (es del conjunto): no se evalúan las pérdidas de retorno.
+#     conectores: no se evalúan las pérdidas de retorno.
 #   - Retardo: el nominal (4,3 ns/m × 3 m) se muestra junto al medido.
 formato: calelektra/procedimiento@0.3
 id: cable_CAB-DUT-0005

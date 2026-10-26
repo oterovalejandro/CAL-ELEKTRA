@@ -9,5 +9,3 @@ numero_serie: CLIENTE-5001
 descripcion: Cable de cliente a calibrar (SUCOFLEX 118, conectores N macho)
 campos:
   longitud_m: 3.0
-  conector_a: { familia: N, genero: macho }
-  conector_b: { familia: N, genero: macho }

@@ -195,7 +195,7 @@ campos:
   radio_curvatura_dinamico_mm: 70
 ```
 
-La hoja es la del cable: los conectores de cada extremo son de cada conjunto (del grupo U98), así que van en cada equipo. La hoja tampoco da su VSWR, que es un dato del modelo (`vswr_conector_a`, `vswr_conector_b`). Sin él no se evalúan las pérdidas de retorno.
+Un modelo de cable lleva sus conectores y el VSWR de estos (`vswr_conector_a`, `vswr_conector_b`), nunca la unidad: el mismo cable con otros conectores es **otro modelo**. El del ejemplo es el SUCOFLEX_118_A con conectores N macho (grupo U98). La hoja del cable no da el VSWR de los conectores; sin él no se evalúan las pérdidas de retorno.
 
 ### 6.1 Retardo nominal (informativo)
 
@@ -270,8 +270,8 @@ Así, el SUCOFLEX_118_A simulado se propaga al 77 % (4,332 ns/m), un poco más l
 
 | Pieza | Fichero |
 |---|---|
-| Modelo | `catalogo/modelos/hs_sucoflex_118_a.yaml`: hasta 18 GHz, 50 ± 1 Ω, 4,3 ns/m, 77 %, 87 pF/m, apantallamiento de 90 dB, 1000 W a 1 GHz, ø13,2 mm, curvatura mínima de 50 mm fijo y 70 mm en movimiento, 215 g/m, de −40 °C a +85 °C, conectores U98; K1 = 0,15 y K2 = 0,0071 dB/m con f en GHz |
-| Unidad | `catalogo/equipos/CAB-DUT-0005.yaml`: 3 m, N macho – N macho |
+| Modelo | `catalogo/modelos/hs_sucoflex_118_a.yaml`: hasta 18 GHz, 50 ± 1 Ω, 4,3 ns/m, 77 %, 87 pF/m, apantallamiento de 90 dB, 1000 W a 1 GHz, ø13,2 mm, curvatura mínima de 50 mm fijo y 70 mm en movimiento, 215 g/m, de −40 °C a +85 °C, conectores N macho (grupo U98); K1 = 0,15 y K2 = 0,0071 dB/m con f en GHz |
+| Unidad | `catalogo/equipos/CAB-DUT-0005.yaml`: 3 m |
 | Plantilla | `procedimientos/cable_CAB-DUT-0005.yaml`: setup «Cables N hasta 18 GHz (lista de frecuencias)»; IL máx. = A(f) + 0,3 dB |
 
 La fórmula reproduce la tabla de atenuación de la hoja: A = 0,157 dB/m a 1 GHz y 0,764 dB/m a 18 GHz.
