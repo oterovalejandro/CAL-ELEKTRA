@@ -10,10 +10,10 @@ Ejemplos de lo que cubre:
 
 ## Estado
 
-**Versión 0.9.1** — funcional con el VNA simulado:
+**Versión 0.9.2** — funcional con el VNA simulado:
 
 - **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**; los cables también se pueden especificar **por fórmula** (atenuación K1·√f + K2·f y VSWR de los conectores, con las tolerancias de la plantilla de ensayo) y llevan los **datos de su hoja**: impedancia, retardo nominal, que se compara con el medido, radio de curvatura, que se recuerda al operador, y otros.
-- **Hardware setups con una estructura común**: el VNA a la izquierda, una línea que se divide en sus puertos (P1, P2…) y, de cada puerto, un **camino** (cables de medida, adaptadores, paths, preamplificadores…, en orden) que lleva el plano de referencia hasta el puerto del DUT. El conector del final de cada camino dice **qué conectores de DUT se pueden calibrar** con el setup. Cada setup tiene sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** de cada unión y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM; OSM en 1 puerto; normalización de transmisión). Ver [`docs/09_caminos_y_nuevas_plantillas.md`](docs/09_caminos_y_nuevas_plantillas.md).
+- **Hardware setups con una estructura común**: el VNA a la izquierda, una línea que se divide en sus puertos (P1, P2…) y, de cada puerto, un **camino** (cables de medida, adaptadores, paths, preamplificadores…, en orden) que lleva el plano de referencia hasta el puerto del DUT. El conector del final de cada camino dice **qué conectores de DUT se pueden calibrar** con el setup. Se dibujan como en ELEKTRA, con un **icono para cada familia de equipos**, y un acoplador direccional se ve con sus cuatro puertos conectados a los planos y a las cargas (también en cada par al calibrarlo). Ver [`docs/12_iconos_y_conexiones_de_los_hardware_setups.md`](docs/12_iconos_y_conexiones_de_los_hardware_setups.md). Cada setup tiene sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** de cada unión y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM; OSM en 1 puerto; normalización de transmisión). Ver [`docs/09_caminos_y_nuevas_plantillas.md`](docs/09_caminos_y_nuevas_plantillas.md).
 - **Plantillas de ensayo** (las *test templates* de ELEKTRA): **llaman a un hardware setup**, que se ve como diagrama, y **definen el EUT**; además potencia, **IFBW y promedios** (todas las trazas o por traza), **suavizado de la visualización**, calibración, verificación y exportación, con comprobación continua.
 - **Ensayos**: registros de las plantillas lanzadas en una **carpeta** elegida por el usuario (explorador con carpetas externas). Cada ensayo guarda la plantilla tal como se lanzó, el setup y sus frecuencias, el EUT, las copias de las especificaciones, los resultados (.s2p/.s1p y CSV, sin suavizar), el **veredicto** con márgenes por parámetro y la trazabilidad (equipos, certificados, datos S, kit, calibración).
 - **Seis plantillas de hardware setup**. Cuatro tienen ensayo con el VNA:
@@ -33,7 +33,7 @@ Todavía falta: algoritmos de NSA y S_VSWR, mástiles, driver de la E5061B e inf
 
 ![Ensayo de un cable con pasa / falla frente a las especificaciones de su modelo y la incertidumbre de cada traza](docs/capturas/v07/23_ensayo_grafica.png)
 
-![Hardware setup: VNA, puertos, caminos, planos de referencia y DUT](docs/capturas/v08/14_setup_camino_P1.png)
+![Hardware setup con los iconos de cada familia: VNA, puertos, caminos, planos de referencia y el acoplador direccional con sus puertos y cargas](docs/capturas/v09/14_setup_camino_P1.png)
 
 ## Puesta en marcha
 
@@ -99,3 +99,4 @@ tests/                pruebas con pytest
 9. [Hardware setups con un camino por puerto del VNA y nuevas plantillas (transmisión, impedancia, acoplador) — versiones 0.8 a 0.8.3](docs/09_caminos_y_nuevas_plantillas.md)
 10. [Algoritmos y fórmulas del cálculo de incertidumbres (parámetros S, temperatura, gráficas e impedancia) — versión 0.8.4](docs/10_algoritmos_de_incertidumbre.md)
 11. [Especificación de cables por fórmula (K1, K2, VSWR de los conectores y tolerancias de la plantilla) y datos de la hoja del cable (retardo nominal, impedancia, radio de curvatura) — versiones 0.9 y 0.9.1](docs/11_especificacion_de_cables_por_formula.md)
+12. [Iconos de los equipos y conexiones en los hardware setups (el acoplador direccional con sus puertos) — versión 0.9.2](docs/12_iconos_y_conexiones_de_los_hardware_setups.md)

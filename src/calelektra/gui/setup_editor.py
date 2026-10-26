@@ -11,7 +11,7 @@ analysis and refreshes the views.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtGui import QAction, QColor, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -43,8 +43,9 @@ from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.core.connectors import GENDERS
 from calelektra.gui import style
 from calelektra.gui.coverage_widget import CoverageWidget
+from calelektra.gui.equipment_icons import icon_pixmap
 from calelektra.gui.icons import icon
-from calelektra.gui.setup_diagram import PATH_ROLE, SetupDiagramView
+from calelektra.gui.setup_diagram import PATH_ROLE, SetupDiagramView, equipment_glyph
 from calelektra.gui.template_widgets import FrequencyEditor
 from calelektra.setups.analysis import Check, SetupAnalysis, analyze_setup
 from calelektra.setups.connections import CalibrationDesign, method_name
@@ -185,7 +186,7 @@ class RolePanel(QWidget):
             text = f"{index + 1}. " + (self._candidate_text(item.equipment) if known else f"{item.equipment}  ⚠ no existe")
             if element is not None and element.vna_side and element.dut_side:
                 text += f"  ({element.vna_side} → {element.dut_side}" + (", invertido" if element.reversed else "") + ")"
-            entry = QListWidgetItem(icon("cable", style.PRIMARY.name() if known else style.ERROR.name()), text)
+            entry = QListWidgetItem(self._equipment_icon(item.equipment) if known else icon("error", style.ERROR.name()), text)
             listing.addItem(entry)
         if not items:
             empty = QListWidgetItem("Sin equipos: el plano de referencia queda en el puerto del VNA")
@@ -200,7 +201,7 @@ class RolePanel(QWidget):
         used = set(setup.equipment_places())  # an equipment takes one place: not offered again (not even in this path)
         for equipment in self.library.equipment_in_categories(list(definition.categories)):
             if equipment.id not in used:
-                candidates.addItem(self._candidate_text(equipment.id), equipment.id)
+                candidates.addItem(self._equipment_icon(equipment.id), self._candidate_text(equipment.id), equipment.id)
         candidates.setToolTip("Los equipos ya usados en el setup (en un camino o en otro rol) no se ofrecen")
         add = QPushButton(icon("nuevo", style.PRIMARY.name()), "Añadir al final")
         add_row = QWidget()
@@ -318,7 +319,9 @@ class RolePanel(QWidget):
         current_id = current if isinstance(current, str) else (current[0] if current else None)
         known = {e.id for e in candidates}
         for equipment in candidates:
-            combo.addItem(self._candidate_text(equipment.id) + ("  ⚠ ya usado en el setup" if equipment.id in used else ""), equipment.id)
+            combo.addItem(
+                self._equipment_icon(equipment.id), self._candidate_text(equipment.id) + ("  ⚠ ya usado en el setup" if equipment.id in used else ""), equipment.id
+            )
         if current_id and current_id not in known:
             combo.addItem(f"{current_id}  ⚠ no compatible o inexistente", current_id)
         index = combo.findData(current_id) if current_id else 0
@@ -334,6 +337,10 @@ class RolePanel(QWidget):
 
         combo.currentIndexChanged.connect(selected)
         return combo
+
+    def _equipment_icon(self, equipment_id: str) -> QIcon:
+        """The pictogram of the equipment, as in the diagram."""
+        return QIcon(icon_pixmap(equipment_glyph(self.library, equipment_id) or "generico", 32))
 
     def _candidate_text(self, equipment_id: str) -> str:
         equipment = self.library.equipment[equipment_id]
@@ -649,6 +656,9 @@ class SetupEditor(QWidget):
         self.action_test.triggered.connect(self._new_template)
         self.action_fit = QAction(icon("buscar", style.PRIMARY.name()), "Ajustar\nvista", self)
         self.action_fit.triggered.connect(lambda: self.diagram.fit())
+        self.action_arrange = QAction(icon("recargar", style.PRIMARY.name()), "Recolocar\nnodos", self)
+        self.action_arrange.setToolTip("Volver a la colocación automática del diagrama (olvida los nodos movidos a mano)")
+        self.action_arrange.triggered.connect(self.arrange_nodes)
         self.save_button = QPushButton(icon("guardar", "#ffffff"), "Guardar")
         self.save_button.setObjectName("primary")
         self.save_button.clicked.connect(self.save)
@@ -815,7 +825,7 @@ class SetupEditor(QWidget):
         self._range_edited()
 
     def ribbon_actions(self) -> list[QAction | None]:
-        return [self.action_save, None, self.action_test, None, self.action_fit]
+        return [self.action_save, None, self.action_test, None, self.action_fit, self.action_arrange]
 
     def _changed(self) -> None:
         self._set_dirty()
@@ -857,6 +867,15 @@ class SetupEditor(QWidget):
     def _node_moved(self, key: str, x: float, y: float) -> None:
         self.setup.layout[key] = [round(x, 1), round(y, 1)]
         self._set_dirty()
+
+    def arrange_nodes(self) -> None:
+        """Back to the automatic layout: the positions of the nodes moved by hand are forgotten."""
+        if not self.setup.layout:
+            return
+        self.setup.layout.clear()
+        self._set_dirty()
+        self._redraw_diagram()
+        self.diagram.fit()
 
     def save(self) -> bool:
         if self.is_new and self.setup.id in self.library.setups:

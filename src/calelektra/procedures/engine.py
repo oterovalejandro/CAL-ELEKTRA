@@ -137,6 +137,7 @@ class PromptRequest:
     details: list[str] = field(default_factory=list)
     step: str = ""
     image: str | None = None  # hint for the GUI: open, short, match, through, dut, lisn
+    measurement: str | None = None  # the measurement of the EUT it connects («DUT», a pair of a coupler: «In-Out»…)
 
 
 class Operator(Protocol):
@@ -584,9 +585,10 @@ class ProcedureRunner:
         image: str | None = None,
         simulate: Callable[[DummyVna], None] | None = None,
         step: str = "",
+        measurement: str | None = None,
     ) -> bool:
         self._check_stop()
-        prompt = PromptRequest(title, message, kind, list(details or []), step, image)
+        prompt = PromptRequest(title, message, kind, list(details or []), step, image, measurement)
         self._log(f"Operador: {title} — {message}", "operador")
         accepted = self.operator.request(prompt)
         self._check_stop()
@@ -1065,7 +1067,10 @@ class ProcedureRunner:
                 self.listener.progress(index / total, f"Par {measurement.title}")
             title = "Conectar el DUT" if total == 1 else f"Par {measurement.title} ({index + 1}/{total})"
             simulate = self._simulated_connection(model, n_ports, category_ports, measurement, ports)
-            self._ask(title, self._connection_text(measurement), details=self._handling_details(), image="dut", simulate=simulate, step="medida")
+            self._ask(
+                title, self._connection_text(measurement), details=self._handling_details(), image="dut", simulate=simulate, step="medida",
+                measurement=measurement.name,
+            )
             f, s = self._measure_dut(ports, traces)
             result.frequencies, result.data[measurement.name] = f, s
             self.listener.data(measurement.name, f, s)

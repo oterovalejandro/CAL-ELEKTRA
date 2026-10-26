@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import html
 import threading
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtGui import QAction, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -49,7 +50,7 @@ from calelektra.gui import style
 from calelektra.gui.icons import icon
 from calelektra.gui.illustrations import illustration
 from calelektra.gui.plots import ResultPlots
-from calelektra.gui.setup_diagram import SetupDiagramView
+from calelektra.gui.setup_diagram import SetupDiagramView, connection_picture
 from calelektra.gui.test_common import (
     SETTINGS,
     is_logarithmic,
@@ -73,6 +74,7 @@ from calelektra.instruments.factory import is_simulated
 from calelektra.procedures.engine import (
     STEPS,
     AutoOperator,
+    PlannedMeasurement,
     ProcedureRunner,
     PromptRequest,
     RunListener,
@@ -260,7 +262,7 @@ class LaunchTestDialog(QDialog):
 class PromptDialog(QDialog):
     """Request to the operator: connect a standard, the EUT… or confirm."""
 
-    def __init__(self, prompt: PromptRequest, parent: QWidget | None = None):
+    def __init__(self, prompt: PromptRequest, parent: QWidget | None = None, picture: QPixmap | None = None):
         super().__init__(parent)
         self.setWindowTitle(prompt.title)
         self.setModal(False)  # «Detener» of the test window stays usable while the operator is asked
@@ -270,12 +272,17 @@ class PromptDialog(QDialog):
         title.setObjectName("pageTitle")
         title.setWordWrap(True)
         layout.addWidget(title)
-        if prompt.image:
-            picture = QLabel()
-            picture.setPixmap(illustration(prompt.image))
-            picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            picture.setStyleSheet("background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 8px;")
-            layout.addWidget(picture)
+        if picture is not None or prompt.image:
+            pixmap = picture if picture is not None else illustration(prompt.image)
+            ratio = pixmap.devicePixelRatio()
+            if pixmap.width() / ratio > 520:  # the drawing of a connection: as wide as the request
+                pixmap = pixmap.scaledToWidth(round(520 * ratio), Qt.TransformationMode.SmoothTransformation)
+                pixmap.setDevicePixelRatio(ratio)
+            label = QLabel()
+            label.setPixmap(pixmap)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setStyleSheet("background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 8px;")
+            layout.addWidget(label)
         message = QLabel(prompt.message)
         message.setWordWrap(True)
         message.setStyleSheet("font-size: 13px;")
@@ -307,9 +314,10 @@ class PromptBridge(QObject):
 
     requested = Signal(object)
 
-    def __init__(self, parent_widget: QWidget):
+    def __init__(self, parent_widget: QWidget, picture: Callable[[PromptRequest], QPixmap | None] | None = None):
         super().__init__()
         self.parent_widget = parent_widget
+        self.picture = picture  # the drawing of a request, when the window has a better one than the generic
         self.answer = False
         self.dialog: PromptDialog | None = None
         self._answered = threading.Event()
@@ -338,7 +346,7 @@ class PromptBridge(QObject):
         if self._cancelled.is_set():
             self._finish(False)
             return
-        dialog = PromptDialog(prompt, self.parent_widget)
+        dialog = PromptDialog(prompt, self.parent_widget, self.picture(prompt) if self.picture is not None else None)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         dialog.finished.connect(lambda result: self._finish(result == QDialog.DialogCode.Accepted))
         self.dialog = dialog
@@ -709,6 +717,26 @@ class TestWindow(QWidget):
         if chip is not None:
             self.chips.addWidget(chip, 0, Qt.AlignmentFlag.AlignVCenter)
 
+    def _measurement(self, name: str | None) -> PlannedMeasurement | None:
+        if self.plan is None or name is None:
+            return None
+        return next((measurement for measurement in self.plan.measurements if measurement.name == name), None)
+
+    def prompt_picture(self, prompt: PromptRequest) -> QPixmap | None:
+        """For each pair of ports of a coupler: the coupler with its ports on the planes and on the loads."""
+        measurement = self._measurement(prompt.measurement)
+        if measurement is None or measurement.expanded is None or self.procedure is None or self.procedure.algorithm != "vna_acoplador":
+            return None
+        return connection_picture(measurement.expanded, self.library)
+
+    def _prompted(self, prompt: PromptRequest) -> None:
+        """While the EUT is connected for a measurement, the hardware setup tab shows that connection."""
+        measurement = self._measurement(prompt.measurement)
+        plan = self.plan
+        if measurement is None or measurement.expanded is None or plan is None or plan.template is None or plan.setup is None:
+            return
+        self.diagram.show_setup(plan.template, plan.setup, self.library, plan.analysis, "medida", expanded=measurement.expanded)
+
     def _show_diagram(self) -> None:
         plan = self.plan
         if plan is None and self.procedure is not None:
@@ -752,7 +780,8 @@ class TestWindow(QWidget):
         self.spec_table.setRowCount(0)
         self.log_view.clear()
         self._reset_steps()
-        self.bridge = PromptBridge(self)
+        self.bridge = PromptBridge(self, self.prompt_picture)
+        self.bridge.requested.connect(self._prompted)
         operator = AutoOperator() if self.automatic else GuiOperator(self.bridge)
         self.worker = RunWorker(None)
         listener = _Listener(self.worker)
@@ -870,6 +899,7 @@ class TestWindow(QWidget):
         self.result = result
         record = result.record
         self.show_record(record)
+        self._show_diagram()  # the setup as defined, after showing the connection of each measurement
         if result.data and result.frequencies is not None:
             self.plot.clear()
             log_x = is_logarithmic(record)

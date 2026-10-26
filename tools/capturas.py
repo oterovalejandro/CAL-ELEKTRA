@@ -19,12 +19,15 @@ import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QMessageBox
 
 from calelektra.catalog.library import Library
 from calelektra.gui.app import EXAMPLE_LIBRARY
 from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
+from calelektra.gui.equipment_icons import GLYPH_NAMES, paint_icon
 from calelektra.gui.main_window import MainWindow
 from calelektra.gui.plots import SParameterDialog
 from calelektra.gui.style import apply_theme
@@ -57,6 +60,30 @@ def probe_workbook(path: Path, start: datetime, end: datetime) -> Path:
         readings.append(AmbientReading(time, round(23.2 + 0.4 * math.sin(i / 9), 1), round(942.6 + 0.3 * math.sin(i / 40), 1), round(37 + 1.5 * math.cos(i / 15), 1)))
         time += timedelta(minutes=1)
     return write_tph_workbook(path, readings, "VIRTUAL LAB: Datos sonda TPH")
+
+
+def icon_sheet(path: Path) -> None:
+    """All the pictograms of the equipment, with their names."""
+    names = list(GLYPH_NAMES)
+    columns, size, cell_w, cell_h = 9, 56, 150, 100
+    rows = -(-len(names) // columns)
+    image = QImage(columns * cell_w + 20, rows * cell_h + 20, QImage.Format.Format_ARGB32)
+    image.fill(QColor("#ffffff"))
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    font = QFont()
+    font.setPointSizeF(8)
+    painter.setFont(font)
+    for index, name in enumerate(names):
+        row, column = divmod(index, columns)
+        x, y = 10 + column * cell_w, 10 + row * cell_h
+        paint_icon(painter, QRectF(x + (cell_w - size) / 2, y, size, size), name)
+        painter.setPen(QColor("#5b6b80"))
+        text = QRectF(x, y + size + 4, cell_w, 34)
+        painter.drawText(text, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, GLYPH_NAMES[name])
+    painter.end()
+    image.save(str(path))
+    print("captura", path)
 
 
 def main() -> None:
@@ -96,6 +123,7 @@ def main() -> None:
         if "3001" not in record.title:  # this one keeps its uncertainty pending
             load_ambient_conditions(library, record, workbook)
 
+    icon_sheet(out / "15_iconos_equipos.png")
     window = MainWindow(library)
     window.resize(1600, 980)
     window.show()
@@ -252,6 +280,19 @@ def main() -> None:
     grab(window, out / "27d_acoplador_grafica.png")
     coupler_window.plot.mode.setCurrentIndex(coupler_window.plot.mode.findData("vswr_db"))
     grab(window, out / "27g_acoplador_vswr.png")
+    # recalibration of the coupler: each pair of ports with its connections, in the request and in the setup tab
+    pair_test = window._add_test_window(
+        TestWindow(library, library.procedures["acoplador_ACP-0001"], client, "Acoplador nº 9001 (recalibración)", "Demo", automatic=True)
+    )
+    pair = next(r for r in operators["acoplador_ACP-0001"].requests if r.measurement == "In-Coupl. Fwd")
+    prompt = PromptDialog(pair, window, pair_test.prompt_picture(pair))
+    prompt.show()
+    grab(prompt, out / "21c_peticion_par_acoplador.png")
+    prompt.close()
+    pair_test._prompted(pair)
+    pair_test.tabs.setCurrentIndex(2)
+    pair_test.diagram.fit()
+    grab(window, out / "25b_ensayo_par_acoplador.png")
     coupler_window.plot.mode.setCurrentIndex(coupler_window.plot.mode.findData("db"))
     window.show_section("ensayos")
     window.tests_view.show_test(coupler.folder)
