@@ -32,30 +32,38 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from calelektra.catalog.library import Library, LibraryError, validation_message
+from calelektra.core.units import UnitError, parse_frequency
 from calelektra.gui import style
 from calelektra.gui.icons import icon
 from calelektra.gui.setup_diagram import SetupDiagramView
 from calelektra.gui.template_widgets import SpecEditor, TraceEditor
 from calelektra.gui.test_common import equipment_text, plan_html, setup_state
-from calelektra.procedures.cable_specs import CABLE_FIELDS, cable_specification
+from calelektra.procedures.cable_results import DEFAULT_REPORT_POINTS
+from calelektra.procedures.cable_specs import (
+    CABLE_FIELDS,
+    bands_text,
+    cable_specification,
+)
 from calelektra.procedures.engine import eut_choices, prepare_run, suitable_setups
 from calelektra.procedures.model import (
     ALGORITHMS,
     CALIBRATION_METHODS,
     COUPLER_PORTS,
     DEFAULT_COUPLER_PAIRS,
+    DEFAULT_REPORT_TEMPLATE,
     PLANES_NEEDED,
     TRACES,
     ProcedureTemplate,
 )
-from calelektra.setups.paths import default_dut_ports
 from calelektra.setups.analysis import analyze_setup
+from calelektra.setups.paths import default_dut_ports
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 
@@ -179,7 +187,9 @@ class ProcedureEditor(QWidget):
         self.vswr_tolerance.setDecimals(1)
         self.vswr_tolerance.setSuffix(" %")
         self.vswr_tolerance.setSpecialValueText("— (sin tolerancia)")
-        self.vswr_tolerance.setToolTip("VSWR máximo = VSWR del cable (suma lineal de las reflexiones de sus conectores) · (1 + tolerancia)")
+        self.vswr_tolerance.setToolTip(
+            "VSWR de cada conector · (1 + tolerancia); el VSWR máximo del cable suma linealmente las reflexiones de los dos"
+        )
         for spin in (self.il_tolerance, self.vswr_tolerance):  # the minimum (special text): no tolerance
             spin.setValue(spin.minimum())
             spin.valueChanged.connect(self._edited)
@@ -267,6 +277,37 @@ class ProcedureEditor(QWidget):
         exp_form.addRow("Nombre de fichero", self.filename)
         exp_form.addRow(self.csv)
 
+        # calibration certificate of a cable (procedures/report.py): what the test record does not say
+        report = style.Card("Certificado de calibración (cables)", icon_name="certificado")
+        report_form = QFormLayout()
+        report.body.addLayout(report_form)
+        self.report_procedure = QLineEdit()
+        self.report_procedure.setPlaceholderText("Procedimiento de calibración del laboratorio")
+        self.report_interval = QLineEdit()
+        self.report_interval.setPlaceholderText("p. ej. Anual, Bienal")
+        self.report_rows = QLineEdit()
+        self.report_rows.setPlaceholderText(f"{DEFAULT_REPORT_POINTS}  o una lista: 10 MHz; 1 GHz; 2 GHz")
+        self.report_rows.setToolTip(
+            "Filas de las tablas Fwd y Rev: n frecuencias igualmente espaciadas en el barrido (redondeadas a dos cifras "
+            "significativas, salvo la primera y la última) o una lista; cada fila lleva los valores del punto medido más cercano"
+        )
+        self.report_aperture = QSpinBox()
+        self.report_aperture.setRange(1, 1000)
+        self.report_aperture.setSuffix(" pasos")
+        self.report_aperture.setToolTip("Pasos de frecuencia en que se ajusta el retardo de grupo (gráficas, resultados y certificado)")
+        self.report_sensor = QComboBox()
+        self.report_sensor.setToolTip("Sonda de las condiciones ambientales: va en la tabla de equipos del certificado")
+        self.report_template = QLineEdit()
+        self.report_template.setPlaceholderText(DEFAULT_REPORT_TEMPLATE)
+        self.report_template.setToolTip("Plantilla de Word con etiquetas, relativa a la biblioteca")
+        report_form.addRow("Procedimiento", self.report_procedure)
+        report_form.addRow("Intervalo de calibración", self.report_interval)
+        report_form.addRow("Frecuencias de las tablas", self.report_rows)
+        report_form.addRow("Apertura del retardo de grupo", self.report_aperture)
+        report_form.addRow("Sonda ambiental", self.report_sensor)
+        report_form.addRow("Plantilla de Word", self.report_template)
+        self.report_card = report
+
         check = style.Card("Comprobación de la plantilla", icon_name="ok")
         self.check_summary = QLabel()
         self.check_summary.setWordWrap(True)
@@ -285,7 +326,8 @@ class ProcedureEditor(QWidget):
         options.body.addWidget(self.options)
 
         left_column, right_column = QVBoxLayout(), QVBoxLayout()
-        for column, cards in ((left_column, (general, setup_card, eut_card)), (right_column, (check, measurement, calibration, verification, uncertainty, export))):
+        right_cards = (check, measurement, calibration, verification, uncertainty, export, report)
+        for column, cards in ((left_column, (general, setup_card, eut_card)), (right_column, right_cards)):
             column.setSpacing(12)
             for card in cards:
                 column.addWidget(card)
@@ -301,8 +343,13 @@ class ProcedureEditor(QWidget):
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(18)
 
-        for widget in (self.id_edit, self.name, self.version, self.status, self.vna_name, self.filename):
+        for widget in (
+            self.id_edit, self.name, self.version, self.status, self.vna_name, self.filename,
+            self.report_procedure, self.report_interval, self.report_rows, self.report_template,
+        ):  # fmt: skip
             widget.textEdited.connect(self._edited)
+        self.report_aperture.valueChanged.connect(self._edited)
+        self.report_sensor.currentIndexChanged.connect(self._edited)
         for widget in (self.description, self.options):
             widget.textChanged.connect(self._edited)
         for widget in (self.method, self.data_format, self.unit):
@@ -335,6 +382,7 @@ class ProcedureEditor(QWidget):
     def _algorithm_changed(self, *_args) -> None:
         algorithm = self.algorithm.currentData()
         self.traces.set_traces(TRACES[algorithm])
+        self.report_card.setVisible(algorithm == "vna_2_puertos")
         current = self.setup.currentData()
         self.setup.blockSignals(True)
         self.setup.clear()
@@ -463,8 +511,9 @@ class ProcedureEditor(QWidget):
         if spec.has_attenuation:
             parts.append(f"Atenuación nominal {spec.formula_text()}")
         if spec.has_return_loss:
-            vswr = spec.connector_vswr
-            parts.append(f"VSWR de los conectores {vswr[0]:g} y {vswr[1]:g} → cable {spec.cable_vswr:.3f}")
+            a, b = spec.connector_vswr
+            connectors = bands_text(a) if a == b else f"{bands_text(a)} y {bands_text(b)}"
+            parts.append(f"VSWR de los conectores {connectors} → cable {bands_text(spec.cable_vswr_bands())} (la tolerancia se aplica a cada conector)")
         parts += spec.problems
         self.cable_info.setText(html.escape(" · ".join(parts)))
 
@@ -474,6 +523,29 @@ class ProcedureEditor(QWidget):
     def cable_tolerance_values(self) -> dict[str, float]:
         values = {"perdidas_insercion_db": self.il_tolerance, "vswr_pct": self.vswr_tolerance}
         return {key: spin.value() for key, spin in values.items() if spin.value() > spin.minimum()}
+
+    def report_values(self) -> dict:
+        """``informe`` of the template: the settings of the certificate of a cable."""
+        rows_text = self.report_rows.text().strip()
+        rows: int | list[str] | None = None
+        if rows_text.isdigit():
+            rows = int(rows_text)
+        elif rows_text:
+            rows = [part.strip() for part in rows_text.split(";") if part.strip()]
+            for part in rows:
+                try:
+                    parse_frequency(part)
+                except UnitError as exc:
+                    raise ValueError(f"Frecuencias del certificado: «{part}» no es una frecuencia ({exc})") from exc
+        values = {
+            "plantilla": self.report_template.text().strip() or None,
+            "procedimiento": self.report_procedure.text().strip() or None,
+            "intervalo": self.report_interval.text().strip() or None,
+            "frecuencias": rows,
+            "apertura_retardo": self.report_aperture.value(),
+            "sonda_ambiental": self.report_sensor.currentData(),
+        }
+        return {key: value for key, value in values.items() if value is not None}
 
     def _eut_spec_path(self, reference: str):
         equipment = self._current_eut()
@@ -578,6 +650,20 @@ class ProcedureEditor(QWidget):
         self.filename.setText(export.filename)
         self.csv.setChecked(export.csv)
         self.options.setPlainText(yaml.safe_dump(procedure.options, allow_unicode=True, sort_keys=False) if procedure.options else "")
+        report = procedure.report
+        self.report_procedure.setText(report.procedure or "")
+        self.report_interval.setText(report.interval or "")
+        rows = report.frequencies
+        self.report_rows.setText("; ".join(rows) if isinstance(rows, list) else ("" if rows is None else str(rows)))
+        self.report_aperture.setValue(report.aperture)
+        self.report_sensor.clear()
+        self.report_sensor.addItem("— (ninguna)", None)
+        for equipment in sorted(self.library.equipment_in_categories(["sensor_ambiental"]), key=lambda e: e.id):
+            self.report_sensor.addItem(icon("condiciones", style.PRIMARY.name()), equipment_text(self.library, equipment), equipment.id)
+        if report.ambient_sensor and self.report_sensor.findData(report.ambient_sensor) < 0:
+            self.report_sensor.addItem(icon("error", style.ERROR.name()), f"{report.ambient_sensor} (no existe)", report.ambient_sensor)
+        self.report_sensor.setCurrentIndex(max(self.report_sensor.findData(report.ambient_sensor), 0))
+        self.report_template.setText(report.template or "")
         self._loading = False
         self._check_timer.stop()
         self.refresh_check()
@@ -630,6 +716,7 @@ class ProcedureEditor(QWidget):
                 "csv": self.csv.isChecked(),
             },
             "opciones": options,
+            "informe": self.report_values(),
         }
         if not data["nombre"]:
             raise ValueError("Indique el nombre de la plantilla de ensayo")

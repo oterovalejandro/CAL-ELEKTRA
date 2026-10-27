@@ -159,11 +159,36 @@ class CableTolerances(_Section):
     """
 
     insertion_loss_db: float | None = Field(default=None, alias="perdidas_insercion_db", ge=0)  # IL_max = A(f) + t
-    vswr_pct: float | None = Field(default=None, alias="vswr_pct", ge=0)  # VSWR_max = VSWR_cable · (1 + t/100)
+    vswr_pct: float | None = Field(default=None, alias="vswr_pct", ge=0)  # on each connector: VSWR_i · (1 + t/100)
 
     @property
     def given(self) -> bool:
         return self.insertion_loss_db is not None or self.vswr_pct is not None
+
+
+DEFAULT_REPORT_TEMPLATE = "informes/certificado_cable.docx"
+
+
+class ReportSettings(_Section):
+    """Calibration certificate of a cable (``procedures/report.py``): what the test record does not say."""
+
+    template: str | None = Field(default=None, alias="plantilla")  # Word template, relative to the library
+    procedure: str | None = Field(default=None, alias="procedimiento")  # code of the calibration procedure of the lab
+    interval: str | None = Field(default=None, alias="intervalo")  # calibration interval of the EUT (Anual, Bienal…)
+    frequencies: int | list[str] | None = Field(default=None, alias="frecuencias")  # rows of the tables: number or list
+    aperture: int = Field(default=10, alias="apertura_retardo", ge=1)  # frequency steps of the group delay
+    ambient_sensor: str | None = Field(default=None, alias="sonda_ambiental")  # equipment of the probe of the conditions
+
+    @field_validator("frequencies", mode="before")
+    @classmethod
+    def _frequencies(cls, value: Any) -> Any:
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value]
+        return value
+
+    @property
+    def template_path(self) -> str:
+        return self.template or DEFAULT_REPORT_TEMPLATE
 
 
 class ExportSettings(_Section):
@@ -194,6 +219,7 @@ class ProcedureTemplate(BaseModel):
     verification: VerificationSettings = Field(default_factory=VerificationSettings, alias="verificacion")
     uncertainty: UncertaintySettings = Field(default_factory=UncertaintySettings, alias="incertidumbre")
     cable_tolerances: CableTolerances = Field(default_factory=CableTolerances, alias="tolerancias_cable")  # cable by formula
+    report: ReportSettings = Field(default_factory=ReportSettings, alias="informe")  # calibration certificate
     export: ExportSettings = Field(default_factory=ExportSettings, alias="exportacion")
     options: dict[str, Any] = Field(default_factory=dict, alias="opciones")
 
@@ -240,4 +266,6 @@ class ProcedureTemplate(BaseModel):
         data = self.model_dump(by_alias=True, exclude_none=True, mode="json")
         if not data.get("tolerancias_cable"):
             data.pop("tolerancias_cable", None)
+        if data.get("informe") == ReportSettings().model_dump(by_alias=True, exclude_none=True, mode="json"):
+            data.pop("informe", None)
         return data

@@ -47,9 +47,10 @@ from PySide6.QtWidgets import (
 from calelektra.catalog.library import Library, LibraryError
 from calelektra.core.issues import Severity
 from calelektra.gui import style
+from calelektra.gui.certificate_dialog import make_certificate
 from calelektra.gui.icons import icon
 from calelektra.gui.illustrations import illustration
-from calelektra.gui.plots import ResultPlots
+from calelektra.gui.plots import ResultPlots, SParameterPlot
 from calelektra.gui.setup_diagram import SetupDiagramView, connection_picture
 from calelektra.gui.test_common import (
     SETTINGS,
@@ -59,11 +60,11 @@ from calelektra.gui.test_common import (
     plan_html,
     record_coverage_factor,
     record_datasets,
-    record_smoothing,
     record_uncertainty,
     save_package,
     setup_rows,
     setup_state,
+    show_display_settings,
     show_plan_specifications,
     show_specifications,
     uncertainty_rows,
@@ -84,6 +85,7 @@ from calelektra.procedures.engine import (
 )
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import TestRecord
+from calelektra.procedures.report import certificate_problem
 from calelektra.procedures.specs import VERDICTS
 from calelektra.setups.connections import method_name
 
@@ -491,6 +493,12 @@ class TestWindow(QWidget):
             "condiciones ambientales, resultados sin suavizado e incertidumbre"
         )
         self.save_button.clicked.connect(lambda: self.save_package())
+        self.certificate_button = QPushButton(icon("certificado", style.PRIMARY.name()), "Certificado…")
+        self.certificate_button.setToolTip(
+            "Certificado de calibración del cable (.docx) con la plantilla de Word del laboratorio: EUT, equipos, "
+            "condiciones ambientales, criterios de aceptación y tablas Fwd / Rev"
+        )
+        self.certificate_button.clicked.connect(lambda: self.make_certificate())
         self.action_start = QAction(icon("ejecutar", style.OK.name()), "Iniciar", self)
         self.action_start.triggered.connect(self.start)
         self.action_stop = QAction(icon("detener", style.ERROR.name()), "Detener", self)
@@ -503,6 +511,9 @@ class TestWindow(QWidget):
         self.action_save = QAction(icon("guardar", style.PRIMARY.name()), "Guardar\nensayo", self)
         self.action_save.setToolTip(self.save_button.toolTip())
         self.action_save.triggered.connect(lambda: self.save_package())
+        self.action_certificate = QAction(icon("certificado", style.PRIMARY.name()), "Certificado", self)
+        self.action_certificate.setToolTip(self.certificate_button.toolTip())
+        self.action_certificate.triggered.connect(lambda: self.make_certificate())
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setTextVisible(False)
@@ -516,6 +527,7 @@ class TestWindow(QWidget):
         controls.addSpacing(10)
         controls.addWidget(self.conditions_button)
         controls.addWidget(self.save_button)
+        controls.addWidget(self.certificate_button)
         controls.addWidget(self.folder_button)
         layout.addLayout(controls)
 
@@ -578,7 +590,16 @@ class TestWindow(QWidget):
         return str(self.record.folder) if self.record is not None and self.record.folder else None
 
     def ribbon_actions(self) -> list[QAction | None]:
-        return [self.action_start, self.action_stop, None, self.action_conditions, self.action_save, None, self.action_folder]
+        return [
+            self.action_start,
+            self.action_stop,
+            None,
+            self.action_conditions,
+            self.action_save,
+            self.action_certificate,
+            None,
+            self.action_folder,
+        ]
 
     @property
     def template_id(self) -> str | None:
@@ -639,6 +660,7 @@ class TestWindow(QWidget):
         self.folder_button.setEnabled(self.folder.is_dir())
         self.conditions_button.setEnabled(False)
         self.save_button.setEnabled(False)
+        self.certificate_button.setEnabled(False)
         self._sync_actions()
 
     def show_record(self, record: TestRecord) -> None:
@@ -686,7 +708,7 @@ class TestWindow(QWidget):
         for label, bands in record_uncertainty(record).items():
             self.plot.set_uncertainty(label, bands, record_coverage_factor(record))
         show_specifications(self.plot, record)
-        self.plot.set_smoothing(record_smoothing(record))
+        show_display_settings(self.plot, record)
         self._fill_results(record)
         self._fill_specs(record)
         log = record.folder / "registro.txt" if record.folder else None
@@ -700,6 +722,7 @@ class TestWindow(QWidget):
         done = record.folder is not None and record.status != "en_curso"
         self.conditions_button.setEnabled(done)
         self.save_button.setEnabled(done)
+        self.certificate_button.setEnabled(done and certificate_problem(record) is None)
         self._sync_actions()
 
     def _set_chips(self, record: TestRecord | None) -> None:
@@ -754,6 +777,7 @@ class TestWindow(QWidget):
         self.action_folder.setEnabled(self.folder_button.isEnabled())
         self.action_conditions.setEnabled(self.conditions_button.isEnabled())
         self.action_save.setEnabled(self.save_button.isEnabled())
+        self.action_certificate.setEnabled(self.certificate_button.isEnabled())
 
     # ── actions ────────────────────────────────────────────────────────────
     def start(self) -> None:
@@ -774,6 +798,8 @@ class TestWindow(QWidget):
         self.plots.clear()
         self.plot = self.plots.for_algorithm(self.procedure.algorithm)
         self.plot.set_smoothing(self.procedure.sweep.smoothing(self.procedure.traces))
+        if isinstance(self.plot, SParameterPlot):
+            self.plot.set_group_delay_aperture(self.procedure.report.aperture)
         if self.plan is not None:
             show_plan_specifications(self.plot, self.plan)  # the specifications while measuring
         self.results.setRowCount(0)
@@ -811,6 +837,7 @@ class TestWindow(QWidget):
         self.stop_button.setEnabled(True)
         self.conditions_button.setEnabled(False)
         self.save_button.setEnabled(False)
+        self.certificate_button.setEnabled(False)
         self.badge.set_state("En curso", style.ACCENT)
         self.progress.setValue(0)
         self._sync_actions()
@@ -849,6 +876,16 @@ class TestWindow(QWidget):
         if self.record is None or self.running:
             return None
         return save_package(self, self.record, path)
+
+    def make_certificate(self, path: str | Path | None = None) -> Path | None:
+        """The calibration certificate of the cable of the test (.docx)."""
+        if self.record is None or self.running:
+            return None
+        saved = make_certificate(self, self.library, self.record, path)
+        if saved is not None:
+            self.show_record(self.record)
+            self.record_changed.emit(str(self.record.folder))
+        return saved
 
     def reload_record(self) -> None:
         """Read the record again (it was changed elsewhere)."""
@@ -908,7 +945,7 @@ class TestWindow(QWidget):
             for data_name, traces in result.uncertainty.items():
                 self.plot.set_uncertainty(data_name, traces, record_coverage_factor(record))
             show_specifications(self.plot, record)
-            self.plot.set_smoothing(record_smoothing(record))
+            show_display_settings(self.plot, record)
         if record.spec_results:
             self.tabs.setCurrentWidget(self.spec_table if record.verdict == "FALLA" else self.plots)
         self.finished.emit(str(record.folder))

@@ -322,6 +322,18 @@ def _thermometer(p: QPainter, c: QColor) -> None:
     p.setBrush(c)
     p.drawEllipse(QRectF(8.5, 13.5, 7, 7))
 
+
+@_register("certificado")
+def _certificate(p: QPainter, c: QColor) -> None:
+    _pen(p, c)
+    _poly(p, (12.5, 21), (4, 21), (4, 3), (14.5, 3), (19, 7.5), (19, 11))
+    _poly(p, (14.5, 3), (14.5, 7.5), (19, 7.5))
+    _poly(p, (7.5, 9), (12.5, 9))
+    _poly(p, (7.5, 12.5), (13, 12.5))
+    p.drawEllipse(QRectF(14, 12.5, 6, 6))
+    _poly(p, (15.2, 18), (14.6, 21.5), (17, 20.3), (19.4, 21.5), (18.8, 18))
+
+
 def available() -> list[str]:
     return sorted(_ICONS)
 

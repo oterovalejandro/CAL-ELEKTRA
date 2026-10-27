@@ -2,6 +2,8 @@
 formato: calelektra/equipo@0.3
 id: VNA-01
 modelo: rs_znb43
+referencia: LE1941.000
+denominacion: Analizador vectorial de redes
 numero_serie: '101683'
 estado: en_servicio
 conexion:

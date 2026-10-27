@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from calelektra.catalog.library import Library, LibraryError
 from calelektra.gui import style
+from calelektra.gui.certificate_dialog import make_certificate
 from calelektra.gui.icons import icon
 from calelektra.gui.plots import ResultPlots
 from calelektra.gui.test_common import (
@@ -39,10 +40,10 @@ from calelektra.gui.test_common import (
     pending_chip,
     record_coverage_factor,
     record_datasets,
-    record_smoothing,
     record_uncertainty,
     save_package,
     setup_rows,
+    show_display_settings,
     show_specifications,
     uncertainty_rows,
     verdict_chip,
@@ -50,6 +51,7 @@ from calelektra.gui.test_common import (
 from calelektra.gui.test_folders import TestFolderTree
 from calelektra.procedures.record import STATUS_NAMES, TestRecord
 from calelektra.procedures.record_uncertainty import is_pending
+from calelektra.procedures.report import certificate_problem
 from calelektra.procedures.specs import VERDICTS
 
 COLUMNS = ["Ensayo", "Carpeta", "Fecha", "EUT", "Plantilla de ensayo", "Setup", "Estado", "Veredicto"]
@@ -161,7 +163,7 @@ class TestDetail(QWidget):
             for label, bands in record_uncertainty(record).items():
                 self.plot.set_uncertainty(label, bands, record_coverage_factor(record))
             show_specifications(self.plot, record)
-            self.plot.set_smoothing(record_smoothing(record))
+            show_display_settings(self.plot, record)
         self.plot_card.setVisible(bool(self.plot.datasets))
         self.files_card.setVisible(bool(record.files))
 
@@ -345,8 +347,14 @@ class TestsView(QWidget):
         )
         self.action_save = QAction(icon("guardar", style.PRIMARY.name()), "Guardar\nensayo", self)
         self.action_save.setToolTip("Guardar toda la información del ensayo seleccionado en un .zip")
+        self.action_certificate = QAction(icon("certificado", style.PRIMARY.name()), "Certificado", self)
+        self.action_certificate.setToolTip(
+            "Certificado de calibración del cable (.docx) con la plantilla de Word del laboratorio: EUT, equipos, "
+            "condiciones ambientales, criterios de aceptación y tablas Fwd / Rev"
+        )
         self.action_conditions.triggered.connect(lambda: self.load_conditions())
         self.action_save.triggered.connect(lambda: self.save_package())
+        self.action_certificate.triggered.connect(lambda: self.make_certificate())
         self.action_new.triggered.connect(lambda: self.launch_test.emit(self.folders.current_folder() or self.library.tests_folder))
         self.action_open.triggered.connect(self._open)
         self.action_repeat.triggered.connect(self._repeat)
@@ -366,6 +374,7 @@ class TestsView(QWidget):
             None,
             self.action_conditions,
             self.action_save,
+            self.action_certificate,
             None,
             self.action_new_folder,
             self.action_external,
@@ -469,6 +478,7 @@ class TestsView(QWidget):
         done = has and record.status != "en_curso"
         self.action_conditions.setEnabled(done)
         self.action_save.setEnabled(done)
+        self.action_certificate.setEnabled(has and certificate_problem(record) is None)
 
     def _open(self) -> None:
         record = self._record()
@@ -493,6 +503,15 @@ class TestsView(QWidget):
         """All the information of the selected test in a .zip."""
         record = self._record()
         return save_package(self, record, path) if record is not None else None
+
+    def make_certificate(self, path: str | Path | None = None) -> Path | None:
+        """The calibration certificate of the cable of the selected test (.docx)."""
+        record = self._record()
+        saved = make_certificate(self, self.library, record, path) if record is not None else None
+        if saved is not None:
+            self.reload(select=record_key(record))
+            self.record_changed.emit(str(record.folder))
+        return saved
 
     def _open_folder(self) -> None:
         record = self._record()

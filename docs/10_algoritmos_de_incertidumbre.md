@@ -1,11 +1,12 @@
-# Algoritmos y fórmulas del cálculo de incertidumbres — versión 0.8.4
+# Algoritmos y fórmulas del cálculo de incertidumbres — versiones 0.8.4 y 0.10
 
 Este documento reúne todo lo que CAL-ELEKTRA calcula sobre incertidumbre y cómo lo calcula:
 
 - la incertidumbre de los parámetros S, con el algoritmo del laboratorio;
 - la componente de temperatura;
 - las conversiones a las unidades de las gráficas;
-- la incertidumbre de la impedancia, nueva en 0.8.4.
+- la incertidumbre de la impedancia, nueva en 0.8.4;
+- los resultados de un cable por sentido (VSWR, pérdida de inserción y retardo de grupo) y su incertidumbre, nuevos en 0.10.
 
 Cada sección indica el código que la implementa y los tests que la comprueban.
 
@@ -15,6 +16,7 @@ Cada sección indica el código que la implementa y los tests que la comprueban.
 | Componente de temperatura | ΔT a partir de las lecturas de la sonda TPH; incertidumbre «pendiente» hasta cargarlas | `procedures/record_uncertainty.py` |
 | U en VSWR y en pérdidas (RL, TL) | Conversión de la U de los parámetros S | `gui/plots.py` |
 | U de \|Z\| y ∠Z | Propagación a partir de la U de S11 | `uncertainty/impedance.py` |
+| U del VSWR, de la pérdida de inserción y del retardo de grupo de un cable (Fwd y Rev) | A partir de la U de S11, S21, S12 y S22 (§5) | `procedures/cable_results.py` |
 
 ## 1. Notación
 
@@ -155,6 +157,7 @@ Las gráficas no calculan incertidumbre nueva: transforman la U de los parámetr
 | VSWR (reflexiones) | VSWR(ρ) = (1+ρ)/(1−ρ) | [VSWR(ρ·10^(−U_dB/20)), VSWR(ρ·10^(+U_dB/20))]: exacta y no simétrica; NaN si el límite superior llega a ρ ≥ 1 |
 | Pérdidas RL, TL (acoplador) | L = −20·log10\|S\| | L ± U_dB (la misma anchura que la magnitud) |
 | Impedancia (Ω, dBΩ, ∠Z) | \|Z\|, 20·log10\|Z\|, ∠Z | Los límites de §4, que no son simétricos donde la cota es exacta |
+| Retardo de grupo (ns), transmisiones | τ_g de §5.3 | τ_g ± U_φ/(360°·f) (§5.3) |
 
 - Las especificaciones de reflexión en dB se dibujan en VSWR como VSWR(10^(v/20)). El RL mínimo del acoplador, RL_mín, se dibuja como VSWR(10^(−RL_mín/20)).
 - Si la plantilla suaviza la visualización, la zona se dibuja alrededor de la traza suavizada. La U no se suaviza.
@@ -354,7 +357,70 @@ Los tests (`tests/test_uncertainty_impedance.py`) repiten estas comprobaciones:
 - **Otros:** la tabla «Resultados» de la ventana del ensayo y del explorador y el `resumen_ensayo.txt` del paquete.
 - **Recálculo:** al cargar las condiciones ambientales se recalcula con la nueva U de S11.
 
-## 5. Ficheros del código y tests
+## 5. Resultados de un cable por sentido (nuevo en 0.10)
+
+`procedures/cable_results.py`, en los ensayos de parámetros S (`vna_2_puertos`). Como en el certificado del laboratorio, los resultados van por **sentido** de la señal:
+
+| Sentido | VSWR del puerto | Pérdida de inserción y retardo de grupo |
+|---|---|---|
+| Fwd | Puerto 1: S11 | S21 |
+| Rev | Puerto 2: S22 | S12 |
+
+Las U de partida son las de las trazas (§2.7), expandidas con el k de la plantilla: U_dB y U_φ de cada parámetro. Los resultados también son expandidos.
+
+### 5.1 VSWR
+
+```
+ρ      = |Sii|
+VSWR   = (1 + ρ) / (1 − ρ)
+U_ρ    = ρ · ln10/20 · U_dB(Sii)                 (el paso 1 de §4.2)
+U_VSWR = dVSWR/dρ · U_ρ = 2·U_ρ / (1 − ρ)²       (primer orden, simétrica)
+```
+
+La gráfica dibuja en «VSWR» la zona exacta de §3, que no es simétrica; en reflexiones pequeñas coinciden.
+
+**Pendiente:** la columna «Incertidumbre VSWR» del certificado de ejemplo del laboratorio no sale con esta fórmula: sus valores son menores. Se revisará con el código del laboratorio.
+
+### 5.2 Pérdida de inserción
+
+```
+IL   = 20·log10 |Sji|         (dB, negativa, como en el certificado)
+U_IL = U_dB(Sji)
+```
+
+Reproduce el certificado de ejemplo: 0,0400 dB hasta 10 GHz y 0,0500 dB por encima con el ZNB43.
+
+### 5.3 Retardo de grupo
+
+```
+τ_g(f) = −dφ/dω = −(1/360°)·dφ/df          φ: fase de Sji desenrollada
+U_τ    = U_φ(Sji) / (360°·f)               (s; en el registro y el certificado, en ns)
+```
+
+- **Cálculo** (`core/networks.py`, `group_delay`): la pendiente de la fase se ajusta por mínimos cuadrados en `apertura` pasos de frecuencia centrados en el punto, como el formato «delay» de un VNA. En los extremos del barrido el ajuste usa los pasos que hay.
+- **Desenrollado:** la fase se desenrolla antes contra el retardo de toda la traza (`transmission_delay`). Así una lista de frecuencias con pasos donde un cable largo gira más de media vuelta no se confunde.
+- **Apertura:** `informe.apertura_retardo` de la plantilla de ensayo, 10 pasos por defecto. El registro guarda la usada (`resultados.sentidos.apertura_retardo_pasos`).
+- **Incertidumbre:** la de la fase convertida en tiempo a esa frecuencia. Reproduce el certificado de ejemplo: U_φ = 0,4° da 0,1111 ns a 10 MHz y 0,0009 ns a 1,3 GHz.
+- Donde falta la fase de un punto, el retardo es NaN.
+
+### 5.4 Límites
+
+Los de la especificación por fórmula del cable ([`11_especificacion_de_cables_por_formula.md`](11_especificacion_de_cables_por_formula.md)), dentro de su rango nominal: VSWR_máx(f) y −IL_máx(f). El pasa / falla de cada punto compara el valor medido con el límite y no usa la incertidumbre, como el resto del programa.
+
+### 5.5 Dónde queda
+
+- **Registro**, `resultados.sentidos.Fwd` y `.Rev`:
+  - `vswr_max` y `frecuencia_vswr_max`;
+  - `perdida_insercion_peor_db`;
+  - `retardo_grupo_ns` (media, mínimo y máximo);
+  - `margen_vswr` y `margen_perdida_insercion_db`, los mínimos;
+  - `U_vswr_max`, `U_perdida_insercion_max_db` y `U_retardo_grupo_max_ns`.
+- **CSV** `<resultado>_fwd_rev.csv`, punto a punto y por sentido: VSWR, U, límite; pérdida de inserción, U, límite; retardo de grupo y U.
+- **Recálculo:** al cargar las condiciones ambientales se reescriben el CSV y `sentidos` con la nueva U.
+- **Gráfica:** la unidad «Retardo de grupo (ns)» (§3).
+- **Certificado del cable:** [`13_certificado_de_cables.md`](13_certificado_de_cables.md).
+
+## 6. Ficheros del código y tests
 
 | Fichero | Contenido |
 |---|---|
@@ -363,7 +429,10 @@ Los tests (`tests/test_uncertainty_impedance.py`) repiten estas comprobaciones:
 | `uncertainty/impedance.py` | Incertidumbre de Z (§4): `impedance_uncertainty`, `ImpedanceUncertainty`, `impedance_text` |
 | `procedures/record_uncertainty.py` | Cálculo de un ensayo, estado pendiente / completa y recálculo con la sonda TPH (§2.8); llama a la de Z en `vna_1_puerto` |
 | `procedures/results.py` | Columnas de U en los CSV (`uncertainty_columns`, `impedance_columns`) |
-| `gui/plots.py` | Zonas sombreadas y conversiones (§3) |
+| `gui/plots.py` | Zonas sombreadas y conversiones (§3), retardo de grupo |
+| `procedures/cable_results.py` | Resultados de un cable por sentido y su U (§5) |
+| `core/networks.py` | `group_delay` y `transmission_delay` (§5.3) |
 | `tests/test_uncertainty.py` | Motor frente al script del laboratorio; incertidumbre del ensayo de la LISN, con Z |
 | `tests/test_uncertainty_impedance.py` | Fórmulas de §4 frente a Monte Carlo y al muestreo del disco |
 | `tests/test_conditions.py` | Pendiente / completa y recálculo, también de Z |
+| `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido con su U y sus límites frente al certificado del laboratorio |

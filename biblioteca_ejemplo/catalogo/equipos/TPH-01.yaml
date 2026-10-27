@@ -1,0 +1,10 @@
+# Sonda de las condiciones ambientales del laboratorio (informe.sonda_ambiental de
+# las plantillas de ensayo con certificado)
+formato: calelektra/equipo@0.3
+id: TPH-01
+modelo: omega_ibthx_w
+referencia: LE1689.000
+denominacion: Registrador telemático (servidor) de humedad, temperatura y presión barométrica
+estado: en_servicio
+ubicacion: Sala de medida
+calibracion: { certificado: EJEMPLO-TPH-2025, fecha: 2025-12-20, proxima: 2027-12-20 }

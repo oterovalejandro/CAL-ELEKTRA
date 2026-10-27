@@ -61,6 +61,40 @@ def transmission_delay(frequencies: np.ndarray, s21: np.ndarray, nominal: float 
     return float(first - np.polyfit(2 * np.pi * f, residual, 1)[0])
 
 
+def group_delay(frequencies: np.ndarray, s21: np.ndarray, aperture: int = 10) -> np.ndarray:
+    """Group delay (s) at each point, −dφ/dω, as the delay format of a VNA.
+
+    The slope of the phase is fitted (least squares) over ``aperture``
+    frequency steps centred on the point, fewer at the ends of the sweep. The
+    phase is first unwrapped against the delay of the whole trace
+    (``transmission_delay``), so that the steps of a list where a long cable
+    turns more than half a turn do not alias. NaN where there is no data.
+    """
+    f = np.asarray(frequencies, dtype=float)
+    s = np.asarray(s21, dtype=complex)
+    out = np.full(len(f), np.nan)
+    valid = np.isfinite(f) & np.isfinite(s) & (np.abs(s) > 0)
+    if valid.sum() < 2:
+        return out
+    fv, sv = f[valid], s[valid]
+    overall = transmission_delay(fv, sv) if len(fv) >= 3 else 0.0
+    if not np.isfinite(overall):
+        overall = 0.0
+    omega = 2 * np.pi * fv
+    residual = np.unwrap(np.angle(sv * np.exp(1j * omega * overall)))  # what is left changes little between points
+    x = omega - omega.mean()
+    half = max(1, int(aperture) // 2)
+    index = np.arange(len(fv))
+    low, high = np.clip(index - half, 0, len(fv) - 1), np.clip(index + half, 0, len(fv) - 1) + 1
+    sums = [np.concatenate([[0.0], np.cumsum(values)]) for values in (x, residual, x * x, x * residual)]
+    sx, sy, sxx, sxy = (total[high] - total[low] for total in sums)
+    count = (high - low).astype(float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        slope = (count * sxy - sx * sy) / (count * sxx - sx * sx)
+    out[valid] = overall - slope
+    return out
+
+
 def gamma_to_impedance(gamma: np.ndarray, z0: float = 50.0) -> np.ndarray:
     return z0 * (1 + gamma) / (1 - gamma)
 

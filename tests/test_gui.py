@@ -424,7 +424,7 @@ def test_units_of_the_charts(qapp):
     s[:, 0, 0], s[:, 1, 1], s[:, 1, 0], s[:, 0, 1] = 0.1, 0.2j, 0.5, 0.5
     plots = ResultPlots()
     plot = plots.for_algorithm("vna_2_puertos")
-    assert [plot.mode.itemText(i) for i in range(plot.mode.count())] == ["VSWR, Magnitud (dB)", "Magnitud (dB)", "Fase (°)"]
+    assert [plot.mode.itemText(i) for i in range(plot.mode.count())] == ["VSWR, Magnitud (dB)", "Magnitud (dB)", "Fase (°)", "Retardo de grupo (ns)"]
     assert plot.mode.currentData() == "db"
     plot.set_data("DUT", f, s)
     plot.set_uncertainty("DUT", {p: (np.full(5, 0.5), np.full(5, 2.0)) for p in ("S11", "S21", "S12", "S22")})
@@ -439,6 +439,19 @@ def test_units_of_the_charts(qapp):
     plot.set_data("DUT", f, np.where(np.eye(2, dtype=bool), np.nan, s))  # only transmissions: one axis in dB
     assert not item.getAxis("right").isVisible() and item.getAxis("left").labelText == "Magnitud (dB)"
     assert not plot.mode.findData("z") >= 0  # the impedance is not a unit of the S-parameters
+    # the phase as time: the group delay of the transmissions, with U_φ/(360°·f); no specifications on it
+    delayed = s.copy()
+    delayed[:, 1, 0] = delayed[:, 0, 1] = 0.5 * np.exp(-2j * np.pi * f * 0.3e-9)  # 0.3 ns
+    plot.set_data("DUT", f, delayed)
+    plot.mode.setCurrentIndex(plot.mode.findData("retardo"))
+    curves = {c.opts["name"]: c.yData for c in item.listDataItems()}
+    assert set(curves) == {"S21", "S12"} and np.allclose(curves["S21"], 0.3)
+    assert item.getAxis("left").labelText == "Retardo de grupo (ns), apertura 10 pasos" and not item.getAxis("right").isVisible()
+    fills = [i for i in item.items if isinstance(i, pg.FillBetweenItem)]
+    assert fills and np.allclose(fills[0].curves[0].yData, 0.3 + 2.0 / (360 * f) * 1e9)
+    assert not plot.show_limits.isEnabled()
+    plot.set_group_delay_aperture(2)
+    assert item.getAxis("left").labelText == "Retardo de grupo (ns), apertura 2 pasos"
 
     impedance_plots = ResultPlots()
     impedance = impedance_plots.for_algorithm("vna_1_puerto")  # the 1-port impedance measurement
@@ -790,7 +803,7 @@ def test_cable_specification_by_formula_in_the_editor_and_the_test(window, qapp)
     test = window._add_test_window(
         TestWindow(library, library.procedures["cable_CAB-DUT-0004"], library.tests_folder, "Cable por fórmula", "prueba", automatic=True)
     )
-    assert "Especificación por fórmula" in test.plan_label.text() and "VSWR ≤ 1.457" in test.plan_label.text()
+    assert "Especificación por fórmula" in test.plan_label.text() and "VSWR ≤ 1.611" in test.plan_label.text()
     test.start()
     assert {curve.parameter for curve in test.plot.limits} == {"S11", "S21", "S12", "S22"}  # drawn while measuring
     wait_for(lambda: not test.running)

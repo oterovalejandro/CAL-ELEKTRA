@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from conftest import TODAY, renew_calibration
 
+from calelektra.core.bands import BandValues
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.networks import transmission_delay
 from calelektra.procedures.cable_specs import (
@@ -43,14 +44,52 @@ def test_nominal_attenuation_with_the_units_of_k1_and_k2():
 
 def test_cable_vswr_is_the_linear_sum_of_the_connector_reflections():
     spec = cable_specification(FIELDS, 0.5, 10, None)
-    assert spec.connector_vswr == (1.15, 1.15)  # B: the one of A
+    assert spec.connector_vswr == (BandValues.single(1.15), BandValues.single(1.15))  # B: the one of A
+    f = np.array([1e9])
     gamma = 2 * 0.15 / 2.15
-    assert spec.cable_gamma == pytest.approx(gamma)
-    assert spec.cable_vswr == pytest.approx((1 + gamma) / (1 - gamma))  # 1.3243
-    assert spec.max_vswr == pytest.approx(spec.cable_vswr * 1.10)
-    assert spec.min_return_loss_db == pytest.approx(-20 * np.log10(gamma_of_vswr(spec.max_vswr)))  # 14.61 dB
+    assert spec.cable_gamma(f)[0] == pytest.approx(gamma)
+    assert spec.cable_vswr(f)[0] == pytest.approx((1 + gamma) / (1 - gamma))  # 1.3243, as declared
+    # the tolerance goes on each connector, then the reflections are summed (as in the certificates of the lab)
+    gamma_max = 2 * gamma_of_vswr(1.15 * 1.10)
+    assert spec.max_vswr(f)[0] == pytest.approx((1 + gamma_max) / (1 - gamma_max))  # 1.611
+    assert spec.min_return_loss_db(f)[0] == pytest.approx(-20 * np.log10(gamma_max))  # 12.62 dB
     different = cable_specification({**FIELDS, "vswr_conector_b": 1.25}, 0, 0, None)
-    assert different.cable_gamma == pytest.approx(0.15 / 2.15 + 0.25 / 2.25)
+    assert different.cable_gamma(f)[0] == pytest.approx(0.15 / 2.15 + 0.25 / 2.25)
+
+
+def test_vswr_by_bands_as_in_the_certificate_of_the_lab():
+    # SUCOFLEX 526S, 2,5 m: a = 0,229 and b = 0,0071 dB/m (f in GHz), connectors 1,12:1 up to 18 GHz and
+    # 1,16:1 up to 26,5 GHz, tolerances 1 dB and 5 % → the limits of its certificate
+    fields = {
+        "k1_atenuacion": 0.229, "k2_atenuacion": 0.0071, "unidad_frecuencia_k": "GHz", "longitud_normalizacion_k": "1 m",
+        "longitud_m": 2.5, "vswr_conector_a": "1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz", "vswr_conector_b": None,
+    }
+    spec = cable_specification(fields, 1.0, 5.0, FrequencyRange(10e6, 26.5e9))
+    f = np.array([10e6, 17e9, 18e9, 19e9, 26.5e9])
+    assert spec.max_vswr(f) == pytest.approx([1.3860, 1.3860, 1.3860, 1.4893, 1.4893], abs=5e-5)
+    assert -spec.max_insertion_loss(np.array([10e6, 4e9, 26.5e9])) == pytest.approx([-1.0574, -2.2160, -4.4175], abs=5e-5)
+    assert np.isnan(spec.max_vswr(np.array([27e9]))[0])  # above the last band
+    assert spec.return_loss_criterion().startswith("VSWR ≤ 1.386 hasta 18 GHz; 1.489 hasta 26.5 GHz: conectores 1.12 hasta 18 GHz")
+    record = spec.to_record()
+    assert record["vswr_max"] == [{"hasta": "18 GHz", "valor": 1.38596}, {"hasta": "26.5 GHz", "valor": 1.48934}]
+    again = CableSpecification.from_record(record)
+    assert np.allclose(again.max_vswr(f), spec.max_vswr(f))
+    # a record of 0.9.x keeps the limit it was evaluated with (tolerance on the VSWR of the cable then)
+    old = CableSpecification.from_record({"vswr_conector_a": 1.15, "tolerancia_vswr_pct": 10, "vswr_max": 1.45676})
+    assert old.max_vswr(np.array([1e9]))[0] == pytest.approx(1.45676)
+
+
+def test_values_by_frequency_band():
+    bands = BandValues.parse("1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz")
+    assert bands == BandValues.parse([{"hasta": "18 GHz", "valor": 1.12}, {"hasta": "26.5 GHz", "valor": 1.16}])
+    assert str(bands) == "1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz" and bands.limits == [18e9, 26.5e9]
+    assert bands.to_yaml() == [{"hasta": "18 GHz", "valor": 1.12}, {"hasta": "26.5 GHz", "valor": 1.16}]
+    assert BandValues.parse(1.15).to_yaml() == 1.15 and str(BandValues.parse("1,15")) == "1,15"
+    open_end = BandValues.parse("1,1 hasta 6 GHz; 1,2")
+    assert open_end.at(np.array([6e9, 40e9])).tolist() == [1.1, 1.2]
+    for wrong in ("1,12 hasta 26 GHz; 1,16 hasta 18 GHz", "1,1; 1,2 hasta 6 GHz", "uno"):
+        with pytest.raises(ValueError):
+            BandValues.parse(wrong)
 
 
 def test_missing_fields_say_what_is_not_evaluated():
@@ -73,14 +112,14 @@ def test_evaluation_inside_the_nominal_range_and_record():
     insertion, ret = spec.evaluate(f, s, ("S11", "S21", "S12", "S22"))
     assert insertion["resultado"] == "FALLA" and insertion["parametros"][0]["fallos"] == 1
     assert insertion["parametros"][0]["fuera_de_rango"] == 1 and insertion["margen_minimo"] == pytest.approx(-0.1, abs=1e-6)
-    assert ret["resultado"] == "PASA" and ret["criterio"].startswith("VSWR ≤ 1.457")
+    assert ret["resultado"] == "PASA" and ret["criterio"].startswith("VSWR ≤ 1.611")
     only_s21 = spec.evaluate(f, s, ("S21",))
     assert [e["nombre"] for e in only_s21] == [insertion["nombre"], ret["nombre"]] and only_s21[1]["resultado"] == "NO_EVALUADO"
     again = CableSpecification.from_record(spec.to_record())
-    assert np.allclose(again.max_insertion_loss(f), spec.max_insertion_loss(f)) and again.max_vswr == pytest.approx(spec.max_vswr)
+    assert np.allclose(again.max_insertion_loss(f), spec.max_insertion_loss(f)) and np.allclose(again.max_vswr(f), spec.max_vswr(f))
     curves = again.curves(("S21", "S11"))
     assert [c.parameter for c in curves] == ["S21", "S11"] and curves[0].frequencies[-1] == 18e9
-    assert np.allclose(curves[1].values, -spec.min_return_loss_db)
+    assert np.allclose(curves[1].values, -spec.min_return_loss_db(curves[1].frequencies))
 
 
 def test_cable_test_by_formula(library):
@@ -90,7 +129,7 @@ def test_cable_test_by_formula(library):
     assert plan.ok and plan.cable_spec is not None and plan.cable_spec.length_m == 1.5
     record = ProcedureRunner(library, template, AutoOperator(), today=TODAY, seed=1).run().record
     assert record.verdict == "PASA" and [e["nombre"][:12] for e in record.spec_results] == ["Pérdidas de ", "Pérdidas de "]
-    assert record.cable_specification["vswr_max"] == pytest.approx(1.45676, abs=1e-5) and record.cable_specification["longitud_m"] == 1.5
+    assert record.cable_specification["vswr_max"] == pytest.approx(1.61095, abs=1e-5) and record.cable_specification["longitud_m"] == 1.5
     # without tolerances the limits are the nominal values: the measured loss is a little above A(f)
     strict = template.model_copy(update={"cable_tolerances": CableTolerances()})
     plan = prepare_run(library, strict, TODAY)

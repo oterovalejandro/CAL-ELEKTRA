@@ -1,0 +1,10 @@
+# EUT del certificado de ejemplo del laboratorio: SUCOFLEX 526S 3,5 mm (m) –
+# 3,5 mm (m) de 2,5 m, referencia LE2333.001
+formato: calelektra/equipo@0.3
+id: CAB-DUT-0006
+modelo: hs_sucoflex_526s_35mm
+referencia: LE2333.001
+denominacion: Cable Sucoflex 526s 3.5mm-3.5mm
+numero_serie: '682138001'
+estado: en_servicio
+descripcion: Cable a calibrar con certificado (plantilla de Word del laboratorio)

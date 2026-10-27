@@ -10,6 +10,7 @@ to recalculate the uncertainty.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -128,6 +129,20 @@ def read_csv_columns(path: Path) -> tuple[list[str], np.ndarray]:
     header = lines[0].split(";")
     rows = [[float(cell.replace(",", ".")) for cell in line.split(";")] for line in lines[1:]]
     return header, np.array(rows, dtype=float).T
+
+
+def read_uncertainty_csv(path: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Expanded uncertainty per trace (U dB, U °) of an ``…_incertidumbre.csv`` written by the engine."""
+    try:
+        header, columns = read_csv_columns(path)
+    except ValueError:
+        return {}
+    found: dict[str, dict[str, np.ndarray]] = {}
+    for index, name in enumerate(header):
+        match = re.match(r"U (S\d\d) \((dB|°)", name)
+        if match:
+            found.setdefault(match.group(1), {})[match.group(2)] = columns[index]
+    return {p: (u["dB"], u["°"]) for p, u in found.items() if "dB" in u and "°" in u}
 
 
 def read_results_csv_s21(path: Path) -> tuple[np.ndarray, np.ndarray]:

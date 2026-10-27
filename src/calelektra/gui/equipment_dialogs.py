@@ -97,6 +97,10 @@ class EquipmentDialog(QDialog):
         self.model = QComboBox()
         self.id_edit = QLineEdit()
         self.id_edit.setPlaceholderText("p. ej. CAB-DUT-0004")
+        self.reference = QLineEdit()
+        self.reference.setPlaceholderText("Nº de inventario del laboratorio, p. ej. LE2333.001")
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Nombre en el inventario y en los certificados, p. ej. Analizador vectorial de redes")
         self.serial = QLineEdit()
         self.status = QComboBox()
         for key, name in STATUS_NAMES.items():
@@ -106,6 +110,8 @@ class EquipmentDialog(QDialog):
         form.addRow("Categoría", self.category)
         form.addRow("Modelo", self.model)
         form.addRow("Identificador *", self.id_edit)
+        form.addRow("Referencia", self.reference)
+        form.addRow("Denominación", self.name_edit)
         form.addRow("Nº de serie", self.serial)
         form.addRow("Estado", self.status)
         form.addRow("Ubicación", self.location)
@@ -263,6 +269,8 @@ class EquipmentDialog(QDialog):
 
     def _load(self, equipment: Equipment, copy: bool) -> None:
         self.id_edit.setText("" if copy else equipment.id)
+        self.reference.setText("" if copy else (equipment.reference or ""))
+        self.name_edit.setText(equipment.name or "")
         self.serial.setText("" if copy else (equipment.serial_number or ""))
         self.status.setCurrentIndex(max(self.status.findData(equipment.status), 0))
         self.location.setText(equipment.location or "")
@@ -382,6 +390,8 @@ class EquipmentDialog(QDialog):
         equipment = Equipment(
             id=equipment_id,
             model_id=model_id,
+            reference=self.reference.text().strip() or None,
+            name=self.name_edit.text().strip() or None,
             serial_number=self.serial.text().strip() or None,
             status=self.status.currentData(),
             description=self.description.text().strip() or None,

@@ -1,0 +1,10 @@
+# Registrador de temperatura, humedad y presión OMEGA iBTHX-W: la sonda TPH de
+# las condiciones ambientales (su base de datos exporta el .xlsx que se carga en
+# cada ensayo).
+formato: calelektra/modelo@0.3
+id: omega_ibthx_w
+categoria: sensor_ambiental
+fabricante: OMEGA
+modelo: iBTHX-W
+campos:
+  magnitudes: [temperatura, humedad, presion]

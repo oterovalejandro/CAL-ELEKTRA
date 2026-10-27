@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 from calelektra.catalog.library import Library
 from calelektra.catalog.model import Equipment
 from calelektra.core.frequency import FrequencyRange
-from calelektra.core.networks import gamma_to_impedance
+from calelektra.core.networks import gamma_to_impedance, group_delay
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError, parse_frequency
 from calelektra.gui import style
@@ -68,6 +68,8 @@ SPEC_COLOR = "#34495e"  # a nominal value that applies to several traces
 # units of the charts of S-parameters: VSWR of the reflections with the magnitude of the transmissions (second
 # axis), magnitude or phase. The impedance is another quantity: only in the chart of the 1-port impedance measurement.
 S_MODES = {"vswr_db": "VSWR, Magnitud (dB)", "db": "Magnitud (dB)", "fase": "Fase (°)"}
+# the phase of the transmissions as time: the group delay (−dφ/dω, over ``aperture`` steps) and U_φ/(360°·f)
+DELAY_MODES = {"retardo": "Retardo de grupo (ns)"}
 IMPEDANCE_MODES = {"z": "Impedancia (Ω)", "z_db": "Impedancia (dBΩ)", "z_fase": "Fase (°)"}  # its uncertainty: uncertainty/impedance.py
 
 BAND_ALPHA = 60  # opacity (0–255) of the uncertainty band of a trace
@@ -134,7 +136,8 @@ class SParameterPlot(QWidget):
     """S-parameters of one or several data sets, with their specifications and uncertainty.
 
     Units (``S_MODES``): VSWR of the reflections with the magnitude in dB of
-    the transmissions on a second axis, magnitude (dB) or phase (°). The chart
+    the transmissions on a second axis, magnitude (dB) or phase (°); and the
+    group delay of the transmissions (ns, ``DELAY_MODES``). The chart
     of the 1-port impedance measurement shows the impedance instead
     (``set_impedance``): |Z| in Ω or dBΩ and the phase of Z. ``result``: the
     chart of a test, whose «Especificaciones» and «Suavizado» boxes are always
@@ -151,6 +154,7 @@ class SParameterPlot(QWidget):
         self.coverage_factor = 2.0
         self.result = result
         self.impedance = False
+        self.aperture = 10  # frequency steps of the group delay (that of the test template)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         controls = QHBoxLayout()
@@ -206,7 +210,7 @@ class SParameterPlot(QWidget):
         self.right.linkedViewChanged(main, self.right.XAxis)
 
     def _fill_modes(self) -> None:
-        modes = IMPEDANCE_MODES if self.impedance else S_MODES
+        modes = IMPEDANCE_MODES if self.impedance else {**S_MODES, **DELAY_MODES}
         current = self.mode.currentData()
         self.mode.blockSignals(True)
         self.mode.clear()
@@ -237,6 +241,12 @@ class SParameterPlot(QWidget):
         self.coverage_factor = coverage_factor
         self.uncertainty_box.setText(f"Incertidumbre (k={coverage_factor:g})")
         self.redraw()
+
+    def set_group_delay_aperture(self, aperture: int) -> None:
+        """Frequency steps over which the group delay is fitted (``apertura_retardo`` of the test template)."""
+        if aperture != self.aperture:
+            self.aperture = max(1, int(aperture))
+            self.redraw()
 
     def set_smoothing(self, smoothing: dict[str, float]) -> None:
         """Display smoothing per trace (% of the points); the data sets are not changed."""
@@ -277,11 +287,13 @@ class SParameterPlot(QWidget):
     def _sync_boxes(self, mode: str) -> None:
         """«Especificaciones», «Suavizado» and «Incertidumbre»: shown, and usable, when they apply."""
         impedance = mode in IMPEDANCE_MODES
-        limits = bool(self.limits) and not impedance
+        limits = bool(self.limits) and not impedance and mode not in DELAY_MODES
         self.show_limits.setVisible(bool(self.limits) or self.result)
         self.show_limits.setEnabled(limits)
         if limits:
             self.show_limits.setToolTip("Curvas de los ficheros de especificación del modelo del EUT (pasa / falla); discontinuas")
+        elif self.limits and mode in DELAY_MODES:
+            self.show_limits.setToolTip("Las especificaciones son de la magnitud de los parámetros S: no se dibujan sobre el retardo")
         elif self.limits:
             self.show_limits.setToolTip("Las especificaciones son de los parámetros S: no se dibujan sobre la impedancia")
         else:
@@ -294,12 +306,16 @@ class SParameterPlot(QWidget):
             else "La plantilla de ensayo no define suavizado (ajustes de trazas)"
         )
         self.uncertainty_box.setVisible(bool(self.uncertainty))
-        self.uncertainty_box.setToolTip(
-            "Zona sombreada: valor ± incertidumbre expandida de cada punto, calculada con el fichero de incertidumbres del VNA"
-            if not impedance
-            else "Zona sombreada: incertidumbre expandida de Z, calculada a partir de la de S11 (Z0 = 50 Ω); "
-            "cerca del abierto o del cortocircuito no es simétrica"
-        )
+        if impedance:
+            tip = (
+                "Zona sombreada: incertidumbre expandida de Z, calculada a partir de la de S11 (Z0 = 50 Ω); "
+                "cerca del abierto o del cortocircuito no es simétrica"
+            )
+        elif mode in DELAY_MODES:
+            tip = "Zona sombreada: incertidumbre del retardo de grupo, U_φ / (360°·f), con la de la fase de la transmisión"
+        else:
+            tip = "Zona sombreada: valor ± incertidumbre expandida de cada punto, calculada con el fichero de incertidumbres del VNA"
+        self.uncertainty_box.setToolTip(tip)
 
     def redraw(self) -> None:
         item = self.plot.getPlotItem()
@@ -315,6 +331,8 @@ class SParameterPlot(QWidget):
         traces = self._traces()
         if mode in IMPEDANCE_MODES:
             traces = [trace for trace in traces if _is_reflection(trace[2])]  # the impedance seen at a port
+        elif mode in DELAY_MODES:
+            traces = [trace for trace in traces if not _is_reflection(trace[2])]  # the delay of a transmission
         reflections = any(_is_reflection(trace[2]) for trace in traces)
         transmissions = any(not _is_reflection(trace[2]) for trace in traces)
         split = mode == "vswr_db" and reflections and transmissions  # transmissions on the second axis
@@ -325,6 +343,7 @@ class SParameterPlot(QWidget):
             "z": "Impedancia |Z|",
             "z_db": "Impedancia |Z| (dBΩ)",
             "z_fase": "Fase de Z (°)",
+            "retardo": f"Retardo de grupo (ns), apertura {self.aperture} pasos",
         }[mode]
         self.plot.setLabel("left", left, units="Ω" if mode == "z" else None)
         if split:
@@ -353,7 +372,7 @@ class SParameterPlot(QWidget):
             self.trace_boxes.addWidget(box)
             if not self.visible[label]:
                 continue
-            y, band = self._values(mode, dataset, parameter, values, bands)
+            y, band = self._values(mode, dataset, parameter, values, bands, f)
             x = np.maximum(f, 1e-3)
             second = split and not reflection
             if band is not None:
@@ -366,12 +385,17 @@ class SParameterPlot(QWidget):
             self._sync_right()
 
     def _values(
-        self, mode: str, dataset: str, parameter: str, values: np.ndarray, bands: bool
+        self, mode: str, dataset: str, parameter: str, values: np.ndarray, bands: bool, frequencies: np.ndarray
     ) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
         """The trace in the units of ``mode`` and its uncertainty band (lower, upper)."""
         u = self.uncertainty.get(dataset, {}).get(parameter) if bands else None
         if u is not None and len(u[0]) != len(values):
             u = None
+        if mode == "retardo":
+            y = group_delay(frequencies, values, self.aperture) * 1e9
+            with np.errstate(divide="ignore", invalid="ignore"):
+                spread = np.where(frequencies > 0, u[1] / (360.0 * frequencies) * 1e9, np.nan) if u is not None else None
+            return y, ((y - spread, y + spread) if spread is not None else None)
         if mode == "vswr_db" and _is_reflection(parameter):
             magnitude = np.abs(values)
             return vswr(magnitude), (vswr_band(magnitude, u[0]) if u is not None else None)

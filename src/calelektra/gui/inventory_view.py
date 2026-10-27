@@ -152,11 +152,14 @@ class EquipmentDetail(QWidget):
         category = library.category_of(equipment)
         self.title.setText(equipment.id)
         details = [model.display_name if model else equipment.model_id, category.name if category else "?"]
+        if equipment.reference:
+            details.insert(0, equipment.reference)
         if equipment.serial_number:
             details.append(f"Nº serie {equipment.serial_number}")
         if equipment.location:
             details.append(equipment.location)
-        self.subtitle.setText(" · ".join(details) + (f"\n{equipment.description}" if equipment.description else ""))
+        notes = "\n".join(filter(None, [equipment.name, equipment.description]))
+        self.subtitle.setText(" · ".join(details) + (f"\n{notes}" if notes else ""))
         status_color = style.OK if equipment.status == "en_servicio" else style.ERROR
         self.chips.addWidget(style.chip(STATUS_NAMES.get(equipment.status, equipment.status), status_color))
         if equipment.simulated or (model and model.driver == "dummy"):
@@ -386,7 +389,9 @@ class InventoryView(QWidget):
                 continue
             if status and equipment.status != status:
                 continue
-            haystack = " ".join(filter(None, [equipment.id, model.display_name if model else "", equipment.serial_number or "", equipment.description or ""])).lower()
+            haystack = " ".join(
+                filter(None, [equipment.id, equipment.reference, equipment.name, model.display_name if model else "", equipment.serial_number, equipment.description])
+            ).lower()
             if text and text not in haystack:
                 continue
             info = self.library.frequency_range_of(equipment)

@@ -40,6 +40,7 @@ from calelektra.core.units import format_frequency
 
 PLACEHOLDERS = {
     "frecuencia": "p. ej. 18 GHz",
+    "numero_bandas": "p. ej. 1,15  o, por bandas: 1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz",
     "fecha": "AAAA-MM-DD",
     "lista": "valores separados por comas",
 }
@@ -163,14 +164,14 @@ class FieldEditor(QWidget):
         else:
             self.edit = QLineEdit()
             placeholder = hint or PLACEHOLDERS.get(kind, "")
-            if not hint and spec.unit and kind not in ("numero", "entero"):
+            if not hint and spec.unit and kind not in ("numero", "numero_bandas", "entero"):
                 placeholder = spec.unit  # numbers show the unit as a label after the editor
             self.edit.setPlaceholderText(placeholder)
             self.edit.textEdited.connect(lambda _t: self.changed.emit())
             self.widgets.append(self.edit)
         for widget in self.widgets:
             layout.addWidget(widget, 1 if not isinstance(widget, QLabel) else 0)
-        if spec.unit and kind in ("numero", "entero", "rango_numero"):
+        if spec.unit and kind in ("numero", "numero_bandas", "entero", "rango_numero"):
             unit = QLabel(spec.unit)
             unit.setStyleSheet("color: #5b6b80;")
             layout.addWidget(unit)

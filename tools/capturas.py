@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QAbstractItemView, QApplication, QMessageBox
 
 from calelektra.catalog.library import Library
 from calelektra.gui.app import EXAMPLE_LIBRARY
+from calelektra.gui.certificate_dialog import CertificateDialog
 from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
 from calelektra.gui.equipment_icons import GLYPH_NAMES, paint_icon
 from calelektra.gui.main_window import MainWindow
@@ -110,6 +111,7 @@ def main() -> None:
         (client, "Acoplador nº 9001", "acoplador_ACP-0001", None),
         (client, "Cable 2,92 mm nº 4001 (por fórmula)", "cable_CAB-DUT-0004", None),
         (client, "Cable SUCOFLEX_118_A nº 5001", "cable_CAB-DUT-0005", None),
+        (client, "Cable SUCOFLEX 526S LE2333.001", "cable_CAB-DUT-0006", None),
     ):
         operators[template] = AutoOperator()
         result = ProcedureRunner(
@@ -198,6 +200,9 @@ def main() -> None:
     editor = window.procedures_view.editor
     scroll.ensureWidgetVisible(editor.cable_box)
     grab(window, out / "07c_plantilla_cable_formula.png")
+    window.procedures_view.reload(select="cable_CAB-DUT-0006")
+    scroll.ensureWidgetVisible(window.procedures_view.editor.report_card)
+    grab(window, out / "07d_plantilla_certificado.png")
     scroll.verticalScrollBar().setValue(0)
     model_dialog = ModelDialog(library, library.models["cable_coaxial_292_hh_k"], parent=window)
     model_dialog.show()
@@ -321,6 +326,32 @@ def main() -> None:
     transmission_window = window._add_test_window(TestWindow(library, record=transmission_record))
     transmission_window.tabs.setCurrentIndex(3)
     grab(window, out / "27e_transmision_resultados.png")
+    # the cable of the certificate: group delay in the chart, results by direction and the certificate
+    certified = next(r for r in library.tests() if r.template_id == "cable_CAB-DUT-0006")
+    certified_window = window._add_test_window(TestWindow(library, record=certified))
+    certified_window.tabs.setCurrentIndex(0)
+    certified_window.plot.mode.setCurrentIndex(certified_window.plot.mode.findData("retardo"))
+    certified_window.plot.plot.getPlotItem().getViewBox().autoRange()
+    grab(window, out / "33_cable_retardo_de_grupo.png")
+    certified_window.plot.mode.setCurrentIndex(certified_window.plot.mode.findData("vswr_db"))
+    certified_window.plot.plot.getPlotItem().getViewBox().autoRange()
+    grab(window, out / "33b_cable_vswr_por_bandas.png")
+    certified_window.plot.mode.setCurrentIndex(certified_window.plot.mode.findData("db"))
+    certified_window.tabs.setCurrentIndex(3)
+    table = certified_window.results
+    first = min(row for row in range(table.rowCount()) if table.item(row, 0).text().startswith("sentidos"))
+    table.scrollToItem(table.item(first, 0), QAbstractItemView.ScrollHint.PositionAtTop)
+    grab(window, out / "33c_cable_resultados_sentidos.png")
+    certificate_dialog = CertificateDialog(library, certified, window)
+    certificate_dialog.show()
+    grab(certificate_dialog, out / "34_certificado_dialogo.png")
+    certificate_dialog.close()
+    model_dialog = ModelDialog(library, library.models["hs_sucoflex_526s_35mm"], parent=window)
+    model_dialog.show()
+    model_scroll = model_dialog.fields_holder.parentWidget().parentWidget()
+    model_scroll.verticalScrollBar().setValue(model_scroll.verticalScrollBar().maximum())
+    grab(model_dialog, out / "05f_modelo_cable_vswr_por_bandas.png")
+    model_dialog.close()
     lisn_window = window._add_test_window(TestWindow(library, record=lisn))
     lisn_window.tabs.setCurrentIndex(0)
     grab(window, out / "28_lisn_impedancia.png")

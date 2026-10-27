@@ -1,0 +1,29 @@
+# Huber+Suhner SUCOFLEX 526S de 2,5 m con conectores 3,5 mm macho en los dos
+# extremos (SF526S/11PC35/11PC35/2500mm), el cable del certificado de ejemplo
+# del laboratorio. Especificación por fórmula: la atenuación típica de la hoja de
+# datos, a·√f + b·f en dB/m con f en GHz, y el VSWR de cada conector por bandas
+# (1,12 hasta 18 GHz y 1,16 hasta 26,5 GHz). Otros conectores u otra longitud
+# son otro modelo.
+formato: calelektra/modelo@0.3
+id: hs_sucoflex_526s_35mm
+categoria: cable
+fabricante: Huber+Suhner
+modelo: SF526S/11PC35/11PC35/2500mm
+descripcion: SUCOFLEX 526S, 50 Ω, 26,5 GHz, conectores 3,5 mm macho, 2,5 m
+campos:
+  rango_frecuencia: [DC, 26.5 GHz]
+  conector_a: { familia: 3.5 mm, genero: macho }
+  conector_b: { familia: 3.5 mm, genero: macho }
+  longitud_m: 2.5
+  tipo_cable: SUCOFLEX 526S
+  impedancia_nominal_ohm: 50
+  k1_atenuacion: 0.229             # dB/m por √GHz
+  k2_atenuacion: 0.0071            # dB/m por GHz
+  unidad_frecuencia_k: GHz
+  longitud_normalizacion_k: 1 m
+  vswr_conector_a:
+    - { hasta: 18 GHz, valor: 1.12 }
+    - { hasta: 26.5 GHz, valor: 1.16 }
+  vswr_conector_b:
+    - { hasta: 18 GHz, valor: 1.12 }
+    - { hasta: 26.5 GHz, valor: 1.16 }

@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from calelektra.core.bands import BandValues
 from calelektra.core.connectors import FAMILIES, Connector, ConnectorError, family_key
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.issues import Issue, Severity
@@ -24,6 +25,7 @@ from calelektra.core.units import UnitError, format_frequency, parse_frequency
 FieldType = Literal[
     "texto",
     "numero",
+    "numero_bandas",
     "entero",
     "booleano",
     "opcion",
@@ -41,6 +43,7 @@ FieldLevel = Literal["modelo", "equipo", "ambos"]
 TYPE_NAMES = {
     "texto": "texto",
     "numero": "número",
+    "numero_bandas": "número por bandas de frecuencia",
     "entero": "entero",
     "booleano": "sí / no",
     "opcion": "opción",
@@ -112,6 +115,11 @@ def coerce(spec: FieldSpec, value: Any) -> Any:
             return str(value)
         if kind == "numero":
             return _number(value, spec)
+        if kind == "numero_bandas":
+            bands = BandValues.parse(value)
+            for number in bands.values:
+                _number(number, spec)  # its limits
+            return bands
         if kind == "entero":
             number = _number(value, spec)
             if number != int(number):
@@ -175,6 +183,8 @@ def to_yaml(spec: FieldSpec, value: Any) -> Any:
         return [value.low, value.high]
     if isinstance(value, Connector):
         return value.to_yaml()
+    if isinstance(value, BandValues):
+        return value.to_yaml()
     if spec.type == "frecuencia":
         return format_frequency(value, decimal=".")
     if isinstance(value, date):
@@ -199,7 +209,7 @@ def display(spec: FieldSpec, value: Any) -> str:
         text = f"{value:g}"
     else:
         text = str(value)
-    if spec.unit and spec.type in ("numero", "entero", "rango_numero"):
+    if spec.unit and spec.type in ("numero", "numero_bandas", "entero", "rango_numero"):
         text += f" {spec.unit}"
     return text
 

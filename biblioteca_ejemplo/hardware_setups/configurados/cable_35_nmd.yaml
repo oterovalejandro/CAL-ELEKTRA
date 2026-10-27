@@ -1,0 +1,19 @@
+# Cables 3,5 mm macho – macho, de 10 MHz a 26,5 GHz con paso de 10 MHz: el cable
+# de puerto NMD 2,92 mm (h) – 2,92 mm (h) en P1 y la transición NMD 2,92 mm (h) –
+# 2,92 mm (h) en P2 dejan los dos planos en 2,92 mm hembra (los planos no se
+# pueden unir: calibración UOSM con el kit ZN-Z229).
+formato: calelektra/setup@0.4
+id: cable_35_nmd
+nombre: Cables 3,5 mm macho – macho (ZNB43, cable de puerto NMD)
+plantilla: camino_rf_2p_s
+rango_requerido: [10 MHz, 26.5 GHz]
+frecuencias:
+  modo: lineal
+  definicion: paso
+  paso: 10 MHz               # → 2650 puntos
+caminos:
+  P1: [CAB-PT-NMD-01]
+  P2: [ADP-NMD292-01]
+asignaciones:
+  vna: VNA-01
+  kit_cal: KIT-ZNZ229-01

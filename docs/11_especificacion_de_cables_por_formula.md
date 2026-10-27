@@ -1,4 +1,4 @@
-# Especificación de cables por fórmula (K1, K2 y VSWR de los conectores) y datos de la hoja — versiones 0.9 y 0.9.1
+# Especificación de cables por fórmula (K1, K2 y VSWR de los conectores) y datos de la hoja — versiones 0.9, 0.9.1 y 0.10
 
 Hasta ahora, el pasa / falla de un cable se daba con **ficheros S2P** del modelo: la máscara de las pérdidas de inserción máximas y de las pérdidas de retorno mínimas, siempre en negativo (|S21| ≥ máscara, |S11| ≤ máscara).
 
@@ -19,8 +19,8 @@ Campos nuevos de la categoría «cable», en el grupo **Especificación por fór
 | K2 (término en f) | `k2_atenuacion` | dB por la longitud de referencia |
 | Unidad de f en K1 y K2 | `unidad_frecuencia_k` | `Hz`, `kHz`, `MHz`, `GHz` |
 | K1 y K2 por cada | `longitud_normalizacion_k` | `1 m`, `100 m`, `1 ft`, `100 ft`, `1 in` |
-| VSWR del conector A | `vswr_conector_a` | VSWR (≥ 1) |
-| VSWR del conector B | `vswr_conector_b` | VSWR; si no se indica, el del conector A |
+| VSWR del conector A | `vswr_conector_a` | VSWR (≥ 1): un valor o uno por banda de frecuencia (0.10) |
+| VSWR del conector B | `vswr_conector_b` | Igual; si no se indica, el del conector A |
 
 La **longitud del cable** es su campo «Longitud» (`longitud_m`, en metros). Lo normal es darla en cada unidad del inventario; si no, vale la del modelo.
 
@@ -35,18 +35,31 @@ campos:
   vswr_conector_b: 1.15
 ```
 
+**VSWR por bandas (0.10).** Las hojas de datos suelen dar el VSWR de los conectores por bandas, por ejemplo 1,12 hasta 18 GHz y 1,16 de 18 a 26,5 GHz (`core/bands.py`, tipo de campo «número por bandas de frecuencia»):
+
+```yaml
+# catalogo/modelos/hs_sucoflex_526s_35mm.yaml (extracto)
+  vswr_conector_a:
+    - { hasta: 18 GHz, valor: 1.12 }      # hasta 18 GHz, 18 GHz incluido
+    - { hasta: 26.5 GHz, valor: 1.16 }    # de 18 a 26,5 GHz
+```
+
+- En la ficha del modelo se escribe `1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz`. Un solo número vale para todas las frecuencias.
+- Las bandas van en orden creciente; solo la última puede no tener «hasta» (hasta cualquier frecuencia). Por encima de la última no hay valor y no se evalúa.
+- Los conectores y su VSWR son del **modelo**: un cable con otros conectores es otro modelo.
+
 ## 2. Tolerancias de la plantilla de ensayo
 
 | Tolerancia | Clave YAML | Límite |
 |---|---|---|
 | Pérdidas de inserción (dB) | `tolerancias_cable.perdidas_insercion_db` | IL_máx(f) = A(f) + t_IL |
-| VSWR (%) | `tolerancias_cable.vswr_pct` | VSWR_máx = VSWR_cable · (1 + t_VSWR / 100) |
+| VSWR (%) | `tolerancias_cable.vswr_pct` | VSWR de cada conector · (1 + t_VSWR / 100), reflexiones sumadas (§3.2) |
 
 ```yaml
 # procedimientos/cable_CAB-DUT-0004.yaml (extracto)
 tolerancias_cable:
   perdidas_insercion_db: 0.5   # IL máx. = A(f) + 0,5 dB
-  vswr_pct: 10                 # VSWR máx. = VSWR del cable · 1,10
+  vswr_pct: 10                 # VSWR de cada conector + 10 %
 ```
 
 - En el editor de plantillas están en la tarjeta del EUT, en «Especificación por fórmula (cables): tolerancias». Ahí también se ve la fórmula y el VSWR del cable del EUT elegido.
@@ -77,33 +90,37 @@ A = (0,26·200 + 0,00091·40 000) · 1,5 / 30,48 = 88,4 · 0,04921 = 4,350 dB
 IL_máx = 4,350 + 0,5 = 4,850 dB        →  |S21|, |S12| ≥ −4,850 dB
 ```
 
-### 3.2 VSWR del cable (suma lineal de las reflexiones)
+### 3.2 VSWR máximo (tolerancia en cada conector, reflexiones sumadas)
 
-Cada conector devuelve una parte de la onda:
-
-```
-|Γ_i| = (VSWR_i − 1) / (VSWR_i + 1)
-```
-
-La reflexión es pequeña, así que se supone que el primer conector deja pasar toda la onda. El cable devuelve lo que refleja el primer conector más lo que refleja el segundo, que vuelve entero. En el peor caso las dos están en fase y se suman linealmente:
+Cada conector devuelve una parte de la onda. Desde 0.10 la tolerancia se aplica al VSWR **de cada conector**, como en los certificados del laboratorio, y luego se suman las reflexiones:
 
 ```
-|Γ_cable|  = |Γ_A| + |Γ_B|
-VSWR_cable = (1 + |Γ_cable|) / (1 − |Γ_cable|)
-VSWR_máx   = VSWR_cable · (1 + t_VSWR / 100)
-|Γ_máx|    = (VSWR_máx − 1) / (VSWR_máx + 1)
-RL_mín     = −20·log10 |Γ_máx|                 →  |S11|, |S22| ≤ −RL_mín
+VSWR_i'(f) = VSWR_i(f) · (1 + t_VSWR / 100)          tolerancia en cada conector (i = A, B), en cada banda
+|Γ_i'|     = (VSWR_i' − 1) / (VSWR_i' + 1)
+|Γ_máx|    = |Γ_A'| + |Γ_B'|
+VSWR_máx   = (1 + |Γ_máx|) / (1 − |Γ_máx|)
+RL_mín     = −20·log10 |Γ_máx|                        →  |S11|, |S22| ≤ −RL_mín
 ```
 
-La segunda reflexión no se atenúa con la ida y vuelta por el cable. Es la decisión tomada: el peor caso, independiente de la frecuencia.
+La reflexión es pequeña, así que se supone que el primer conector deja pasar toda la onda. El cable devuelve lo que refleja el primer conector más lo que refleja el segundo, que vuelve entero. En el peor caso las dos están en fase y se suman linealmente. La segunda reflexión no se atenúa con la ida y vuelta por el cable: el peor caso. Con el VSWR por bandas, el límite cambia en las mismas frecuencias.
 
-**Ejemplo:** conectores de VSWR 1,15:
+El VSWR **del cable** sin tolerancia, (1 + |Γ_A| + |Γ_B|) / (1 − |Γ_A| − |Γ_B|), se muestra como dato.
+
+**Ejemplo del certificado del laboratorio** (SUCOFLEX 526S, conectores 1,12 hasta 18 GHz y 1,16 hasta 26,5 GHz, +5 %):
 
 ```
-|Γ_A| = |Γ_B| = 0,15 / 2,15 = 0,06977      →  |Γ_cable| = 0,13953
-VSWR_cable = 1,13953 / 0,86047 = 1,3243
-VSWR_máx = 1,3243 · 1,10 = 1,4568           →  |Γ_máx| = 0,18592  →  RL_mín = 14,61 dB
+hasta 18 GHz:   1,12 · 1,05 = 1,1760  →  |Γ_i'| = 0,08088  →  |Γ_máx| = 0,16176  →  VSWR_máx = 1,38596  (1,39:1)
+18 – 26,5 GHz:  1,16 · 1,05 = 1,2180  →  |Γ_i'| = 0,09829  →  |Γ_máx| = 0,19657  →  VSWR_máx = 1,48934  (1,49:1)
 ```
+
+**Ejemplo de la biblioteca** (conectores 1,15, +10 %):
+
+```
+1,15 · 1,10 = 1,265  →  |Γ_i'| = 0,11700  →  |Γ_máx| = 0,23400  →  VSWR_máx = 1,6110  →  RL_mín = 12,62 dB
+VSWR del cable (sin tolerancia): |Γ_A| + |Γ_B| = 2 · 0,06977 = 0,13953  →  1,3243
+```
+
+Hasta 0.9.2 la tolerancia se aplicaba al VSWR del cable (VSWR_cable · 1,10 = 1,4568). Los registros guardan el límite con el que se evaluaron (`vswr_max`), así que los ensayos anteriores se siguen dibujando como se evaluaron.
 
 ### 3.3 Pasa / falla
 
@@ -132,11 +149,11 @@ La comprobación previa avisa de lo que no se puede evaluar, y el resto se eval�
 - **Comprobación de la plantilla y ventana del ensayo**:
   - línea «Especificación por fórmula» con la fórmula, la longitud, el VSWR de los conectores y el del cable, y los límites;
   - las curvas límite en la gráfica desde el principio del ensayo: discontinuas, en dB y en VSWR.
-- **Tabla «Pasa / falla»:** una fila por especificación y parámetro, con el criterio, por ejemplo «IL ≤ A(f) + 0,5 dB; A = (0,26·√f + 0,00091·f) dB/100 ft con f en MHz, L = 1,5 m» o «VSWR ≤ 1,457 (RL ≥ 14,61 dB): conectores 1,15 y 1,15 → cable 1,324 + 10 %».
+- **Tabla «Pasa / falla»:** una fila por especificación y parámetro, con el criterio, por ejemplo «IL ≤ A(f) + 0,5 dB; A = (0,26·√f + 0,00091·f) dB/100 ft con f en MHz, L = 1,5 m» o «VSWR ≤ 1.611 (RL ≥ 12.62 dB): conectores 1.15 + 10 % cada uno, reflexiones sumadas» o, por bandas, «VSWR ≤ 1.386 hasta 18 GHz; 1.489 hasta 26.5 GHz: conectores 1.12 hasta 18 GHz; 1.16 hasta 26.5 GHz + 5 % cada uno, reflexiones sumadas».
 - **Registro del ensayo** (`especificacion_cable`): lo que se usó, para dibujar los límites después y para la trazabilidad:
-  - K1 y K2, sus unidades, la longitud y el VSWR de los conectores;
-  - las tolerancias;
-  - el VSWR del cable, el VSWR máximo, el RL mínimo y el rango nominal.
+  - K1 y K2, sus unidades, la longitud y el VSWR de los conectores (un número o la lista de bandas);
+  - las tolerancias y a qué se aplica la del VSWR (`tolerancia_vswr_sobre: conectores`, desde 0.10);
+  - el VSWR del cable, el VSWR máximo, el RL mínimo (por bandas si los conectores las tienen) y el rango nominal.
 
 ## 5. Ejemplo de la biblioteca
 
@@ -148,13 +165,15 @@ La comprobación previa avisa de lo que no se puede evaluar, y el resto se eval�
 
 Con el VNA simulado el ensayo **PASA**:
 - pérdidas de inserción con un margen mínimo de +0,49 dB a 39,9 GHz;
-- pérdidas de retorno con +1,39 dB a 40 GHz.
+- pérdidas de retorno con +3,38 dB a 40 GHz (+1,39 dB hasta 0.9.2, con la tolerancia sobre el VSWR del cable).
+
+El cable del certificado de ejemplo del laboratorio, con el VSWR por bandas, está en [`13_certificado_de_cables.md`](13_certificado_de_cables.md): `CAB-DUT-0006` (SUCOFLEX 526S, LE2333.001).
 
 Sin tolerancias **FALLA**, porque la pérdida medida queda unas centésimas por encima de A(f). Los tests lo comprueban.
 
 | | |
 |---|---|
-| ![Gráfica con los límites de la fórmula](capturas/v09/27h_cable_formula_grafica.png) | ![Pasa / falla por fórmula](capturas/v09/27j_cable_formula_pasa_falla.png) |
+| ![Gráfica con los límites de la fórmula](capturas/v09/27h_cable_formula_grafica.png) | ![Pasa / falla por fórmula](capturas/v10/27j_cable_formula_pasa_falla.png) |
 | ![Tolerancias en la plantilla de ensayo](capturas/v09/07c_plantilla_cable_formula.png) | ![Las mismas curvas en «VSWR, Magnitud (dB)»](capturas/v09/27i_cable_formula_vswr.png) |
 
 ## 6. Datos de la hoja del cable (versión 0.9.1)

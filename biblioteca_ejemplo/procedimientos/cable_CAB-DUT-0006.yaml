@@ -1,0 +1,42 @@
+# Plantilla de ensayo con certificado: el cable SUCOFLEX 526S LE2333.001, como en
+# el certificado de ejemplo del laboratorio (informes/certificado_cable.docx):
+#   - pérdidas de inserción máximas = atenuación nominal + 1 dB;
+#   - VSWR máximo: el de cada conector + 5 %, reflexiones sumadas;
+#   - certificado con 21 frecuencias de 10 MHz a 26,5 GHz.
+formato: calelektra/procedimiento@0.3
+id: cable_CAB-DUT-0006
+nombre: Calibración cable SUCOFLEX 526S LE2333.001 (certificado)
+version: "1.0"
+estado: borrador
+descripcion: >
+  Calibración de los dos puertos del VNA, verificación, medida de los cuatro
+  parámetros S del cable, pasa / falla frente a su especificación por fórmula y
+  certificado de calibración con la plantilla de Word del laboratorio.
+algoritmo: vna_2_puertos
+hardware_setup: cable_35_nmd
+eut: CAB-DUT-0006
+barrido:
+  potencia_dbm: -10
+  ifbw: 1 kHz
+  promedios: 1
+  suavizado_pct: 0
+calibracion:
+  metodo: automatico
+verificacion:
+  activa: true
+  tolerancia_s21_db: 0.1
+  s11_max_db: -30
+tolerancias_cable:
+  perdidas_insercion_db: 1     # IL máx. = A(f) + 1 dB
+  vswr_pct: 5                  # VSWR de cada conector + 5 %
+informe:
+  procedimiento: ATN-Q-IO-22-164
+  intervalo: Bienal
+  frecuencias: 21              # filas de las tablas Fwd y Rev
+  apertura_retardo: 10         # pasos de frecuencia del retardo de grupo
+  sonda_ambiental: TPH-01
+exportacion:
+  formato: RI
+  unidad_frecuencia: HZ
+  nombre_fichero: "{dut}_{fecha}"
+  csv: true

@@ -65,6 +65,7 @@ from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import driver_description, open_vna
 from calelektra.instruments.simulation import pair_model, simulated_dut, unknown_through_model
 from calelektra.catalog.model import SpecFile
+from calelektra.procedures.cable_results import CableResults, results_csv_path
 from calelektra.procedures.cable_specs import (
     CABLE_FIELDS,
     DELAY_FIELDS,
@@ -724,6 +725,12 @@ class ProcedureRunner:
         eq = self.library.equipment[equipment_id]
         model = self.library.model_of(eq)
         entry: dict = {"rol": role, "id": eq.id, "modelo": model.display_name if model else eq.model_id}
+        if eq.reference:
+            entry["referencia"] = eq.reference
+        if eq.name:
+            entry["denominacion"] = eq.name
+        if model is not None:
+            entry["fabricante"], entry["designacion"] = model.manufacturer, model.designation
         expanded = self.plan.expanded if self.plan is not None else None
         if expanded is not None and role in expanded.template.roles:
             entry["rol_nombre"] = expanded.template.roles[role].display(role)
@@ -1326,6 +1333,7 @@ class ProcedureRunner:
         measurements: list[dict] = []
         summary: dict = {}
         if algorithm in ("vna_2_puertos", "vna_acoplador"):
+            dut_path = None
             for name, s in result.data.items():
                 suffix = "" if name == "DUT" else name
                 uncertainty = result.uncertainty.get(name)
@@ -1339,8 +1347,15 @@ class ProcedureRunner:
                 if uncertainty:
                     files.append(self._write_uncertainty(name, path, f, uncertainty))
                 measurements.append(self._measurement_entry(name, path, "touchstone"))
+                dut_path = path if name == "DUT" else dut_path
             if algorithm == "vna_2_puertos":
                 summary = self._delay_summary(self._summary_2p(result.data["DUT"]), f, result.data["DUT"][:, 1, 0])
+                if dut_path is not None:  # by direction, as the calibration certificate gives them
+                    cable = CableResults.compute(
+                        f, result.data["DUT"], result.uncertainty.get("DUT"), self.plan.cable_spec, self.procedure.report.aperture, self._k
+                    )
+                    files.append(cable.write_csv(results_csv_path(dut_path)))
+                    summary["sentidos"] = cable.summary()
             else:
                 quantities = coupler_quantities(result.data)
                 files.append(write_coupler_csv(folder / f"{self._file_stem('acoplador')}.csv", f, quantities, port_return_losses(result.data)))

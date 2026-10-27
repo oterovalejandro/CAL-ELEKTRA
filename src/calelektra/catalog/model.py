@@ -225,6 +225,8 @@ class Equipment(CatalogItem):
     format: str = Field(default=f"calelektra/equipo@{FORMAT_VERSION}", alias="formato")
     id: str
     model_id: str = Field(alias="modelo")
+    reference: str | None = Field(default=None, alias="referencia")  # inventory number of the laboratory (LENNNN.NNN)
+    name: str | None = Field(default=None, alias="denominacion")  # its name in the inventory and the certificates
     serial_number: str | None = Field(default=None, alias="numero_serie")
     status: EquipmentStatus = Field(default="en_servicio", alias="estado")
     description: str | None = Field(default=None, alias="descripcion")

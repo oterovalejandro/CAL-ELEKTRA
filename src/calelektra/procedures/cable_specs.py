@@ -8,23 +8,26 @@ The other way to give the specifications of a cable (besides the S2P files of
 * ``unidad_frecuencia_k``: unit of f in the formula (Hz, kHz, MHz, GHz);
 * ``longitud_normalizacion_k``: reference length of K1 and K2 (1 m, 100 m,
   1 ft, 100 ft, 1 in);
-* ``vswr_conector_a``, ``vswr_conector_b``: VSWR of each connector (B = A if
-  it is not given);
+* ``vswr_conector_a``, ``vswr_conector_b``: VSWR of each connector, one value
+  or one per frequency band (``core/bands.py``; B = A if it is not given);
 * ``longitud_m``: length of the cable (of each unit).
 
-With the tolerances of the test template (``tolerancias_cable``):
+With the tolerances of the test template (``tolerancias_cable``), as in the
+calibration certificates of the laboratory:
 
     A(f)        = (K1·√(f/u) + K2·(f/u)) · L / L_ref                       nominal attenuation (dB)
     IL_max(f)   = A(f) + t_IL                                              |S21|, |S12| ≥ −IL_max(f)
-    |Γ_i|       = (VSWR_i − 1) / (VSWR_i + 1)
-    |Γ_cable|   = |Γ_A| + |Γ_B|                                            linear sum: what each connector returns
-    VSWR_cable  = (1 + |Γ_cable|) / (1 − |Γ_cable|)
-    VSWR_max    = VSWR_cable · (1 + t_VSWR/100)
-    RL_min      = −20·log10((VSWR_max − 1) / (VSWR_max + 1))              |S11|, |S22| ≤ −RL_min
+    VSWR_i'(f)  = VSWR_i(f) · (1 + t_VSWR/100)                             tolerance on each connector
+    |Γ_i'|      = (VSWR_i' − 1) / (VSWR_i' + 1)
+    |Γ_max|     = |Γ_A'| + |Γ_B'|                                          linear sum: what each connector returns
+    VSWR_max(f) = (1 + |Γ_max|) / (1 − |Γ_max|)
+    RL_min(f)   = −20·log10 |Γ_max|                                        |S11|, |S22| ≤ −RL_min
 
-The second connector returns its reflection in full: the cable is assumed to
-let it through (no attenuation on the way back), the worst case. The limits
-are evaluated inside the nominal range of the cable.
+(Up to 0.9.2 the tolerance was applied to the VSWR of the cable: the records
+keep the limit they were evaluated with, ``vswr_max``.) The second connector
+returns its reflection in full: the cable is assumed to let it through (no
+attenuation on the way back), the worst case. The limits are evaluated inside
+the nominal range of the cable.
 
 The nominal delay of the cable (``CableDelay``) is only informative: the delay
 per metre of the datasheet (``retardo_ns_m``) or, without it, the one of its
@@ -40,6 +43,7 @@ from typing import Any
 
 import numpy as np
 
+from calelektra.core.bands import BandValues, merge_limits
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import format_frequency
 from calelektra.procedures.specs import ParameterResult, SpecCurve
@@ -60,12 +64,29 @@ INSERTION_LOSS = "Pérdidas de inserción máximas (fórmula K1, K2)"
 RETURN_LOSS = "Pérdidas de retorno mínimas (VSWR de los conectores)"
 
 
-def gamma_of_vswr(vswr: float) -> float:
+def gamma_of_vswr(vswr):
+    """|Γ| of a VSWR (number or array)."""
     return (vswr - 1) / (vswr + 1)
 
 
-def vswr_of_gamma(gamma: float) -> float:
+def vswr_of_gamma(gamma):
+    """VSWR of a |Γ| (number or array; infinite from |Γ| = 1, NaN where |Γ| is NaN)."""
+    if np.ndim(gamma):
+        g = np.asarray(gamma, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(np.isnan(g), np.nan, np.where(g < 1, (1 + g) / (1 - g), np.inf))
     return (1 + gamma) / (1 - gamma) if gamma < 1 else math.inf
+
+
+def _decimal(value: float, digits: int) -> str:
+    return f"{value:.{digits}f}".rstrip("0").rstrip(".")
+
+
+def bands_text(bands: BandValues, digits: int = 3) -> str:
+    """``1.386 hasta 18 GHz; 1.489 hasta 26.5 GHz`` (point as decimal separator, as in the record)."""
+    return "; ".join(
+        _decimal(value, digits) + (f" hasta {format_frequency(upper, decimal='.')}" if upper is not None else "") for upper, value in bands.bands
+    )
 
 
 @dataclass
@@ -77,12 +98,13 @@ class CableSpecification:
     frequency_unit: str | None = None
     length_unit: str | None = None
     length_m: float | None = None
-    vswr_a: float | None = None
-    vswr_b: float | None = None
+    vswr_a: BandValues | None = None
+    vswr_b: BandValues | None = None
     insertion_loss_tolerance_db: float = 0.0
     vswr_tolerance_pct: float = 0.0
     nominal_range: FrequencyRange | None = None
     problems: list[str] = field(default_factory=list)  # why a part is not evaluated
+    stored_max_vswr: BandValues | None = None  # the limit kept in a record: drawn as it was evaluated
 
     # ── attenuation ────────────────────────────────────────────────────────
     @property
@@ -105,36 +127,69 @@ class CableSpecification:
 
     # ── VSWR ───────────────────────────────────────────────────────────────
     @property
-    def connector_vswr(self) -> tuple[float, float] | None:
+    def connector_vswr(self) -> tuple[BandValues, BandValues] | None:
         if self.vswr_a is None and self.vswr_b is None:
             return None
         a = self.vswr_a if self.vswr_a is not None else self.vswr_b
         b = self.vswr_b if self.vswr_b is not None else a
-        return float(a), float(b)  # type: ignore[arg-type]
+        return a, b  # type: ignore[return-value]
 
-    @property
-    def cable_gamma(self) -> float | None:
-        vswr = self.connector_vswr
-        return None if vswr is None else gamma_of_vswr(vswr[0]) + gamma_of_vswr(vswr[1])
+    def cable_gamma(self, frequencies: np.ndarray) -> np.ndarray:
+        """|Γ_A| + |Γ_B| of the connectors as declared (without tolerance)."""
+        pair = self.connector_vswr
+        f = np.asarray(frequencies, dtype=float)
+        if pair is None:
+            return np.full(f.shape, np.nan)
+        return gamma_of_vswr(pair[0].at(f)) + gamma_of_vswr(pair[1].at(f))
 
-    @property
-    def cable_vswr(self) -> float | None:
-        gamma = self.cable_gamma
-        return None if gamma is None else vswr_of_gamma(gamma)
+    def cable_vswr(self, frequencies: np.ndarray) -> np.ndarray:
+        return vswr_of_gamma(self.cable_gamma(frequencies))
 
-    @property
-    def max_vswr(self) -> float | None:
-        vswr = self.cable_vswr
-        return None if vswr is None else vswr * (1 + self.vswr_tolerance_pct / 100)
+    def max_gamma(self, frequencies: np.ndarray) -> np.ndarray:
+        """|Γ_max|: each connector with the tolerance, then the linear sum (NaN where there is no VSWR)."""
+        f = np.asarray(frequencies, dtype=float)
+        if self.stored_max_vswr is not None:
+            return gamma_of_vswr(self.stored_max_vswr.at(f))
+        pair = self.connector_vswr
+        if pair is None:
+            return np.full(f.shape, np.nan)
+        factor = 1 + self.vswr_tolerance_pct / 100
+        return gamma_of_vswr(pair[0].at(f) * factor) + gamma_of_vswr(pair[1].at(f) * factor)
+
+    def max_vswr(self, frequencies: np.ndarray) -> np.ndarray:
+        return vswr_of_gamma(self.max_gamma(frequencies))
+
+    def min_return_loss_db(self, frequencies: np.ndarray) -> np.ndarray:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return -20 * np.log10(self.max_gamma(frequencies))
+
+    def _band_values(self, function) -> BandValues | None:
+        """``function(f)`` on each band of the VSWR of the connectors (the value changes only at their edges)."""
+        pair = self.connector_vswr
+        if pair is None:
+            return None
+        uppers = merge_limits(*pair)
+        points: list[float | None] = list(uppers)
+        if pair[0].bands[-1][0] is None and pair[1].bands[-1][0] is None:
+            points.append(None)
+        bands = []
+        for upper in points:
+            probe = upper if upper is not None else (uppers[-1] * 2 if uppers else 1.0)
+            bands.append((upper, float(function(np.array([probe]))[0])))
+        return BandValues(tuple(bands))
+
+    def cable_vswr_bands(self) -> BandValues | None:
+        """VSWR of the cable as declared (connectors without tolerance), by bands."""
+        return self._band_values(self.cable_vswr)
+
+    def max_vswr_bands(self) -> BandValues | None:
+        """VSWR_max by bands: the edges of the bands of the connectors."""
+        return self.stored_max_vswr if self.stored_max_vswr is not None else self._band_values(self.max_vswr)
 
     @property
     def has_return_loss(self) -> bool:
-        return self.max_vswr is not None and math.isfinite(self.max_vswr)
-
-    @property
-    def min_return_loss_db(self) -> float | None:
-        vswr = self.max_vswr
-        return None if vswr is None or not math.isfinite(vswr) else -20 * math.log10(gamma_of_vswr(vswr))
+        bands = self.max_vswr_bands()
+        return bands is not None and all(math.isfinite(value) for value in bands.values)
 
     # ── descriptions ───────────────────────────────────────────────────────
     def formula_text(self) -> str:
@@ -147,12 +202,18 @@ class CableSpecification:
         return f"IL ≤ A(f) + {self.insertion_loss_tolerance_db:g} dB; {self.formula_text()}"
 
     def return_loss_criterion(self) -> str:
-        vswr = self.connector_vswr
-        assert vswr is not None and self.cable_vswr is not None and self.max_vswr is not None
-        return (
-            f"VSWR ≤ {self.max_vswr:.3f} (RL ≥ {self.min_return_loss_db:.2f} dB): conectores {vswr[0]:g} y {vswr[1]:g} → "
-            f"cable {self.cable_vswr:.3f} + {self.vswr_tolerance_pct:g} %"
-        )
+        bands = self.max_vswr_bands()
+        assert bands is not None
+        pair = self.connector_vswr
+        if bands.is_single:
+            rl = -20 * math.log10(gamma_of_vswr(bands.values[0]))
+            text = f"VSWR ≤ {bands.values[0]:.3f} (RL ≥ {rl:.2f} dB)"
+        else:
+            text = f"VSWR ≤ {bands_text(bands)}"
+        if pair is None:
+            return text
+        connectors = bands_text(pair[0]) if pair[0] == pair[1] else f"{bands_text(pair[0])} y {bands_text(pair[1])}"
+        return f"{text}: conectores {connectors} + {self.vswr_tolerance_pct:g} % cada uno, reflexiones sumadas"
 
     def to_record(self) -> dict[str, Any]:
         """As kept in the test record (``especificacion_cable``)."""
@@ -162,14 +223,19 @@ class CableSpecification:
             "unidad_frecuencia": self.frequency_unit,
             "longitud_normalizacion": self.length_unit,
             "longitud_m": self.length_m,
-            "vswr_conector_a": self.vswr_a,
-            "vswr_conector_b": self.vswr_b,
+            "vswr_conector_a": self.vswr_a.to_yaml() if self.vswr_a is not None else None,
+            "vswr_conector_b": self.vswr_b.to_yaml() if self.vswr_b is not None else None,
             "tolerancia_il_db": self.insertion_loss_tolerance_db,
             "tolerancia_vswr_pct": self.vswr_tolerance_pct,
         }
         if self.has_return_loss:
-            data.update(vswr_cable=round(float(self.cable_vswr), 5), vswr_max=round(float(self.max_vswr), 5),
-                        rl_min_db=round(float(self.min_return_loss_db), 4))
+            bands = self.max_vswr_bands()
+            assert bands is not None
+            data["tolerancia_vswr_sobre"] = "conectores"
+            if self.stored_max_vswr is None:
+                data["vswr_cable"] = self.cable_vswr_bands().map(lambda v: round(v, 5)).to_yaml()
+            data["vswr_max"] = bands.map(lambda v: round(v, 5)).to_yaml()
+            data["rl_min_db"] = bands.map(lambda v: round(-20 * math.log10(gamma_of_vswr(v)), 4)).to_yaml()
         if self.nominal_range is not None:
             data["rango_hz"] = [self.nominal_range.start, self.nominal_range.stop]
         return {key: value for key, value in data.items() if value is not None}
@@ -189,11 +255,12 @@ class CableSpecification:
             frequency_unit=data.get("unidad_frecuencia"),
             length_unit=data.get("longitud_normalizacion"),
             length_m=data.get("longitud_m"),
-            vswr_a=data.get("vswr_conector_a"),
-            vswr_b=data.get("vswr_conector_b"),
+            vswr_a=_bands(data.get("vswr_conector_a")),
+            vswr_b=_bands(data.get("vswr_conector_b")),
             insertion_loss_tolerance_db=float(data.get("tolerancia_il_db", 0.0)),
             vswr_tolerance_pct=float(data.get("tolerancia_vswr_pct", 0.0)),
             nominal_range=nominal_range,
+            stored_max_vswr=_bands(data.get("vswr_max")),
         )
 
     # ── charts and pass / fail ─────────────────────────────────────────────
@@ -215,8 +282,9 @@ class CableSpecification:
             limit = -self.max_insertion_loss(f)
             curves += [SpecCurve(INSERTION_LOSS, p, "magnitud_db", "minimo", None, f, limit) for p in ("S21", "S12") if p in traces]
         if self.has_return_loss and len(f):
-            limit = np.full(len(f), -float(self.min_return_loss_db))
-            curves += [SpecCurve(RETURN_LOSS, p, "magnitud_db", "maximo", None, f, limit) for p in ("S11", "S22") if p in traces]
+            limit = -self.min_return_loss_db(f)
+            keep = np.isfinite(limit)
+            curves += [SpecCurve(RETURN_LOSS, p, "magnitud_db", "maximo", None, f[keep], limit[keep]) for p in ("S11", "S22") if p in traces]
         return curves
 
     def evaluate(self, frequencies: np.ndarray, s: np.ndarray, traces: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -229,7 +297,7 @@ class CableSpecification:
             parameters = [_compare(p, frequencies, s, limit, "minimo", inside) for p in ("S21", "S12") if p in traces]
             entries.append(_entry(INSERTION_LOSS, self.insertion_loss_criterion(), parameters))
         if self.has_return_loss:
-            limit = np.full(len(frequencies), -float(self.min_return_loss_db))
+            limit = -self.min_return_loss_db(frequencies)
             parameters = [_compare(p, frequencies, s, limit, "maximo", inside) for p in ("S11", "S22") if p in traces]
             entries.append(_entry(RETURN_LOSS, self.return_loss_criterion(), parameters))
         return entries
@@ -306,8 +374,8 @@ def cable_specification(
         frequency_unit=fields.get("unidad_frecuencia_k"),
         length_unit=fields.get("longitud_normalizacion_k"),
         length_m=_number(fields.get("longitud_m")),
-        vswr_a=_number(fields.get("vswr_conector_a")),
-        vswr_b=_number(fields.get("vswr_conector_b")),
+        vswr_a=_bands(fields.get("vswr_conector_a")),
+        vswr_b=_bands(fields.get("vswr_conector_b")),
         insertion_loss_tolerance_db=float(insertion_loss_tolerance_db or 0.0),
         vswr_tolerance_pct=float(vswr_tolerance_pct or 0.0),
         nominal_range=nominal_range,
@@ -321,10 +389,10 @@ def cable_specification(
             spec.problems.append("falta la longitud del cable: no se evalúan las pérdidas de inserción")
     vswr = spec.connector_vswr
     if vswr is not None:
-        if min(vswr) < 1:
+        if min(vswr[0].values + vswr[1].values) < 1:
             spec.vswr_a = spec.vswr_b = None
             spec.problems.append("el VSWR de un conector es menor que 1: no se evalúan las pérdidas de retorno")
-        elif spec.cable_gamma is not None and spec.cable_gamma >= 1:
+        elif not spec.has_return_loss:
             spec.vswr_a = spec.vswr_b = None
             spec.problems.append("la suma de las reflexiones de los conectores llega a 1: no se evalúan las pérdidas de retorno")
     return spec
@@ -332,6 +400,10 @@ def cable_specification(
 
 def _number(value: Any) -> float | None:
     return None if value is None else float(value)
+
+
+def _bands(value: Any) -> BandValues | None:
+    return None if value is None else BandValues.parse(value)
 
 
 def _compare(parameter: str, frequencies: np.ndarray, s: np.ndarray, limit: np.ndarray, criterion: str, inside: np.ndarray) -> ParameterResult:

@@ -1,0 +1,8 @@
+# Kit de calibración 2,92 mm del ZNB43 (R&S ZN-Z229)
+formato: calelektra/equipo@0.3
+id: KIT-ZNZ229-01
+modelo: rs_zn_z229
+referencia: LE1941.001
+denominacion: Kit de calibración 2,92 mm VNA ZNB43
+estado: en_servicio
+calibracion: { certificado: EJEMPLO-ZNZ229-2026, fecha: 2026-04-14, proxima: 2028-04-14 }

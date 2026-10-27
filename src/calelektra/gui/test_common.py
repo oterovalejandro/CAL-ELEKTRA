@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import re
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +17,7 @@ from calelektra.gui import style
 from calelektra.gui.plots import CouplerPlots, SParameterPlot
 from calelektra.instruments.factory import is_simulated
 from calelektra.procedures.ambient import AmbientError
+from calelektra.procedures.cable_results import DEFAULT_APERTURE
 from calelektra.procedures.cable_specs import CableSpecification
 from calelektra.procedures.coupler import nominal_values_from_record
 from calelektra.procedures.engine import RunPlan
@@ -29,11 +29,11 @@ from calelektra.procedures.record_uncertainty import (
     is_pending,
     load_ambient_conditions,
 )
-from calelektra.procedures.results import read_csv_columns, read_results_csv_s21
+from calelektra.procedures.results import read_results_csv_s21, read_uncertainty_csv
 from calelektra.procedures.specs import VERDICTS, SpecCurve, spec_curves
 from calelektra.setups.paths import describe_path_record
-from calelektra.uncertainty.impedance import impedance_text
 from calelektra.uncertainty.engine import UncertaintyCalculationError
+from calelektra.uncertainty.impedance import impedance_text
 
 SETTINGS = ("CAL-ELEKTRA", "CAL-ELEKTRA")
 PENDING_TOOLTIP = (
@@ -195,20 +195,6 @@ def record_datasets(record: TestRecord) -> list[tuple[str, np.ndarray, np.ndarra
             continue
         datasets.append((dataset_label(name), data.frequencies, data.s))
     return datasets
-
-
-def read_uncertainty_csv(path: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Expanded uncertainty per trace (U dB, U °) of an ``…_incertidumbre.csv`` written by the engine."""
-    try:
-        header, columns = read_csv_columns(path)
-    except ValueError:
-        return {}
-    found: dict[str, dict[str, np.ndarray]] = {}
-    for index, name in enumerate(header):
-        match = re.match(r"U (S\d\d) \((dB|°)", name)
-        if match:
-            found.setdefault(match.group(1), {})[match.group(2)] = columns[index]
-    return {p: (u["dB"], u["°"]) for p, u in found.items() if "dB" in u and "°" in u}
 
 
 def record_uncertainty(record: TestRecord) -> dict[str, dict[str, tuple[np.ndarray, np.ndarray]]]:
@@ -418,3 +404,19 @@ def record_smoothing(record: TestRecord) -> dict[str, float]:
     if template is None:
         return {}
     return template.sweep.smoothing(TRACES[template.algorithm])
+
+
+def record_group_delay_aperture(record: TestRecord) -> int:
+    """Frequency steps of the group delay of a test: those of its results, else those of the template as launched."""
+    stored = (record.results.get("sentidos") or {}).get("apertura_retardo_pasos")
+    if isinstance(stored, int) and stored >= 1:
+        return stored
+    template = record.launched_template()
+    return template.report.aperture if template is not None else DEFAULT_APERTURE
+
+
+def show_display_settings(plot: SParameterPlot | CouplerPlots, record: TestRecord) -> None:
+    """Smoothing of the traces and aperture of the group delay of a test on its chart."""
+    plot.set_smoothing(record_smoothing(record))
+    if isinstance(plot, SParameterPlot):
+        plot.set_group_delay_aperture(record_group_delay_aperture(record))

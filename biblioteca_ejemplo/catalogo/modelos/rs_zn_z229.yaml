@@ -1,0 +1,14 @@
+# Kit de calibración manual 2,92 mm R&S ZN-Z229 (DC – 40 GHz), el del ZNB43 en el
+# certificado de ejemplo del laboratorio: abierto, cortocircuito y carga macho y
+# hembra, y through.
+formato: calelektra/modelo@0.3
+id: rs_zn_z229
+categoria: kit_calibracion
+fabricante: Rohde & Schwarz
+modelo: ZN-Z229
+campos:
+  rango_frecuencia: [DC, 40 GHz]
+  familia_conector: 2.92 mm
+  generos_disponibles: [macho, hembra]
+  metodos: [OSM, TOSM, UOSM]
+  nombre_kit_vna: ZN-Z229          # A CONFIRMAR: nombre con el que está cargado el kit en el VNA

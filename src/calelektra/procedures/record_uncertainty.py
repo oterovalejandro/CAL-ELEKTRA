@@ -24,6 +24,8 @@ import numpy as np
 
 from calelektra.core.touchstone import read_touchstone
 from calelektra.procedures.ambient import AmbientLog, read_tph_workbook
+from calelektra.procedures.cable_results import CableResults, results_csv_path
+from calelektra.procedures.cable_specs import CableSpecification
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import TestRecord
 from calelektra.procedures.results import (
@@ -234,6 +236,12 @@ def recalculate_uncertainty(record: TestRecord) -> str:
         traces = run.traces[item["medida"]]
         impedance = run.impedance.get(item["medida"])
         write_uncertainty_csv(uncertainty_csv_path(path), f, traces, k, impedance)
+        by_direction = results_csv_path(path)
+        if by_direction.is_file() and s.shape[1] == 2:  # VSWR, insertion loss and group delay of each direction
+            spec = CableSpecification.from_record(record.cable_specification)
+            cable = CableResults.compute(f, s, traces, spec, template.report.aperture, k)
+            cable.write_csv(by_direction)
+            record.results["sentidos"] = cable.summary()
         results_csv = path.with_suffix(".csv")
         if path.suffix.lower() == ".csv":
             write_results_csv_s21(path, f, s[:, 1, 0], traces, k)
