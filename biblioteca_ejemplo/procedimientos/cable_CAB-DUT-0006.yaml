@@ -1,7 +1,7 @@
 # Plantilla de ensayo con certificado: el cable SUCOFLEX 526S LE2333.001, como en
 # el certificado de ejemplo del laboratorio (informes/certificado_cable.docx):
 #   - pérdidas de inserción máximas = atenuación nominal + 1 dB;
-#   - VSWR máximo: el de cada conector + 5 %, reflexiones sumadas;
+#   - VSWR máximo = VSWR del cable ensamblado (reflexiones de los conectores sumadas) + 5 %;
 #   - certificado con 21 frecuencias de 10 MHz a 26,5 GHz.
 formato: calelektra/procedimiento@0.3
 id: cable_CAB-DUT-0006
@@ -28,12 +28,14 @@ verificacion:
   s11_max_db: -30
 tolerancias_cable:
   perdidas_insercion_db: 1     # IL máx. = A(f) + 1 dB
-  vswr_pct: 5                  # VSWR de cada conector + 5 %
+  vswr_pct: 5                  # VSWR máx. = VSWR del cable ensamblado · 1,05
+  # vswr_sobre: conectores     # el 5 % sobre cada conector: los límites de vuestro certificado de ejemplo (1,386 / 1,4893)
 informe:
   procedimiento: ATN-Q-IO-22-164
   intervalo: Bienal
   frecuencias: 21              # filas de las tablas Fwd y Rev
-  apertura_retardo: 10         # pasos de frecuencia del retardo de grupo
+  apertura_retardo: 10         # pasos de frecuencia del retardo de grupo (gráficas)
+  suavizado_pct: 1             # VSWR y retardo de las tablas: media móvil del 1 % de los puntos, como el laboratorio
   sonda_ambiental: TPH-01
 exportacion:
   formato: RI

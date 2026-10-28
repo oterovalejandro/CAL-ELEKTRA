@@ -159,7 +159,9 @@ class CableTolerances(_Section):
     """
 
     insertion_loss_db: float | None = Field(default=None, alias="perdidas_insercion_db", ge=0)  # IL_max = A(f) + t
-    vswr_pct: float | None = Field(default=None, alias="vswr_pct", ge=0)  # on each connector: VSWR_i · (1 + t/100)
+    vswr_pct: float | None = Field(default=None, alias="vswr_pct", ge=0)  # VSWR_max = VSWR_cable · (1 + t/100)
+    # on the VSWR of the assembled cable (the laboratory) or on that of each connector, before the sum
+    vswr_on: Literal["cable", "conectores"] = Field(default="cable", alias="vswr_sobre")
 
     @property
     def given(self) -> bool:
@@ -177,6 +179,8 @@ class ReportSettings(_Section):
     interval: str | None = Field(default=None, alias="intervalo")  # calibration interval of the EUT (Anual, Bienal…)
     frequencies: int | list[str] | None = Field(default=None, alias="frecuencias")  # rows of the tables: number or list
     aperture: int = Field(default=10, alias="apertura_retardo", ge=1)  # frequency steps of the group delay
+    # VSWR and group delay of the tables: moving average over this % of the points (the laboratory: 1)
+    smoothing_pct: float = Field(default=0.0, alias="suavizado_pct", ge=0, le=50)
     ambient_sensor: str | None = Field(default=None, alias="sonda_ambiental")  # equipment of the probe of the conditions
 
     @field_validator("frequencies", mode="before")
@@ -264,7 +268,10 @@ class ProcedureTemplate(BaseModel):
 
     def to_yaml_dict(self) -> dict[str, Any]:
         data = self.model_dump(by_alias=True, exclude_none=True, mode="json")
-        if not data.get("tolerancias_cable"):
+        tolerances = data.get("tolerancias_cable") or {}
+        if tolerances.get("vswr_sobre") == "cable":  # the default
+            tolerances.pop("vswr_sobre")
+        if not tolerances:
             data.pop("tolerancias_cable", None)
         if data.get("informe") == ReportSettings().model_dump(by_alias=True, exclude_none=True, mode="json"):
             data.pop("informe", None)

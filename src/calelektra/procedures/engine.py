@@ -480,6 +480,7 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
             tolerances.insertion_loss_db,
             tolerances.vswr_pct,
             library.frequency_range_of(dut).range,
+            tolerances.vswr_on,
         )
         if cable_spec is not None:
             for problem in cable_spec.problems:

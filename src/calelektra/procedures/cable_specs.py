@@ -12,22 +12,24 @@ The other way to give the specifications of a cable (besides the S2P files of
   or one per frequency band (``core/bands.py``; B = A if it is not given);
 * ``longitud_m``: length of the cable (of each unit).
 
-With the tolerances of the test template (``tolerancias_cable``), as in the
-calibration certificates of the laboratory:
+With the tolerances of the test template (``tolerancias_cable``):
 
-    A(f)        = (K1·√(f/u) + K2·(f/u)) · L / L_ref                       nominal attenuation (dB)
-    IL_max(f)   = A(f) + t_IL                                              |S21|, |S12| ≥ −IL_max(f)
-    VSWR_i'(f)  = VSWR_i(f) · (1 + t_VSWR/100)                             tolerance on each connector
-    |Γ_i'|      = (VSWR_i' − 1) / (VSWR_i' + 1)
-    |Γ_max|     = |Γ_A'| + |Γ_B'|                                          linear sum: what each connector returns
-    VSWR_max(f) = (1 + |Γ_max|) / (1 − |Γ_max|)
-    RL_min(f)   = −20·log10 |Γ_max|                                        |S11|, |S22| ≤ −RL_min
+    A(f)          = (K1·√(f/u) + K2·(f/u)) · L / L_ref                     nominal attenuation (dB)
+    IL_max(f)     = A(f) + t_IL                                            |S21|, |S12| ≥ −IL_max(f)
+    |Γ_i|         = (VSWR_i − 1) / (VSWR_i + 1)                            each connector (i = A, B)
+    VSWR_cable(f) = (1 + |Γ_A| + |Γ_B|) / (1 − |Γ_A| − |Γ_B|)              the assembled cable: linear sum
+    VSWR_max(f)   = VSWR_cable(f) · (1 + t_VSWR/100)                       tolerance on the assembled cable
+    RL_min(f)     = −20·log10 |Γ_max|,  |Γ_max| = (VSWR_max − 1)/(VSWR_max + 1)    |S11|, |S22| ≤ −RL_min
 
-(Up to 0.9.2 the tolerance was applied to the VSWR of the cable: the records
-keep the limit they were evaluated with, ``vswr_max``.) The second connector
-returns its reflection in full: the cable is assumed to let it through (no
-attenuation on the way back), the worst case. The limits are evaluated inside
-the nominal range of the cable.
+The laboratory applies the tolerance to the VSWR of the assembled cable
+(``vswr_sobre: cable``, the default). ``vswr_sobre: conectores`` applies it to
+each connector before the sum, VSWR_i' = VSWR_i · (1 + t_VSWR/100): the limits
+of the example certificate of the laboratory (1.38596 up to 18 GHz, 1.48934 up
+to 26.5 GHz with 1.12 / 1.16 and 5 %) come out that way. The records keep the
+limit they were evaluated with (``vswr_max``) and how (``tolerancia_vswr_sobre``).
+The second connector returns its reflection in full: the cable is assumed to
+let it through (no attenuation on the way back), the worst case. The limits
+are evaluated inside the nominal range of the cable.
 
 The nominal delay of the cable (``CableDelay``) is only informative: the delay
 per metre of the datasheet (``retardo_ns_m``) or, without it, the one of its
@@ -60,6 +62,7 @@ CABLE_FIELDS = (
     "vswr_conector_b",
     "longitud_m",
 )
+VSWR_TOLERANCE_ON = {"cable": "sobre el VSWR del cable ensamblado", "conectores": "sobre el VSWR de cada conector"}
 INSERTION_LOSS = "Pérdidas de inserción máximas (fórmula K1, K2)"
 RETURN_LOSS = "Pérdidas de retorno mínimas (VSWR de los conectores)"
 
@@ -102,6 +105,7 @@ class CableSpecification:
     vswr_b: BandValues | None = None
     insertion_loss_tolerance_db: float = 0.0
     vswr_tolerance_pct: float = 0.0
+    vswr_tolerance_on: str = "cable"  # cable (the assembled cable) | conectores (each connector, before the sum)
     nominal_range: FrequencyRange | None = None
     problems: list[str] = field(default_factory=list)  # why a part is not evaluated
     stored_max_vswr: BandValues | None = None  # the limit kept in a record: drawn as it was evaluated
@@ -146,7 +150,7 @@ class CableSpecification:
         return vswr_of_gamma(self.cable_gamma(frequencies))
 
     def max_gamma(self, frequencies: np.ndarray) -> np.ndarray:
-        """|Γ_max|: each connector with the tolerance, then the linear sum (NaN where there is no VSWR)."""
+        """|Γ_max| of VSWR_max: the tolerance on the assembled cable or on each connector (NaN where there is no VSWR)."""
         f = np.asarray(frequencies, dtype=float)
         if self.stored_max_vswr is not None:
             return gamma_of_vswr(self.stored_max_vswr.at(f))
@@ -154,7 +158,10 @@ class CableSpecification:
         if pair is None:
             return np.full(f.shape, np.nan)
         factor = 1 + self.vswr_tolerance_pct / 100
-        return gamma_of_vswr(pair[0].at(f) * factor) + gamma_of_vswr(pair[1].at(f) * factor)
+        if self.vswr_tolerance_on == "conectores":
+            return gamma_of_vswr(pair[0].at(f) * factor) + gamma_of_vswr(pair[1].at(f) * factor)
+        with np.errstate(invalid="ignore"):  # connectors summing |Γ| ≥ 1: no limit (NaN)
+            return gamma_of_vswr(self.cable_vswr(f) * factor)
 
     def max_vswr(self, frequencies: np.ndarray) -> np.ndarray:
         return vswr_of_gamma(self.max_gamma(frequencies))
@@ -213,7 +220,11 @@ class CableSpecification:
         if pair is None:
             return text
         connectors = bands_text(pair[0]) if pair[0] == pair[1] else f"{bands_text(pair[0])} y {bands_text(pair[1])}"
-        return f"{text}: conectores {connectors} + {self.vswr_tolerance_pct:g} % cada uno, reflexiones sumadas"
+        if self.vswr_tolerance_on == "conectores":
+            return f"{text}: conectores {connectors} + {self.vswr_tolerance_pct:g} % cada uno, reflexiones sumadas"
+        cable = self.cable_vswr_bands()
+        assert cable is not None
+        return f"{text}: cable {bands_text(cable)} (conectores {connectors}, reflexiones sumadas) + {self.vswr_tolerance_pct:g} %"
 
     def to_record(self) -> dict[str, Any]:
         """As kept in the test record (``especificacion_cable``)."""
@@ -231,7 +242,7 @@ class CableSpecification:
         if self.has_return_loss:
             bands = self.max_vswr_bands()
             assert bands is not None
-            data["tolerancia_vswr_sobre"] = "conectores"
+            data["tolerancia_vswr_sobre"] = self.vswr_tolerance_on
             if self.stored_max_vswr is None:
                 data["vswr_cable"] = self.cable_vswr_bands().map(lambda v: round(v, 5)).to_yaml()
             data["vswr_max"] = bands.map(lambda v: round(v, 5)).to_yaml()
@@ -259,6 +270,7 @@ class CableSpecification:
             vswr_b=_bands(data.get("vswr_conector_b")),
             insertion_loss_tolerance_db=float(data.get("tolerancia_il_db", 0.0)),
             vswr_tolerance_pct=float(data.get("tolerancia_vswr_pct", 0.0)),
+            vswr_tolerance_on=str(data.get("tolerancia_vswr_sobre", "cable")),
             nominal_range=nominal_range,
             stored_max_vswr=_bands(data.get("vswr_max")),
         )
@@ -363,7 +375,11 @@ def cable_delay(fields: dict[str, Any]) -> CableDelay | None:
 
 
 def cable_specification(
-    fields: dict[str, Any], insertion_loss_tolerance_db: float | None, vswr_tolerance_pct: float | None, nominal_range: FrequencyRange | None
+    fields: dict[str, Any],
+    insertion_loss_tolerance_db: float | None,
+    vswr_tolerance_pct: float | None,
+    nominal_range: FrequencyRange | None,
+    vswr_tolerance_on: str = "cable",
 ) -> CableSpecification | None:
     """The specification of a cable from the fields of its model and unit (``None`` if it has no formula nor VSWR)."""
     if all(fields.get(key) is None for key in ("k1_atenuacion", "k2_atenuacion", "vswr_conector_a", "vswr_conector_b")):
@@ -378,6 +394,7 @@ def cable_specification(
         vswr_b=_bands(fields.get("vswr_conector_b")),
         insertion_loss_tolerance_db=float(insertion_loss_tolerance_db or 0.0),
         vswr_tolerance_pct=float(vswr_tolerance_pct or 0.0),
+        vswr_tolerance_on=vswr_tolerance_on,
         nominal_range=nominal_range,
     )
     if spec.k1 is not None or spec.k2 is not None:

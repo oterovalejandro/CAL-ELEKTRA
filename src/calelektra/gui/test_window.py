@@ -881,8 +881,9 @@ class TestWindow(QWidget):
         """The calibration certificate of the cable of the test (.docx)."""
         if self.record is None or self.running:
             return None
+        before = (dict(self.record.conditions), list(self.record.files), dict(self.record.results.get("certificado") or {}))
         saved = make_certificate(self, self.library, self.record, path)
-        if saved is not None:
+        if (dict(self.record.conditions), list(self.record.files), dict(self.record.results.get("certificado") or {})) != before:  # certificate or conditions
             self.show_record(self.record)
             self.record_changed.emit(str(self.record.folder))
         return saved

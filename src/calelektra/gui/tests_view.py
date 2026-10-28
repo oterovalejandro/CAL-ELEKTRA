@@ -507,8 +507,11 @@ class TestsView(QWidget):
     def make_certificate(self, path: str | Path | None = None) -> Path | None:
         """The calibration certificate of the cable of the selected test (.docx)."""
         record = self._record()
-        saved = make_certificate(self, self.library, record, path) if record is not None else None
-        if saved is not None:
+        if record is None:
+            return None
+        before = (dict(record.conditions), list(record.files), dict(record.results.get("certificado") or {}))
+        saved = make_certificate(self, self.library, record, path)
+        if (dict(record.conditions), list(record.files), dict(record.results.get("certificado") or {})) != before:  # certificate or conditions
             self.reload(select=record_key(record))
             self.record_changed.emit(str(record.folder))
         return saved

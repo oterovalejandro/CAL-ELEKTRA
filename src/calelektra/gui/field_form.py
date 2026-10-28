@@ -34,13 +34,21 @@ from calelektra.catalog.fields import (
     coerce,
     to_yaml,
 )
-from calelektra.core.connectors import FAMILIES, GENDERS, NOT_COAXIAL, SEXLESS, Connector
+from calelektra.core.bands import BandValues
+from calelektra.core.connectors import (
+    FAMILIES,
+    GENDERS,
+    NOT_COAXIAL,
+    SEXLESS,
+    Connector,
+)
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import format_frequency
+from calelektra.gui.bands_dialog import BandsDialog
 
 PLACEHOLDERS = {
     "frecuencia": "p. ej. 18 GHz",
-    "numero_bandas": "p. ej. 1,15  o, por bandas: 1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz",
+    "numero_bandas": "p. ej. 1,15  o, por bandas (botón «Bandas…»): 1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz",
     "fecha": "AAAA-MM-DD",
     "lista": "valores separados por comas",
 }
@@ -169,12 +177,35 @@ class FieldEditor(QWidget):
             self.edit.setPlaceholderText(placeholder)
             self.edit.textEdited.connect(lambda _t: self.changed.emit())
             self.widgets.append(self.edit)
+            if kind == "numero_bandas":  # the bands in a table
+                self.bands_button = QToolButton()
+                self.bands_button.setText("Bandas…")
+                self.bands_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+                self.bands_button.setToolTip("Introducir los valores por bandas de frecuencia en una tabla (hasta qué frecuencia y valor)")
+                self.bands_button.clicked.connect(self.edit_bands)
         for widget in self.widgets:
             layout.addWidget(widget, 1 if not isinstance(widget, QLabel) else 0)
         if spec.unit and kind in ("numero", "numero_bandas", "entero", "rango_numero"):
             unit = QLabel(spec.unit)
             unit.setStyleSheet("color: #5b6b80;")
             layout.addWidget(unit)
+        if kind == "numero_bandas":
+            layout.addWidget(self.bands_button)
+
+    def edit_bands(self) -> BandsDialog:
+        """The table of the bands; the value written replaces the one of the field when accepted."""
+        try:
+            current = coerce(self.spec, self.edit.text().strip() or None)
+        except FieldError:
+            current = None
+        dialog = BandsDialog(self.spec, current, self)
+        dialog.accepted.connect(lambda: self._bands_chosen(dialog.result_bands))
+        dialog.open()
+        return dialog
+
+    def _bands_chosen(self, bands: BandValues | None) -> None:
+        self.edit.setText("" if bands is None else str(bands))
+        self.changed.emit()
 
     def _family_changed(self) -> None:
         family = self.family.currentData()

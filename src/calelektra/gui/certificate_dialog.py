@@ -6,7 +6,7 @@ import html
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QSettings, QUrl
+from PySide6.QtCore import QDate, QSettings, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDateEdit,
@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
 
 from calelektra.catalog.library import Library
 from calelektra.gui import style
-from calelektra.gui.test_common import SETTINGS, notify
+from calelektra.gui.icons import icon
+from calelektra.gui.test_common import SETTINGS, load_conditions, notify
 from calelektra.procedures.record import TestRecord
 from calelektra.procedures.report import (
     ReportError,
@@ -43,6 +44,7 @@ class CertificateDialog(QDialog):
         self.library = library
         self.record = record
         self.saved: Path | None = None
+        self.conditions_loaded = False  # the record changed: loaded from the dialog
         self.certificate = prepare_certificate(library, record)  # ReportError if the test cannot give one
         self.setWindowTitle("Certificado de calibración")
         self.resize(640, 420)
@@ -75,15 +77,18 @@ class CertificateDialog(QDialog):
         form.addRow("Plantilla", QLabel(f"{self.certificate.template.name} · {rows} frecuencias por tabla (Fwd y Rev)"))
         layout.addLayout(form)
         self.reference.textChanged.connect(self._reference_changed)
+        # the ambient conditions come from the workbook of the TPH probe, the one that completes the uncertainty
+        self.conditions_button = QPushButton(icon("condiciones", style.PRIMARY.name()), "Cargar el Excel de la sonda TPH…")
+        self.conditions_button.setToolTip(
+            "Las condiciones ambientales (mínimo y máximo durante el ensayo) se calculan del .xlsx de la sonda, "
+            "el mismo con el que se completa la incertidumbre"
+        )
+        self.conditions_button.clicked.connect(lambda: self.load_conditions())
         self.warnings = QLabel()
         self.warnings.setWordWrap(True)
-        if self.certificate.warnings:
-            items = "".join(f"<li>{html.escape(text)}</li>" for text in self.certificate.warnings)
-            self.warnings.setText(f"<b>Avisos</b><ul style='margin-left:-20px'>{items}</ul>")
-            self.warnings.setStyleSheet(f"color: {style.WARNING.name()};")
-        else:
-            self.warnings.setText("Todos los datos del certificado están en el ensayo y en la biblioteca.")
+        layout.addWidget(self.conditions_button, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.warnings, 1)
+        self._show_warnings()
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         cancel = QPushButton("Cancelar")
@@ -95,6 +100,25 @@ class CertificateDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(generate)
         layout.addLayout(buttons)
+
+    def _show_warnings(self) -> None:
+        self.conditions_button.setVisible(self.record.conditions.get("estado") != "cargadas")
+        if self.certificate.warnings:
+            items = "".join(f"<li>{html.escape(text)}</li>" for text in self.certificate.warnings)
+            self.warnings.setText(f"<b>Avisos</b><ul style='margin-left:-20px'>{items}</ul>")
+            self.warnings.setStyleSheet(f"color: {style.WARNING.name()};")
+        else:
+            self.warnings.setText("Todos los datos del certificado están en el ensayo y en la biblioteca.")
+            self.warnings.setStyleSheet("")
+
+    def load_conditions(self, path: str | Path | None = None) -> bool:
+        """Ambient conditions and complete uncertainty of the test from the workbook of the TPH probe."""
+        if not load_conditions(self, self.library, self.record, path):
+            return False
+        self.conditions_loaded = True
+        self.certificate = prepare_certificate(self.library, self.record, self.reference.text())
+        self._show_warnings()
+        return True
 
     def _path_changed(self) -> None:
         self._path_edited = True
@@ -129,7 +153,10 @@ class CertificateDialog(QDialog):
 
 
 def make_certificate(parent: QWidget, library: Library, record: TestRecord, path: str | Path | None = None) -> Path | None:
-    """The certificate of the cable of a test: from the dialog or, with ``path``, directly with the defaults."""
+    """The certificate of the cable of a test: from the dialog or, with ``path``, directly with the defaults.
+
+    The dialog can load the ambient conditions (the record changes even if the certificate is not made).
+    """
     problem = certificate_problem(record)
     if problem:
         notify(parent, "Certificado de calibración", problem, warning=True)

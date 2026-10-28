@@ -379,7 +379,7 @@ U_VSWR = dVSWR/dρ · U_ρ = 2·U_ρ / (1 − ρ)²       (primer orden, simétr
 
 La gráfica dibuja en «VSWR» la zona exacta de §3, que no es simétrica; en reflexiones pequeñas coinciden.
 
-**Pendiente:** la columna «Incertidumbre VSWR» del certificado de ejemplo del laboratorio no sale con esta fórmula: sus valores son menores. Se revisará con el código del laboratorio.
+**Comparación con el certificado del laboratorio** ([`13_certificado_de_cables.md`](13_certificado_de_cables.md) §8.2): su columna «Incertidumbre VSWR» sale de ρ·ln10/20·U_dB/(1 − ρ)², sin el factor 2 de la derivada, y en Rev elige el rango de U_dB con el nivel de |S11|. El programa mantiene esta fórmula, pendiente de la revisión del laboratorio.
 
 ### 5.2 Pérdida de inserción
 
@@ -402,6 +402,7 @@ U_τ    = U_φ(Sji) / (360°·f)               (s; en el registro y el certifica
 - **Apertura:** `informe.apertura_retardo` de la plantilla de ensayo, 10 pasos por defecto. El registro guarda la usada (`resultados.sentidos.apertura_retardo_pasos`).
 - **Incertidumbre:** la de la fase convertida en tiempo a esa frecuencia. Reproduce el certificado de ejemplo: U_φ = 0,4° da 0,1111 ns a 10 MHz y 0,0009 ns a 1,3 GHz.
 - Donde falta la fase de un punto, el retardo es NaN.
+- **En el certificado**, con `informe.suavizado_pct` (el laboratorio: 1 %), el retardo de las tablas es el de los certificados del laboratorio: el retardo entre puntos consecutivos, −Δφ/Δω, promediado en int(pct/100·N) puntos con los extremos reflejados (`step_delay` y `moving_average`). El VSWR de las tablas se promedia igual. La U es la del punto.
 
 ### 5.4 Límites
 

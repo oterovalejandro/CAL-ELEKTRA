@@ -259,9 +259,9 @@ def _cable(spec: CableSpecification | None) -> dict[str, str]:
     }
 
 
-def _rows(results: CableResults, nominal: list[float]) -> dict[str, list[dict[str, str]]]:
+def _rows(results: CableResults, nominal: list[float], smoothing_pct: float = 0.0) -> dict[str, list[dict[str, str]]]:
     rows: dict[str, list[dict[str, str]]] = {}
-    for name, values in results.report_rows(nominal).items():
+    for name, values in results.report_rows(nominal, smoothing_pct).items():
         rows[name.lower()] = [
             {
                 "frecuencia": format_frequency(row["frecuencia"], decimal="."),
@@ -320,7 +320,8 @@ def prepare_certificate(
     if spec is not None and spec.nominal_range is not None:
         low, high = max(span.start, spec.nominal_range.start), min(span.stop, spec.nominal_range.stop)
         criteria = FrequencyRange(low, high) if high > low else span
-    nominal = report_frequencies(settings.frequencies, span.start, span.stop)
+    logarithmic = record.sweep.get("modo", record.sweep.get("tipo")) == "logaritmico"
+    nominal = report_frequencies(settings.frequencies, span.start, span.stop, logarithmic)
     eut = _eut(library, record)
     warnings = []
     if eut["referencia"] == eut["id"]:
@@ -372,7 +373,7 @@ def prepare_certificate(
         "ambiente": _ambient(record),
         "figuras": {key: figures.get(key, f"[Gráfica pendiente: {title}]") for key, title in FIGURES.items()},
         "resultado_final": VERDICTS.get(str(record.verdict), str(record.verdict or NONE)),
-        **_rows(results, nominal),
+        **_rows(results, nominal, settings.smoothing_pct),
     }
     path = library.root / settings.template_path
     if not path.is_file():
@@ -431,6 +432,9 @@ def generate_certificate(
         "fichero": name or str(target),
         "plantilla": certificate.template.name,
     }
+    template = _template_of(record, library)
+    if template is not None and template.report.smoothing_pct:
+        record.results["certificado"]["suavizado_pct"] = template.report.smoothing_pct
     if name and name not in record.files:
         record.files.append(name)
     library.save_test(record)

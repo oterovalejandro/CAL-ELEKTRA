@@ -48,6 +48,7 @@ from calelektra.gui.test_common import equipment_text, plan_html, setup_state
 from calelektra.procedures.cable_results import DEFAULT_REPORT_POINTS
 from calelektra.procedures.cable_specs import (
     CABLE_FIELDS,
+    VSWR_TOLERANCE_ON,
     bands_text,
     cable_specification,
 )
@@ -187,15 +188,22 @@ class ProcedureEditor(QWidget):
         self.vswr_tolerance.setDecimals(1)
         self.vswr_tolerance.setSuffix(" %")
         self.vswr_tolerance.setSpecialValueText("— (sin tolerancia)")
-        self.vswr_tolerance.setToolTip(
-            "VSWR de cada conector · (1 + tolerancia); el VSWR máximo del cable suma linealmente las reflexiones de los dos"
+        self.vswr_tolerance.setToolTip("VSWR máximo = VSWR del cable ensamblado (suma lineal de las reflexiones de sus conectores) · (1 + tolerancia)")
+        self.vswr_on = QComboBox()
+        for key, text in VSWR_TOLERANCE_ON.items():
+            self.vswr_on.addItem(text[0].upper() + text[1:], key)
+        self.vswr_on.setToolTip(
+            "Sobre el VSWR del cable ensamblado (lo habitual del laboratorio) o sobre el de cada conector, antes de sumar las reflexiones"
         )
+        self.vswr_on.currentIndexChanged.connect(self._edited)
         for spin in (self.il_tolerance, self.vswr_tolerance):  # the minimum (special text): no tolerance
             spin.setValue(spin.minimum())
             spin.valueChanged.connect(self._edited)
         cable_form.addRow("Pérdidas de inserción: + ", self.il_tolerance)
         self.vswr_tolerance_label = QLabel("VSWR: + ")
         cable_form.addRow(self.vswr_tolerance_label, self.vswr_tolerance)
+        self.vswr_on_label = QLabel("Tolerancia del VSWR")
+        cable_form.addRow(self.vswr_on_label, self.vswr_on)
         cable_layout.addWidget(cable_title)
         cable_layout.addWidget(self.cable_info)
         cable_layout.addLayout(cable_form)
@@ -295,6 +303,17 @@ class ProcedureEditor(QWidget):
         self.report_aperture.setRange(1, 1000)
         self.report_aperture.setSuffix(" pasos")
         self.report_aperture.setToolTip("Pasos de frecuencia en que se ajusta el retardo de grupo (gráficas, resultados y certificado)")
+        self.report_smoothing = QDoubleSpinBox()
+        self.report_smoothing.setRange(0.0, 50.0)
+        self.report_smoothing.setDecimals(1)
+        self.report_smoothing.setSingleStep(0.5)
+        self.report_smoothing.setSuffix(" % de los puntos")
+        self.report_smoothing.setSpecialValueText("sin suavizado")
+        self.report_smoothing.setToolTip(
+            "VSWR y retardo de grupo de las tablas: media móvil sobre este porcentaje de los puntos del barrido, "
+            "como en los certificados del laboratorio (1 %); el retardo, entre puntos consecutivos. "
+            "La pérdida de inserción y las incertidumbres son las del punto."
+        )
         self.report_sensor = QComboBox()
         self.report_sensor.setToolTip("Sonda de las condiciones ambientales: va en la tabla de equipos del certificado")
         self.report_template = QLineEdit()
@@ -304,6 +323,7 @@ class ProcedureEditor(QWidget):
         report_form.addRow("Intervalo de calibración", self.report_interval)
         report_form.addRow("Frecuencias de las tablas", self.report_rows)
         report_form.addRow("Apertura del retardo de grupo", self.report_aperture)
+        report_form.addRow("Suavizado de VSWR y retardo", self.report_smoothing)
         report_form.addRow("Sonda ambiental", self.report_sensor)
         report_form.addRow("Plantilla de Word", self.report_template)
         self.report_card = report
@@ -349,6 +369,7 @@ class ProcedureEditor(QWidget):
         ):  # fmt: skip
             widget.textEdited.connect(self._edited)
         self.report_aperture.valueChanged.connect(self._edited)
+        self.report_smoothing.valueChanged.connect(self._edited)
         self.report_sensor.currentIndexChanged.connect(self._edited)
         for widget in (self.description, self.options):
             widget.textChanged.connect(self._edited)
@@ -501,6 +522,7 @@ class ProcedureEditor(QWidget):
         algorithm = self.algorithm.currentData()
         self.cable_box.setVisible(algorithm in ("vna_2_puertos", "vna_transmision"))
         self.cable_form.setRowVisible(self.vswr_tolerance, algorithm == "vna_2_puertos")
+        self.cable_form.setRowVisible(self.vswr_on, algorithm == "vna_2_puertos")
         spec = None
         if equipment is not None:
             spec = cable_specification({key: self.library.field(equipment, key) for key in CABLE_FIELDS}, None, None, None)
@@ -513,7 +535,7 @@ class ProcedureEditor(QWidget):
         if spec.has_return_loss:
             a, b = spec.connector_vswr
             connectors = bands_text(a) if a == b else f"{bands_text(a)} y {bands_text(b)}"
-            parts.append(f"VSWR de los conectores {connectors} → cable {bands_text(spec.cable_vswr_bands())} (la tolerancia se aplica a cada conector)")
+            parts.append(f"VSWR de los conectores {connectors} → cable ensamblado {bands_text(spec.cable_vswr_bands())}")
         parts += spec.problems
         self.cable_info.setText(html.escape(" · ".join(parts)))
 
@@ -543,6 +565,7 @@ class ProcedureEditor(QWidget):
             "intervalo": self.report_interval.text().strip() or None,
             "frecuencias": rows,
             "apertura_retardo": self.report_aperture.value(),
+            "suavizado_pct": self.report_smoothing.value() or None,
             "sonda_ambiental": self.report_sensor.currentData(),
         }
         return {key: value for key, value in values.items() if value is not None}
@@ -642,6 +665,7 @@ class ProcedureEditor(QWidget):
         tolerances = procedure.cable_tolerances
         self.il_tolerance.setValue(self.il_tolerance.minimum() if tolerances.insertion_loss_db is None else tolerances.insertion_loss_db)
         self.vswr_tolerance.setValue(self.vswr_tolerance.minimum() if tolerances.vswr_pct is None else tolerances.vswr_pct)
+        self.vswr_on.setCurrentIndex(max(self.vswr_on.findData(tolerances.vswr_on), 0))
         for widget in (self.coverage, self.trace_noise, self.temperature_stability):
             widget.setEnabled(uncertainty.active)
         export = procedure.export
@@ -656,6 +680,7 @@ class ProcedureEditor(QWidget):
         rows = report.frequencies
         self.report_rows.setText("; ".join(rows) if isinstance(rows, list) else ("" if rows is None else str(rows)))
         self.report_aperture.setValue(report.aperture)
+        self.report_smoothing.setValue(report.smoothing_pct)
         self.report_sensor.clear()
         self.report_sensor.addItem("— (ninguna)", None)
         for equipment in sorted(self.library.equipment_in_categories(["sensor_ambiental"]), key=lambda e: e.id):
@@ -708,7 +733,11 @@ class ProcedureEditor(QWidget):
                 "ruido_traza": self.trace_noise.isChecked(),
                 "estabilidad_temperatura": self.temperature_stability.isChecked(),
             },
-            "tolerancias_cable": self.cable_tolerance_values() if self.algorithm.currentData() in ("vna_2_puertos", "vna_transmision") else {},
+            "tolerancias_cable": (
+                {**self.cable_tolerance_values(), "vswr_sobre": self.vswr_on.currentData()}
+                if self.algorithm.currentData() in ("vna_2_puertos", "vna_transmision")
+                else {}
+            ),
             "exportacion": {
                 "formato": self.data_format.currentData(),
                 "unidad_frecuencia": self.unit.currentText(),

@@ -792,7 +792,7 @@ def test_cable_specification_by_formula_in_the_editor_and_the_test(window, qapp)
     view.reload(select="cable_CAB-DUT-0004")
     editor = view.editor
     assert editor.cable_box.isVisibleTo(editor) and "0.26·√f + 0.00091·f" in editor.cable_info.text()
-    assert "cable 1.324" in editor.cable_info.text()
+    assert "cable ensamblado 1.324" in editor.cable_info.text()
     assert editor.cable_tolerance_values() == {"perdidas_insercion_db": 0.5, "vswr_pct": 10.0}
     editor.vswr_tolerance.setValue(editor.vswr_tolerance.minimum())  # «— (sin tolerancia)»
     assert editor.build().cable_tolerances.vswr_pct is None and editor.build().cable_tolerances.insertion_loss_db == 0.5
@@ -803,7 +803,7 @@ def test_cable_specification_by_formula_in_the_editor_and_the_test(window, qapp)
     test = window._add_test_window(
         TestWindow(library, library.procedures["cable_CAB-DUT-0004"], library.tests_folder, "Cable por fórmula", "prueba", automatic=True)
     )
-    assert "Especificación por fórmula" in test.plan_label.text() and "VSWR ≤ 1.611" in test.plan_label.text()
+    assert "Especificación por fórmula" in test.plan_label.text() and "VSWR ≤ 1.457" in test.plan_label.text()
     test.start()
     assert {curve.parameter for curve in test.plot.limits} == {"S11", "S21", "S12", "S22"}  # drawn while measuring
     wait_for(lambda: not test.running)

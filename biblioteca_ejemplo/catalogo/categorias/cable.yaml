@@ -96,7 +96,7 @@ campos:
     grupo: Especificación por fórmula
     descripcion: >-
       VSWR máximo declarado del conector: un valor o uno por banda de frecuencia, como en la hoja de
-      datos (p. ej. 1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz).
+      datos (p. ej. 1,12 hasta 18 GHz; 1,16 hasta 26,5 GHz; botón «Bandas…»).
   vswr_conector_b:
     etiqueta: VSWR del conector B
     tipo: numero_bandas
@@ -104,5 +104,5 @@ campos:
     nivel: modelo
     grupo: Especificación por fórmula
     descripcion: >-
-      Si no se indica, el del conector A. VSWR máximo del cable = suma lineal de las reflexiones de los dos
-      conectores, cada uno con la tolerancia de la plantilla de ensayo.
+      Si no se indica, el del conector A. VSWR del cable ensamblado = suma lineal de las reflexiones de los
+      dos conectores; la tolerancia de la plantilla de ensayo se aplica sobre él.

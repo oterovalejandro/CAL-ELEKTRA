@@ -16,7 +16,11 @@ inside its nominal range: VSWR_max(f) and −IL_max(f). The algorithms are in
 ``docs/10_algoritmos_de_incertidumbre.md``.
 
 The table of the certificate (``report_rows``) has a row per report
-frequency, with the values of the nearest measured point.
+frequency, with the values of the nearest measured point. With a smoothing
+(``informe.suavizado_pct``, the laboratory: 1 %), its VSWR and group delay are
+those of the laboratory: the VSWR and the delay between consecutive points
+(``step_delay``) averaged over int(pct/100·N) points (``moving_average``); the
+insertion loss and the uncertainties are those of the point.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from typing import Any
 
 import numpy as np
 
-from calelektra.core.networks import group_delay
+from calelektra.core.networks import group_delay, moving_average, step_delay
 from calelektra.core.units import format_frequency, parse_frequency
 from calelektra.procedures.cable_specs import CableSpecification, vswr_of_gamma
 from calelektra.procedures.results import db, write_csv
@@ -70,6 +74,7 @@ class DirectionResults:
     insertion_loss_limit: np.ndarray  # −IL_max(f), negative; NaN without specification
     group_delay_ns: np.ndarray
     group_delay_u_ns: np.ndarray
+    step_delay_ns: np.ndarray  # between consecutive points: the delay smoothed in the certificate
 
     @property
     def port(self) -> int:
@@ -171,6 +176,7 @@ class CableResults:
                     insertion_loss_limit=loss_limit,
                     group_delay_ns=group_delay(f, values, aperture) * 1e9,
                     group_delay_u_ns=np.where(f > 0, u_transmission_deg / (360.0 * f) * 1e9, np.nan),
+                    step_delay_ns=step_delay(f, values) * 1e9,
                 )
         return cls(f, directions, int(aperture), coverage_factor)
 
@@ -200,24 +206,38 @@ class CableResults:
         write_csv(path, header, columns)
         return path
 
-    def report_rows(self, nominal: list[float]) -> dict[str, list[dict[str, Any]]]:
-        """Rows of the tables of the certificate: at each report frequency, the values of the nearest measured point."""
+    def smoothing_points(self, smoothing_pct: float) -> int:
+        """Points of the moving average of ``smoothing_pct`` % of the sweep (fewer than 2: no smoothing)."""
+        return int(smoothing_pct / 100 * len(self.frequencies)) if smoothing_pct > 0 else 0
+
+    def report_rows(self, nominal: list[float], smoothing_pct: float = 0.0) -> dict[str, list[dict[str, Any]]]:
+        """Rows of the tables of the certificate: at each report frequency, the values of the nearest measured point.
+
+        With ``smoothing_pct``, the VSWR and the group delay of the rows are smoothed as in the certificates of
+        the laboratory (moving average of the VSWR and of the delay between consecutive points).
+        """
         f = self.frequencies
+        size = self.smoothing_points(smoothing_pct)
+        shown = {
+            name: (moving_average(d.vswr, size), moving_average(d.step_delay_ns, size)) if size >= 2 else (d.vswr, d.group_delay_ns)
+            for name, d in self.directions.items()
+        }
         rows: dict[str, list[dict[str, Any]]] = {name: [] for name in self.directions}
         for target in nominal:
             index = int(np.argmin(np.abs(f - target)))
             for name, d in self.directions.items():
+                vswr, delay = shown[name]
                 rows[name].append(
                     {
                         "frecuencia": float(target),
                         "frecuencia_medida": float(f[index]),
-                        "vswr": float(d.vswr[index]),
+                        "vswr": float(vswr[index]),
                         "u_vswr": float(d.vswr_u[index]),
                         "limite_vswr": float(d.vswr_limit[index]),
                         "perdida_insercion": float(d.insertion_loss_db[index]),
                         "u_perdida_insercion": float(d.insertion_loss_u[index]),
                         "limite_perdida_insercion": float(d.insertion_loss_limit[index]),
-                        "retardo_grupo": float(d.group_delay_ns[index]),
+                        "retardo_grupo": float(delay[index]),
                         "u_retardo_grupo": float(d.group_delay_u_ns[index]),
                         "pasa": bool(d.passes()[index]),
                     }
@@ -225,13 +245,15 @@ class CableResults:
         return rows
 
 
-def report_frequencies(setting: int | list[Any] | None, start: float, stop: float) -> list[float]:
+def report_frequencies(setting: int | list[Any] | None, start: float, stop: float, logarithmic: bool = False) -> list[float]:
     """Frequencies of the rows of the certificate.
 
-    A list (``[10 MHz, 1.3 GHz, …]``): those inside [start, stop]. A number n
-    (21 by default): n frequencies equally spaced from ``start`` to ``stop``,
-    rounded to two significant digits except the first and the last (21
-    points from 10 MHz to 26.5 GHz: 10 MHz, 1.3 GHz, 2.7 GHz, 4 GHz… 26.5 GHz).
+    A number n (21 by default): n frequencies from ``start`` to ``stop``,
+    equally spaced in a linear sweep and logarithmically spaced in a
+    logarithmic one, rounded to two significant digits except the first and the
+    last (21 points from 10 MHz to 26.5 GHz: 10 MHz, 1.3 GHz, 2.7 GHz, 4 GHz…
+    26.5 GHz; logarithmic: …, 23 kHz, 340 MHz, 1.4 GHz…). A list
+    (``[10 MHz, 1.3 GHz, …]``): those inside [start, stop].
     """
     if isinstance(setting, (list, tuple)):
         values = sorted(parse_frequency(value) for value in setting)
@@ -239,6 +261,7 @@ def report_frequencies(setting: int | list[Any] | None, start: float, stop: floa
     count = int(setting or DEFAULT_REPORT_POINTS)
     if count < 2 or stop <= start:
         return [start]
-    values = list(np.linspace(start, stop, count))
+    spaced = np.geomspace(start, stop, count) if logarithmic and start > 0 else np.linspace(start, stop, count)
+    values = [float(value) for value in spaced]
     rounded = [values[0]] + [float(f"{value:.2g}") for value in values[1:-1]] + [values[-1]]
     return list(dict.fromkeys(rounded))

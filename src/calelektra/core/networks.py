@@ -95,6 +95,38 @@ def group_delay(frequencies: np.ndarray, s21: np.ndarray, aperture: int = 10) ->
     return out
 
 
+def step_delay(frequencies: np.ndarray, s21: np.ndarray) -> np.ndarray:
+    """Delay (s) between each point and the previous one, −Δφ/Δω of the unwrapped phase (the first point: that of the second).
+
+    The point-wise delay of the certificates of the laboratory, before their smoothing (``moving_average``).
+    """
+    f = np.asarray(frequencies, dtype=float)
+    out = np.full(len(f), np.nan)
+    if len(f) < 2:
+        return out
+    phase = np.unwrap(np.angle(np.asarray(s21, dtype=complex)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        steps = -np.diff(phase) / np.diff(2 * np.pi * f)
+    out[1:] = steps
+    out[0] = steps[0]
+    return out
+
+
+def moving_average(values: np.ndarray, size: int) -> np.ndarray:
+    """Mean over ``size`` points, window [k − size//2, k + (size − 1)//2], mirrored at the ends.
+
+    The same as ``scipy.ndimage.uniform_filter1d(values, size)`` (mode ``reflect``): the smoothing of the
+    certificates of the laboratory, with ``size`` = 1 % of the points.
+    """
+    x = np.asarray(values, dtype=float)
+    if size < 2 or len(x) < 2:
+        return x.copy()
+    left, right = size // 2, (size - 1) // 2
+    padded = np.pad(x, (left, right), mode="symmetric")
+    sums = np.concatenate([[0.0], np.cumsum(padded)])
+    return (sums[size:] - sums[:-size]) / size
+
+
 def gamma_to_impedance(gamma: np.ndarray, z0: float = 50.0) -> np.ndarray:
     return z0 * (1 + gamma) / (1 - gamma)
 

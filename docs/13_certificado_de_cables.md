@@ -1,14 +1,21 @@
-# Certificado de calibración de cables — versión 0.10
+# Certificado de calibración de cables — versiones 0.10 y 0.10.1
 
 Esta versión calcula todo lo que da el certificado de calibración de un cable del laboratorio y lo genera en Word con su plantilla:
 
 1. **Resultados por sentido** (Fwd y Rev): el VSWR de cada puerto, la pérdida de inserción en los dos sentidos y el retardo de grupo, cada uno con su incertidumbre (§1).
 2. **Retardo de grupo en las gráficas:** la unidad «Retardo de grupo (ns)», el paso de fase a tiempo (§2).
 3. **Certificado en Word** con la plantilla del laboratorio, desde la ventana del ensayo o el explorador (§3).
-4. **VSWR de los conectores por bandas** y la tolerancia sobre cada conector, como en el certificado ([`11_especificacion_de_cables_por_formula.md`](11_especificacion_de_cables_por_formula.md)).
+4. **VSWR de los conectores por bandas**, introducidas en una tabla, con la tolerancia sobre el VSWR del cable ensamblado ([`11_especificacion_de_cables_por_formula.md`](11_especificacion_de_cables_por_formula.md)).
 5. **Referencia de inventario y denominación** de cada equipo, por ejemplo LE2333.001 (§6).
 
 Las gráficas del certificado mantendrán el formato de las del laboratorio: su código se integrará en la próxima versión. Hasta entonces, cada gráfica es un marcador (§4).
+
+**0.10.1.** Con el S2P de vuestro certificado LE2333.001_2026_10, el programa reproduce exactamente sus tablas Fwd y Rev (§8). Además:
+- la tolerancia del VSWR vuelve a aplicarse al cable ensamblado;
+- las bandas de VSWR se introducen en una tabla;
+- las filas de un barrido logarítmico van espaciadas logarítmicamente;
+- el diálogo del certificado carga el Excel de la sonda si faltan las condiciones;
+- los pies de las figuras 1 y 2 quedan confirmados (Fwd = S11).
 
 | | |
 |---|---|
@@ -54,6 +61,7 @@ Las gráficas de parámetros S tienen una unidad más: **«Retardo de grupo (ns)
   - **Fecha del informe:** por defecto, hoy.
   - **Fichero:** por defecto, `<carpeta del ensayo>/certificado/<referencia>.docx`.
   - **Avisos:** lo que falta en los datos (§3.6).
+  - **«Cargar el Excel de la sonda TPH…»**, si el ensayo aún no tiene las condiciones ambientales. Las condiciones se calculan del mismo .xlsx con el que se completa la incertidumbre: el mínimo y el máximo de las lecturas que cubren el ensayo. Al cargarlo se recalcula la incertidumbre y se actualizan los datos del certificado.
 - **Registro:** guarda `resultados.certificado` (referencia, fecha, fichero y plantilla) y añade el fichero a `ficheros`, así que el .zip del ensayo lo incluye.
 - **Código:** `generate_certificate(biblioteca, ensayo, fichero, referencia, fecha, figuras)` de `procedures/report.py`. `prepare_certificate` da los datos y los avisos sin escribir nada.
 
@@ -100,6 +108,7 @@ informe:
 | `intervalo` | Intervalo de calibración del EUT: Anual, Bienal… |
 | `frecuencias` | Filas de las tablas: un número n o una lista (§3.5). Por defecto, 21 |
 | `apertura_retardo` | Pasos de frecuencia del retardo de grupo, en las gráficas, en `sentidos` y en el certificado. Por defecto, 10 |
+| `suavizado_pct` | VSWR y retardo de grupo de las tablas: media móvil sobre este % de los puntos (§3.5). El laboratorio usa 1; por defecto, sin suavizado |
 | `sonda_ambiental` | Equipo de la sonda de las condiciones ambientales; va en la tabla de equipos |
 
 En el editor de plantillas de ensayo están en la tarjeta **«Certificado de calibración (cables)»**, visible en los ensayos de parámetros S.
@@ -131,14 +140,21 @@ En el editor de plantillas de ensayo están en la tarjeta **«Certificado de cal
   - columnas de VSWR con 4 decimales y sin ceros finales (1.0748, 1.386);
   - pérdidas en dB y retardos en ns con 4 decimales (-0.0630 dB, 11.0643 ns);
   - en las tablas, punto decimal; en el texto, coma.
-- **Nota del VSWR:** con el ejemplo dice, como en el certificado del laboratorio: «Entre 10 MHz y 18 GHz, el VSWR máximo declarado de cada conector es 1,12:1. Entre 18 y 26,5 GHz, el VSWR máximo declarado de cada conector es 1,16:1. El VSWR medido no deberá superar 1,39:1 entre 10 MHz y 18 GHz, ni 1,49:1 entre 18 y 26,5 GHz.» Si los dos conectores declaran valores distintos, da los de cada uno.
+- **Nota del VSWR:** con el ejemplo dice, con el formato del certificado del laboratorio: «Entre 10 MHz y 18 GHz, el VSWR máximo declarado de cada conector es 1,12:1. Entre 18 y 26,5 GHz, el VSWR máximo declarado de cada conector es 1,16:1. El VSWR medido no deberá superar 1,32:1 entre 10 MHz y 18 GHz, ni 1,42:1 entre 18 y 26,5 GHz.» Con la tolerancia sobre cada conector (`vswr_sobre: conectores`) dice 1,39:1 y 1,49:1, como vuestro certificado de ejemplo. Si los dos conectores declaran valores distintos, da los de cada uno.
 
 ### 3.5 Las filas de las tablas
 
-- **Con un número n** (`frecuencias: 21`): n frecuencias igualmente espaciadas entre el inicio y el fin del barrido. Se redondean a dos cifras significativas, salvo la primera y la última.
-  - Con 21 de 10 MHz a 26,5 GHz salen exactamente las del certificado del laboratorio: 10 MHz, 1,3, 2,7, 4, 5,3, 6,6, 8, 9,3, 11, 12, 13, 15, 16, 17, 19, 20, 21, 23, 24, 25 y 26,5 GHz.
+- **Con un número n** (`frecuencias: 21`, el valor por defecto): n frecuencias entre el inicio y el fin del barrido, redondeadas a dos cifras significativas salvo la primera y la última.
+  - **Barrido lineal** (o lista): igualmente espaciadas. Con 21 de 10 MHz a 26,5 GHz salen exactamente las del certificado del laboratorio: 10 MHz, 1,3, 2,7, 4, 5,3, 6,6, 8, 9,3, 11, 12, 13, 15, 16, 17, 19, 20, 21, 23, 24, 25 y 26,5 GHz.
+  - **Barrido logarítmico:** espaciadas logarítmicamente. Por ejemplo, de 9 kHz a 3 GHz: 9, 17, 32, 61, 110, 220, 410 y 770 kHz, 1,5 MHz… 840 MHz, 1,6 y 3 GHz.
 - **Con una lista** (`frecuencias: [10 MHz, 1 GHz, …]`): las de la lista dentro del rango medido.
 - **Valores de cada fila:** los del punto medido más cercano. La fila lleva la frecuencia nominal; su variable `frecuencia_medida` da la del punto usado.
+- **Suavizado** (`suavizado_pct`): el VSWR y el retardo de grupo de las filas se suavizan como en los certificados del laboratorio:
+  - VSWR del punto y retardo entre puntos consecutivos, −Δφ/Δω (`step_delay`);
+  - media móvil de n = int(pct/100 · N) puntos, con ventana [k − n/2, k + (n − 1)/2] y los extremos reflejados (`moving_average`, como `scipy.ndimage.uniform_filter1d`). Con N = 5299 y 1 %, n = 52;
+  - la pérdida de inserción y las incertidumbres son las del punto, sin suavizar.
+
+  El registro y el CSV `_fwd_rev` guardan los valores de cada punto, sin suavizar.
 
 ### 3.6 Avisos
 
@@ -155,8 +171,8 @@ El diálogo y el mensaje final avisan, para revisar el certificado antes de emit
 - **Gráficas:** se integrará el código Python con el que el laboratorio genera las suyas, para mantener su formato. Hasta entonces, cada figura del certificado es el texto «[Gráfica pendiente: …]» en su sitio.
   - El generador ya acepta una imagen PNG por figura: el argumento `figuras` de `generate_certificate`, con las claves de `figuras` de §3.4.
   - Las imágenes se colocan con el ancho de las de la plantilla (184,6 mm).
-- **Incertidumbre del VSWR:** la de la plantilla del laboratorio no se reproduce con U_VSWR = 2·U_ρ/(1−ρ)² ([`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md) §5.1). Se revisará con el código del laboratorio.
-- **Pies de las figuras 1 y 2:** en la plantilla, la figura «VSWR asociado a RL Fwd» muestra S22 (puerto 2) y la «Rev», S11. En las tablas, Fwd es el puerto 1 (S11) y Rev el puerto 2 (S22). Se han dejado los pies; las gráficas seguirán a las tablas (Fwd = S11) salvo que el laboratorio indique otra cosa.
+- **Incertidumbre del VSWR:** pendiente de la revisión del laboratorio (§8.2). El programa usa U_VSWR = 2·U_ρ/(1−ρ)² ([`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md) §5.1).
+- **Pies de las figuras 1 y 2 (resuelto):** en la plantilla de ejemplo, la figura «VSWR asociado a RL Fwd» mostraba S22 y la «Rev», S11, al revés que los pies. El laboratorio lo confirma: Fwd es el puerto 1 (S11) y Rev el puerto 2 (S22), como en las tablas. Las gráficas seguirán a los pies.
 
 ## 5. Ejemplo de la biblioteca: SUCOFLEX 526S LE2333.001
 
@@ -167,11 +183,11 @@ Es el cable del certificado de ejemplo del laboratorio:
 | Modelo | `catalogo/modelos/hs_sucoflex_526s_35mm.yaml`: SF526S/11PC35/11PC35/2500mm, conectores 3,5 mm macho; a = 0,229 y b = 0,0071 dB/m con f en GHz; VSWR de los conectores 1,12 hasta 18 GHz y 1,16 hasta 26,5 GHz |
 | EUT | `catalogo/equipos/CAB-DUT-0006.yaml`: referencia LE2333.001, nº de serie 682138001 |
 | Setup | `hardware_setups/configurados/cable_35_nmd.yaml`: ZNB43 (LE1941.000) con el cable de puerto NMD (LE1941.002) en P1 y la transición NMD en P2; kit ZN-Z229 (LE1941.001); 10 MHz – 26,5 GHz con paso de 10 MHz |
-| Plantilla de ensayo | `procedimientos/cable_CAB-DUT-0006.yaml`: +1 dB y +5 %; `informe` con ATN-Q-IO-22-164, Bienal, 21 frecuencias y la sonda TPH-01 (OMEGA iBTHX-W, LE1689.000) |
+| Plantilla de ensayo | `procedimientos/cable_CAB-DUT-0006.yaml`: +1 dB y +5 % sobre el cable ensamblado; `informe` con ATN-Q-IO-22-164, Bienal, 21 frecuencias, suavizado del 1 % y la sonda TPH-01 (OMEGA iBTHX-W, LE1689.000) |
 | Plantilla de Word | `informes/certificado_cable.docx` |
 
 - **Resultado:** con el VNA simulado el ensayo **PASA** y el certificado sale como el del laboratorio, con los datos de la simulación.
-- **Límites:** coinciden con los del certificado del laboratorio: VSWR 1,386 / 1,4893 y pérdida de inserción −1,0574 dB a 10 MHz y −4,4175 dB a 26,5 GHz.
+- **Límites:** la pérdida de inserción coincide con la del certificado del laboratorio (−1,0574 dB a 10 MHz y −4,4175 dB a 26,5 GHz). El VSWR máximo, con el 5 % sobre el cable ensamblado, es 1,3181 hasta 18 GHz y 1,4152 hasta 26,5 GHz; vuestro certificado de ejemplo da 1,386 / 1,4893, que salen aplicando el 5 % a cada conector (`vswr_sobre: conectores`, [`11_especificacion_de_cables_por_formula.md`](11_especificacion_de_cables_por_formula.md) §3.2).
 - **Incertidumbres:** la de la pérdida de inserción (0,04 / 0,05 dB) y la del retardo (0,1111 ns a 10 MHz) también coinciden.
 - **Datos sintéticos:** el cable de puerto NMD lleva un S2P sintético de ejemplo. La transición NMD no tiene referencia de inventario, y el certificado avisa.
 
@@ -205,3 +221,35 @@ Cada equipo del inventario tiene dos campos nuevos:
 | `gui/plots.py` | Unidad «Retardo de grupo (ns)» |
 | `biblioteca_ejemplo/informes/certificado_cable.docx` | La plantilla de Word del laboratorio, con etiquetas |
 | `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido frente al certificado del laboratorio, filas, formatos, nota del VSWR, certificado del ejemplo, ventana del ensayo y referencia de los equipos |
+| `core/networks.py` (0.10.1) | `step_delay` y `moving_average`: el retardo entre puntos y el suavizado del laboratorio |
+| `gui/bands_dialog.py` | Tabla de las bandas de un campo «número por bandas» (botón «Bandas…») |
+
+## 8. Comparación con el certificado LE2333.001_2026_10
+
+Datos: el S2P del ZNB43 con el que se hizo el certificado (10 MHz – 26,5 GHz con paso de 5 MHz, 5299 puntos, Touchstone 2.0). Es una medida del laboratorio y no está en el repositorio.
+
+### 8.1 Las tablas Fwd y Rev
+
+| Columna | Filas iguales al certificado (de 42) | Cómo se calcula |
+|---|---|---|
+| Pérdida de inserción | 42 | 20·log10 \|S21\| (Fwd) y \|S12\| (Rev) del punto más cercano, sin suavizar |
+| VSWR | 42 con `suavizado_pct: 1`; sin suavizar difiere hasta 0,13 | VSWR de S11 (Fwd) y S22 (Rev), media móvil de 52 puntos (§3.5) |
+| Retardo de grupo | 42 con `suavizado_pct: 1`; con la apertura de 10 pasos sin suavizar difiere hasta 0,08 ns | Retardo entre puntos consecutivos, media móvil de 52 puntos |
+| U de la pérdida de inserción y del retardo | 42 | U_dB(Sji) y U_φ(Sji) / (360°·f) |
+| U del VSWR | 36 son la mitad que las del programa; 6, distintas (§8.2) | — |
+
+### 8.2 Incertidumbre del VSWR
+
+La columna «Incertidumbre VSWR» del certificado sale, en las 42 filas, de:
+
+```
+U_VSWR = ρ · ln10/20 · U_dB / (1 − ρ)²        ρ = |Sii| del punto, sin suavizar
+```
+
+Tiene dos diferencias con la del programa, U_VSWR = 2 · ρ · ln10/20 · U_dB / (1 − ρ)² ([`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md) §5.1):
+
+1. **Falta el factor 2 de la derivada** dVSWR/dρ = 2/(1 − ρ)². La U del certificado es la mitad, como si fuera k = 1, aunque el certificado declara k = 2.
+2. **En Rev, el rango de nivel del fichero del VNA se elige con \|S11\|**, no con \|S22\|. Cambia U_dB en 4; 5,3; 12; 13; 23 y 25 GHz: por ejemplo, a 4 GHz, \|S22\| = −26,6 dB pero \|S11\| = −22,4 dB, y se toma 0,23 dB en lugar de 0,91 dB.
+
+El programa sigue con su fórmula hasta que el laboratorio la revise.
+
