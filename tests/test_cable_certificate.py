@@ -333,6 +333,29 @@ def test_certificate_from_the_test_window(qapp, library, tmp_path):
         test.deleteLater()
 
 
+def test_tables_fwd_and_rev_in_the_test_window(qapp, library, tmp_path):
+    record = run_example(library, tmp_path)
+    window = TestWindow(library, record=record, today=TODAY)
+    tabs = [window.tabs.tabText(i) for i in range(window.tabs.count())]
+    assert tabs[:3] == ["Gráfica", "Tabla", "Pasa / falla — PASA"] and window.tabs.isTabVisible(1)
+    view = window.report_tables
+    fwd, rev = view.tables["fwd"], view.tables["rev"]
+    assert fwd.rowCount() == rev.rowCount() == 21  # the frequencies of the certificate
+    context = prepare_certificate(library, record).context
+    first = [fwd.item(0, column).text() for column in range(fwd.columnCount())]
+    expected = context["fwd"][0]
+    keys = ("frecuencia", "vswr", "u_vswr", "limite_vswr", "perdida", "u_perdida", "limite_perdida", "retardo", "u_retardo")
+    assert first == [expected[key] for key in keys] and rev.item(20, 0).text() == "26.5 GHz"
+    assert "21 frecuencias igualmente espaciadas de 10 MHz a 26,5 GHz" in view.note.text()
+    text = view.text()  # «Copiar tablas»: tab-separated, the headers on one line
+    assert text.startswith("Fwd\nFrecuencia\tVSWR puerto 1\tIncertidumbre VSWR") and "\n\nRev\n" in text
+    other = TestWindow(library, library.procedures["lisn_LISN-0001"], library.tests_folder, "LISN", "prueba", today=TODAY)
+    assert not other.tabs.isTabVisible(other.tabs.indexOf(other.report_tables))  # only in the 2-port tests
+    for test in (window, other):
+        test.close()
+        test.deleteLater()
+
+
 def test_inventory_reference_and_name_of_an_equipment(qapp, library):
     dialog = EquipmentDialog(library, library.equipment["VNA-01"])
     assert dialog.reference.text() == "LE1941.000" and dialog.name_edit.text() == "Analizador vectorial de redes"

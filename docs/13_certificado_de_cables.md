@@ -1,4 +1,4 @@
-# Certificado de calibración de cables — versiones 0.10 a 0.10.2
+# Certificado de calibración de cables — versiones 0.10 a 0.10.3
 
 Esta versión calcula todo lo que da el certificado de calibración de un cable del laboratorio y lo genera en Word con su plantilla:
 
@@ -21,6 +21,8 @@ Las gráficas del certificado tienen el formato de las del laboratorio (§4).
 - **Suavizado del 1 %, siempre**, del VSWR y del retardo de grupo: en las tablas y las gráficas del certificado y en las gráficas del programa (§2, §3.5). Ya no es un ajuste: `informe.suavizado_pct` y `informe.apertura_retardo` se leen y se ignoran.
 - **Las cinco gráficas del certificado**, con el formato del código de gráficas del laboratorio (§4).
 - **Incertidumbre del VSWR:** el laboratorio confirma el factor 2 de la derivada y, en Rev, el rango de nivel de S22. El programa ya la calculaba así; ahora un test lo comprueba (§8.2).
+
+**0.10.3.** La ventana de un ensayo de 2 puertos tiene la pestaña **«Tabla»**, entre «Gráfica» y «Pasa / falla», con las tablas Fwd y Rev del certificado (§3.7).
 
 | | |
 |---|---|
@@ -171,6 +173,18 @@ El diálogo y el mensaje final avisan, para revisar el certificado antes de emit
 - el procedimiento o el intervalo sin indicar en la plantilla de ensayo;
 - sin gráficas, si falta matplotlib: cada figura queda como el texto «[Gráfica: …]».
 
+### 3.7 Las tablas en la ventana del ensayo
+
+La pestaña **«Tabla»** de la ventana de un ensayo de parámetros S (`vna_2_puertos`) muestra las tablas Fwd y Rev tal como irán en el certificado:
+- **Filas:** las mismas del certificado (§3.5), 21 por defecto, con los valores del punto medido más cercano. El tooltip de cada fila da la frecuencia del punto usado.
+- **Columnas:** las de las tablas del certificado: VSWR del puerto, su incertidumbre y su límite; pérdida de inserción, su incertidumbre y su límite; desfase de grupo y su incertidumbre. Con los formatos del certificado.
+- **Fuera de límite:** una fila cuyo punto (sin suavizar) queda fuera de un límite se pinta en rojo.
+- **«Copiar tablas»:** las dos tablas, separadas por tabuladores, para pegarlas en Excel.
+- **Actualización:** se rellena al terminar la medida y se recalcula al cargar las condiciones ambientales.
+- **Código:** `gui/report_tables.py`, con `report_tables` de `procedures/report.py`, que da las mismas filas que el certificado.
+
+![Pestaña «Tabla» del ensayo del SUCOFLEX 526S](capturas/v10/33d_cable_tabla_fwd_rev.png)
+
 ## 4. Las gráficas del certificado
 
 Las dibuja `procedures/figures.py` con matplotlib, con el formato del código de gráficas del laboratorio (`graphics.py` de sus herramientas de S2P). Solo se ha tomado el formato: los valores son los de las tablas (§1, §3.5).
@@ -246,6 +260,7 @@ Cada equipo del inventario tiene dos campos nuevos:
 | `biblioteca_ejemplo/informes/certificado_cable.docx` | La plantilla de Word del laboratorio, con etiquetas |
 | `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido frente al certificado del laboratorio, U del VSWR de cada puerto, filas, formatos, nota del VSWR, certificado del ejemplo con sus gráficas, ventana del ensayo y referencia de los equipos |
 | `gui/bands_dialog.py` | Tabla de las bandas de un campo «número por bandas» (botón «Bandas…») |
+| `gui/report_tables.py` (0.10.3) | Pestaña «Tabla» de la ventana del ensayo: las tablas Fwd y Rev del certificado |
 
 ## 8. Comparación con el certificado LE2333.001_2026_10
 

@@ -248,6 +248,15 @@ def _chart(p: QPainter, c: QColor) -> None:
     _poly(p, (6, 16), (10, 10.5), (13.5, 13.5), (19.5, 6))
 
 
+@_register("tabla")
+def _table(p: QPainter, c: QColor) -> None:
+    _pen(p, c)
+    p.drawRoundedRect(QRectF(3.5, 4.5, 17, 15), 2, 2)
+    _poly(p, (3.5, 9), (20.5, 9))
+    _poly(p, (3.5, 14), (20.5, 14))
+    _poly(p, (9.5, 9), (9.5, 19.5))
+
+
 @_register("buscar")
 def _search(p: QPainter, c: QColor) -> None:
     _pen(p, c, 2)

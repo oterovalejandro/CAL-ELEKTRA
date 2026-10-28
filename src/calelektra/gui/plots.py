@@ -47,6 +47,7 @@ from calelektra.core.networks import (
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError, parse_frequency
 from calelektra.gui import style
+from calelektra.gui.frequency_input import install_frequency_completion
 from calelektra.instruments.base import InstrumentError
 from calelektra.instruments.dummy_vna import DummyVna
 from calelektra.instruments.factory import open_vna
@@ -909,6 +910,8 @@ class VnaCheckDialog(QDialog):
         self.sweep_type = QComboBox()
         self.sweep_type.addItems(["lineal", "logaritmico"])
         self.ifbw = QLineEdit("1 kHz")
+        for edit in (self.start, self.stop, self.ifbw):
+            install_frequency_completion(edit)
         self.power = QDoubleSpinBox()
         self.power.setRange(-100, 30)
         self.power.setValue(-10)

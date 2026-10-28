@@ -28,6 +28,7 @@ from calelektra.core.frequency import FrequencyRange
 from calelektra.core.issues import Severity
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.gui import style
+from calelektra.gui.frequency_input import install_frequency_completion
 from calelektra.gui.icons import icon
 from calelektra.procedures.model import ALGORITHMS
 from calelektra.setups.analysis import SetupAnalysis, analyze_setup
@@ -132,6 +133,8 @@ class NewSetupDialog(QDialog):
         self.name = QLineEdit()
         self.start = QLineEdit()
         self.stop = QLineEdit()
+        for edit in (self.start, self.stop):
+            install_frequency_completion(edit)
         range_row = QHBoxLayout()
         range_row.addWidget(self.start)
         range_row.addWidget(QLabel("–"))

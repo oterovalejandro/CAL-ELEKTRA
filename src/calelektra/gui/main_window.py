@@ -234,6 +234,7 @@ class MainWindow(QMainWindow):
         self.setups_view.setups_changed.connect(lambda: self._library_changed(skip=self.setups_view))
         self.procedures_view.launch.connect(lambda procedure_id: self.launch_test(procedure_id=procedure_id))
         self.procedures_view.edit_model.connect(self.edit_model)
+        self.procedures_view.open_setup.connect(self.open_setup)
         self.procedures_view.procedures_changed.connect(lambda: self._library_changed(skip=self.procedures_view))
         self.tests_view.launch_test.connect(lambda folder: self.launch_test(folder=folder))
         self.tests_view.open_test.connect(self.open_test_folder)

@@ -403,12 +403,8 @@ def prepare_run(library: Library, procedure: ProcedureTemplate, today: date | No
     sweep = procedure.sweep
     if vna is not None:
         ifbw = library.field(vna, "ifbw")
-        if isinstance(ifbw, FrequencyRange):
-            for trace in procedure.traces:
-                bandwidth = sweep.trace(trace)[0]
-                if not ifbw.start <= bandwidth <= ifbw.stop:
-                    error(f"IFBW de {format_frequency(bandwidth)} ({trace}) fuera del rango de «{vna.id}» ({ifbw})")
-                    break
+        if isinstance(ifbw, FrequencyRange) and not ifbw.start <= sweep.if_bandwidth <= ifbw.stop:
+            error(f"IFBW de {format_frequency(sweep.if_bandwidth)} fuera del rango de «{vna.id}» ({ifbw})")
         power = library.field(vna, "potencia_salida_dbm")
         if isinstance(power, NumberRange) and not power.low <= sweep.power_dbm <= power.high:
             error(f"Potencia de {sweep.power_dbm:g} dBm fuera del rango de «{vna.id}» ({power} dBm)")
@@ -772,11 +768,8 @@ class ProcedureRunner:
         return "ok", f"{identity}" + (" (simulado)" if self.vna.simulated else "")
 
     def _trace_settings(self) -> dict[str, dict]:
-        settings = {}
-        for trace in self.procedure.traces:
-            ifbw, averages, smoothing = self.procedure.sweep.trace(trace)
-            settings[trace] = {"ifbw": format_frequency(ifbw, decimal="."), "promedios": averages, "suavizado_visualizacion_pct": smoothing}
-        return settings
+        """Display smoothing of each trace (the IFBW and the averaging are those of all the traces)."""
+        return {trace: {"suavizado_visualizacion_pct": self.procedure.sweep.trace(trace)[2]} for trace in self.procedure.traces}
 
     def _step_configuracion(self) -> tuple[str, str]:
         assert self.plan is not None and self.vna is not None and self.plan.frequency_plan is not None
@@ -812,7 +805,7 @@ class ProcedureRunner:
         if sweep.averages > 1:
             text += f", {sweep.averages} promedios"
         if sweep.per_trace:
-            text += " (ajustes por traza)"
+            text += " (suavizado por traza)"
         return "ok", text
 
     def _plane_text(self, plane: PlaneInfo) -> str:
@@ -938,45 +931,23 @@ class ProcedureRunner:
         return frequencies, self.vna.read_s_matrix(ports)
 
     def _measure_dut(self, ports: tuple[int, ...], traces: tuple[str, ...] | None = None) -> tuple[np.ndarray, np.ndarray]:
-        """Measure the traces of the DUT with their own IFBW / averaging (not smoothed: smoothing is only for display).
+        """Measure the traces of the DUT in one sweep, with the IFBW and averaging of all the traces.
 
-        Traces that share IFBW and averaging are read from the same sweep; each
-        other combination needs its own sweep (on the VNA they are channel
-        settings). The «all traces» settings are restored afterwards. Only
-        ``traces`` are read (e.g. S21 in the transmission test); the other
-        elements of the S matrix are NaN.
+        Not smoothed: the smoothing is only for display. Only ``traces`` are
+        read (e.g. S21 in the transmission test); the other elements of the S
+        matrix are NaN.
         """
         assert self.vna is not None
-        sweep = self.procedure.sweep
         n = len(ports)
         names = [f"S{i + 1}{j + 1}" for i in range(n) for j in range(n)]
         if traces:
             names = [name for name in names if name in traces]
-        groups: dict[tuple[float, int], list[str]] = {}
+        self.vna.single_sweep()
+        frequencies = self.vna.frequencies()
+        s = np.full((len(frequencies), n, n), np.nan, dtype=complex)
         for name in names:
-            ifbw, averages, _ = sweep.trace(name)
-            groups.setdefault((ifbw, averages), []).append(name)
-        frequencies: np.ndarray | None = None
-        s = np.empty((0, n, n), dtype=complex)
-        current = (sweep.if_bandwidth, sweep.averages)
-        for (ifbw, averages), members in groups.items():
-            if (ifbw, averages) != current:
-                self.vna.set_if_bandwidth(ifbw)
-                self.vna.set_averaging(averages)
-                current = (ifbw, averages)
-            self.vna.single_sweep()
-            if frequencies is None:
-                frequencies = self.vna.frequencies()
-                s = np.full((len(frequencies), n, n), np.nan, dtype=complex)
-            for name in members:
-                i, j = int(name[1]) - 1, int(name[2]) - 1
-                s[:, i, j] = self.vna.read_s_parameter(f"S{ports[i]}{ports[j]}")
-            if len(groups) > 1:
-                self._log(f"Barrido con IFBW {format_frequency(ifbw)} y {averages} promedios: {', '.join(members)}")
-        if current != (sweep.if_bandwidth, sweep.averages):
-            self.vna.set_if_bandwidth(sweep.if_bandwidth)
-            self.vna.set_averaging(sweep.averages)
-        assert frequencies is not None
+            i, j = int(name[1]) - 1, int(name[2]) - 1
+            s[:, i, j] = self.vna.read_s_parameter(f"S{ports[i]}{ports[j]}")
         return frequencies, s
 
     def _step_verificacion(self) -> tuple[str, str]:
@@ -1312,7 +1283,6 @@ class ProcedureRunner:
             f"Calibración: {calibration.get('metodo', '—')}" + (f", kit {calibration['kit']}" if calibration.get("kit") else ""),
             f"Barrido: {SWEEP_MODES.get(sweep.get('modo', ''), sweep.get('modo', ''))} {sweep.get('inicio')} – {sweep.get('fin')}, "
             f"{sweep.get('puntos')} puntos, IFBW {sweep.get('ifbw')}, {sweep.get('potencia_dbm')} dBm, {sweep.get('promedios')} promedios"
-            + (" (ajustes por traza: ver ensayo.yaml)" if sweep.get("por_traza") else "")
             + "; trazas sin suavizar",
             f"Fecha: {record.started:%Y-%m-%d %H:%M:%S}",
         ]

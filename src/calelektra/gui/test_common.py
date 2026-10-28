@@ -50,20 +50,15 @@ def equipment_text(library: Library, equipment: Equipment) -> str:
 
 
 def trace_text(sweep: SweepSettings, traces: tuple[str, ...]) -> str:
-    """IFBW, averaging and display smoothing of all traces, grouped when they are set per trace."""
-
-    def one(ifbw: float, averages: int, smoothing: float) -> str:
-        text = f"IFBW {format_frequency(ifbw)}, {averages} promedio{'s' if averages != 1 else ''}"
-        return text + (f", visualización suavizada {smoothing:g} %" if smoothing else "")
-
-    if not sweep.per_trace:
-        return one(sweep.if_bandwidth, sweep.averages, sweep.smoothing_pct)
-    groups: dict[tuple, list[str]] = {}
-    for trace in traces:
-        groups.setdefault(sweep.trace(trace), []).append(trace)
-    if len(groups) == 1:
-        return one(*next(iter(groups)))
-    return "; ".join(f"{', '.join(names)}: {one(*settings)}" for settings, names in groups.items())
+    """IFBW and averaging of all the traces, and their display smoothing (per trace when it differs)."""
+    text = f"IFBW {format_frequency(sweep.if_bandwidth)}, {sweep.averages} promedio{'s' if sweep.averages != 1 else ''}"
+    smoothing = sweep.smoothing(traces)
+    if not smoothing:
+        return text
+    values = set(smoothing.values())
+    if len(smoothing) == len(traces) and len(values) == 1:
+        return text + f", visualización suavizada {values.pop():g} %"
+    return text + ", visualización suavizada: " + ", ".join(f"{name} {pct:g} %" for name, pct in smoothing.items())
 
 
 def plan_html(library: Library, plan: RunPlan) -> str:

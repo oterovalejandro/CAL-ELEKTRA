@@ -820,6 +820,7 @@ def connection_picture(expanded: ExpandedSetup, library: Library, state_name: st
 class SetupDiagramView(QGraphicsView):
     role_clicked = Signal(str)
     node_moved = Signal(str, float, float)
+    double_clicked = Signal()  # anywhere on the view (the template editor opens the setup)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -862,6 +863,10 @@ class SetupDiagramView(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
         elif scale > 1.0:
             self.resetTransform()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        super().mouseDoubleClickEvent(event)
+        self.double_clicked.emit()
 
     def wheelEvent(self, event) -> None:  # noqa: N802 (Qt API)
         factor = 1.15 ** (event.angleDelta().y() / 120)

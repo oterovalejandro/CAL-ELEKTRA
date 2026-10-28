@@ -26,6 +26,7 @@ from calelektra.catalog.fields import FieldError, FieldSpec, coerce
 from calelektra.core.bands import BandValues
 from calelektra.core.units import format_frequency
 from calelektra.gui import style
+from calelektra.gui.frequency_input import FrequencyDelegate
 from calelektra.gui.icons import icon
 
 FROM, UP_TO, VALUE = range(3)
@@ -55,6 +56,7 @@ class BandsDialog(QDialog):
         unit = f" ({spec.unit})" if spec.unit else ""
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Desde", "Hasta (frecuencia)", f"Valor{unit}"])
+        self.table.setItemDelegateForColumn(UP_TO, FrequencyDelegate(self.table))
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.cellChanged.connect(self._cell_changed)

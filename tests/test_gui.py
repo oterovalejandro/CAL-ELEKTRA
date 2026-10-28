@@ -12,18 +12,24 @@ import pytest
 import yaml
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QMessageBox
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QLineEdit, QMessageBox, QVBoxLayout
 
+from calelektra.catalog.fields import FieldSpec
 from calelektra.catalog.library import Library
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.networks import smoothed
 from calelektra.gui import test_window as test_window_module
+from calelektra.gui.bands_dialog import BandsDialog
 from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
+from calelektra.gui.field_form import FieldEditor
+from calelektra.gui.frequency_input import completed, install_frequency_completion
 from calelektra.gui.main_window import SECTIONS, MainWindow
 from calelektra.gui.plots import ResultPlots, SParameterDialog, SParameterPlot, VnaCheckDialog
 from calelektra.gui.setup_editor import SetupEditor
+from calelektra.gui.template_widgets import TraceEditor
 from calelektra.gui.test_window import LaunchTestDialog, TestWindow
 from calelektra.procedures.engine import ProcedureRunner
+from calelektra.procedures.model import SweepSettings
 from calelektra.setups.model import ConfiguredSetup
 from calelektra.uncertainty.impedance import impedance_uncertainty
 from conftest import E5061B_VALID_DAY, renew_calibration, tph_workbook
@@ -298,12 +304,73 @@ def test_template_calls_a_setup_and_defines_the_eut(window, qapp, library_copy):
     editor.setup.setCurrentIndex(editor.setup.findData("cable_vna_292"))
     editor.eut.setCurrentIndex(editor.eut.findData("CAB-DUT-0002"))
     editor.traces.per_trace.setChecked(True)
-    editor.traces.table.item(2, 0).setText("300 Hz")  # S21
+    editor.traces.ifbw.setText("300 Hz")  # IFBW and averaging: those of all the traces
+    editor.traces.table.item(0, 2).setText("2")  # smoothing of S21: columns Todas, S11, S21, S12, S22
     assert view.save()
     data = yaml.safe_load((library_copy / "procedimientos/cable_CAB-DUT-0002.yaml").read_text(encoding="utf-8"))
     assert data["hardware_setup"] == "cable_vna_292" and data["eut"] == "CAB-DUT-0002"
-    assert data["barrido"]["trazas"]["S21"]["ifbw"] == "300 Hz" and "modo" not in data["barrido"]
+    assert data["barrido"]["ifbw"] == "300 Hz" and data["barrido"]["trazas"]["S21"] == {"suavizado_pct": 2.0} and "modo" not in data["barrido"]
+    # a double click on the diagram opens the hardware setup in its own tab
+    QTest.mouseDClick(editor.diagram.viewport(), Qt.MouseButton.LeftButton)
+    opened = window.workspace.currentWidget()
+    assert isinstance(opened, SetupEditor) and opened.setup.id == "cable_vna_292"
     assert view.action_launch.isEnabled()
+
+
+def test_trace_settings_table_has_a_column_per_trace(qapp):
+    editor = TraceEditor()
+    assert editor.table.rowCount() == 1 and editor.table.columnCount() == 5  # «Suavizado (%)» × Todas, S11, S21, S12, S22
+    assert [editor.table.horizontalHeaderItem(c).text() for c in range(5)] == ["Todas", "S11", "S21", "S12", "S22"]
+    editor.load(SweepSettings(ifbw="300 Hz", promedios=4, suavizado_pct=1, por_traza=True, trazas={"S22": {"suavizado_pct": 2}}))
+    assert (editor.ifbw.text(), editor.averages.value()) == ("300 Hz", 4)
+    assert [editor.table.item(0, c).text() for c in range(5)] == ["1", "", "", "", "2"]
+    assert editor.values() == {"ifbw": "300 Hz", "promedios": 4, "suavizado_pct": 1.0, "por_traza": True, "trazas": {"S22": {"suavizado_pct": 2.0}}}
+    editor.per_trace.setChecked(False)
+    assert not editor.table.item(0, 4).flags() & Qt.ItemFlag.ItemIsEnabled  # the cells of each trace, off
+    editor.set_traces(("S11",))  # 1 port
+    assert [editor.table.isColumnHidden(c) for c in range(5)] == [False, False, True, True, True]
+    editor.ifbw.setText("1 kHz x")
+    with pytest.raises(ValueError, match="IFBW"):
+        editor.values()
+
+
+def test_frequency_fields_complete_the_unit(qapp):
+    assert completed("10", "k") == "10 kHz" and completed(" 1,5 ", "G") == " 1,5 GHz" and completed("100", "H") == "100 Hz"
+    assert completed("10 MHz; 2", "G", ";") == "10 MHz; 2 GHz" and completed("1,", "G") is None and completed("abc", "M") is None
+    form = QDialog()
+    layout = QVBoxLayout(form)
+    first, second, rows = QLineEdit(), QLineEdit(), QLineEdit()
+    for edit in (first, second, rows):
+        layout.addWidget(edit)
+    install_frequency_completion(first)
+    install_frequency_completion(rows, separator=";")
+    form.show()
+    form.activateWindow()
+    first.setFocus()
+    qapp.processEvents()
+    QTest.keyClicks(first, "18G")
+    qapp.processEvents()
+    assert first.text() == "18 GHz" and second.hasFocus()  # the unit and the next field
+    QTest.keyClicks(second, "Hzx")  # the rest of the unit typed out of habit is not written
+    assert second.text() == "x"
+    QTest.keyClicks(rows, "10M1G")  # a list: the next item instead of the next field
+    assert rows.text() == "10 MHz; 1 GHz; "
+    QTest.keyClicks(first, "x")  # not after a number: a letter as any other
+    assert first.text() == "18 GHzx"
+    # the fields of the catalogue and the bands table
+    field = FieldEditor(FieldSpec(etiqueta="Frecuencia de corte", tipo="frecuencia"))
+    QTest.keyClicks(field.edit, "2,5M")
+    assert field.value() == 2.5e6
+    dialog = BandsDialog(FieldSpec(etiqueta="VSWR", tipo="numero_bandas", minimo=1))
+    dialog.show()
+    dialog.table.setCurrentCell(0, 1)
+    dialog.table.editItem(dialog.table.item(0, 1))
+    qapp.processEvents()
+    QTest.keyClicks(dialog.table.focusWidget(), "18G")
+    qapp.processEvents()
+    assert dialog.table.item(0, 1).text() == "18 GHz" and dialog.table.currentColumn() == 2  # the cell «Valor» next
+    for widget in (form, dialog):
+        widget.close()
 
 
 def test_new_template_from_a_setup(window, qapp):
@@ -385,7 +452,7 @@ def test_launch_and_run_automatic_test(window, qapp, library_copy, monkeypatch):
     assert record.status == "completado" and record.verdict == "PASA" and record.folder == folder / "Cable_cliente_2001"
     assert test.plot.datasets and test.plot.limits and test.spec_table.rowCount() == 4  # 2 specs × 2 parameters
     assert test.plot.smoothing == {"S11": 1.0, "S22": 1.0} and test.plot.smooth_box.isVisible()
-    assert "PASA" in test.tabs.tabText(1) and test.start_button.text() == "Repetir ensayo"
+    assert "PASA" in test.tabs.tabText(test.tabs.indexOf(test.spec_table)) and test.start_button.text() == "Repetir ensayo"
     assert window.tests_view.table.rowCount() == 1
     assert window.home.tile_tests.value.text() == "1"
 
@@ -678,7 +745,8 @@ def test_transmission_and_coupler_tests_in_the_window(window, qapp):
     pairs = {"In-Out", "In-Coupl. Fwd", "Out-Coupl. Fwd"}
     assert coupler.record.verdict == "PASA" and set(coupler.plot.datasets) == pairs
     assert set(coupler.plot.uncertainty) == set(coupler.plot.datasets)
-    assert coupler.spec_table.rowCount() == 5 and coupler.tabs.tabText(1) == "Pasa / falla — PASA"
+    assert coupler.spec_table.rowCount() == 5 and coupler.tabs.tabText(coupler.tabs.indexOf(coupler.spec_table)) == "Pasa / falla — PASA"
+    assert not coupler.tabs.isTabVisible(coupler.tabs.indexOf(coupler.report_tables))  # «Tabla»: only the 2-port tests
     # two charts: the reflection of each port (In and Out from the In–Out pair) and the transmission of each pair
     plots = coupler.plot
     assert plots is coupler.plots.coupler and coupler.plots.currentWidget() is plots

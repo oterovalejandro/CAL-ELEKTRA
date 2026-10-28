@@ -3,9 +3,9 @@
 A test template calls a hardware setup (bench and frequency points, shown as
 a diagram with the EUT in place) and defines the EUT to calibrate, whose
 model gives the S-parameter specifications for pass / fail. It also sets the
-source power, the trace settings (IFBW, averaging and display smoothing),
-calibration, verification and export. Launching it in a folder creates a test,
-the record of that measurement.
+source power, the IFBW and averaging of all the traces, the display smoothing
+(of all traces or per trace), calibration, verification and export. Launching
+it in a folder creates a test, the record of that measurement.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from calelektra.catalog.library import Library, LibraryError, validation_message
 from calelektra.core.networks import SMOOTHING_PCT
 from calelektra.core.units import UnitError, parse_frequency
 from calelektra.gui import style
+from calelektra.gui.frequency_input import install_frequency_completion
 from calelektra.gui.icons import icon
 from calelektra.gui.setup_diagram import SetupDiagramView
 from calelektra.gui.template_widgets import SpecEditor, TraceEditor
@@ -72,6 +73,7 @@ ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 class ProcedureEditor(QWidget):
     changed = Signal()
     edit_model = Signal(str)  # model of the EUT: edit its specifications
+    open_setup = Signal(str)  # hardware setup: open it (double click on its diagram)
 
     def __init__(self, library: Library, parent: QWidget | None = None):
         super().__init__(parent)
@@ -116,6 +118,8 @@ class ProcedureEditor(QWidget):
         self.setup_info.setWordWrap(True)
         self.diagram = SetupDiagramView()
         self.diagram.setMinimumHeight(230)
+        self.diagram.setToolTip("Doble clic: abrir el hardware setup en su propia pestaña")
+        self.diagram.double_clicked.connect(self._open_setup)
         setup_card.body.addWidget(self.setup)
         setup_card.body.addWidget(self.setup_info)
         setup_card.body.addWidget(self.diagram, 1)
@@ -211,14 +215,12 @@ class ProcedureEditor(QWidget):
         eut_card.body.addWidget(self.cable_box)
 
         measurement = style.Card("Medida: potencia y trazas", icon_name="ajustes")
-        power_form = QFormLayout()
         self.power = QDoubleSpinBox()
         self.power.setRange(-100, 30)
         self.power.setDecimals(1)
         self.power.setSuffix(" dBm")
-        power_form.addRow("Potencia de la fuente", self.power)
-        measurement.body.addLayout(power_form)
-        self.traces = TraceEditor()
+        self.traces = TraceEditor()  # IFBW, averaging and smoothing
+        self.traces.form.insertRow(0, "Potencia de la fuente", self.power)
         measurement.body.addWidget(self.traces)
 
         calibration = style.Card("Calibración", icon_name="vna")
@@ -295,6 +297,7 @@ class ProcedureEditor(QWidget):
         self.report_interval.setPlaceholderText("p. ej. Anual, Bienal")
         self.report_rows = QLineEdit()
         self.report_rows.setPlaceholderText(f"{DEFAULT_REPORT_POINTS}  o una lista: 10 MHz; 1 GHz; 2 GHz")
+        install_frequency_completion(self.report_rows, separator=";")
         self.report_rows.setToolTip(
             "Filas de las tablas Fwd y Rev: n frecuencias igualmente espaciadas en el barrido (redondeadas a dos cifras "
             "significativas, salvo la primera y la última) o una lista; cada fila lleva los valores del punto medido más cercano"
@@ -562,6 +565,11 @@ class ProcedureEditor(QWidget):
         model = self.library.model_of(equipment) if equipment else None
         return self.library.spec_path(model, reference) if model else self.library.root / reference
 
+    def _open_setup(self) -> None:
+        setup_id = self.setup.currentData()
+        if setup_id and setup_id in self.library.setups:
+            self.open_setup.emit(setup_id)
+
     def _edit_model(self) -> None:
         equipment = self._current_eut()
         if equipment is not None:
@@ -747,6 +755,7 @@ class ProceduresView(QWidget):
     launch = Signal(str)  # template id: launch it in a folder
     procedures_changed = Signal()
     edit_model = Signal(str)
+    open_setup = Signal(str)  # hardware setup id
     title = "Plantillas de ensayo"
 
     def __init__(self, library: Library, parent: QWidget | None = None):
@@ -770,6 +779,7 @@ class ProceduresView(QWidget):
         self.editor = ProcedureEditor(library)
         self.editor.changed.connect(self._changed)
         self.editor.edit_model.connect(self.edit_model.emit)
+        self.editor.open_setup.connect(self.open_setup.emit)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.editor)

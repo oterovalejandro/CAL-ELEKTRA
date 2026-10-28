@@ -51,6 +51,7 @@ from calelektra.gui.certificate_dialog import make_certificate
 from calelektra.gui.icons import icon
 from calelektra.gui.illustrations import illustration
 from calelektra.gui.plots import ResultPlots
+from calelektra.gui.report_tables import ReportTablesView
 from calelektra.gui.setup_diagram import SetupDiagramView, connection_picture
 from calelektra.gui.test_common import (
     SETTINGS,
@@ -562,9 +563,11 @@ class TestWindow(QWidget):
         self.spec_table = style.make_table(SPEC_COLUMNS)
         self.diagram = SetupDiagramView()
         self.results = style.make_table(["Resultado", "Valor"], stretch_column=1)
+        self.report_tables = ReportTablesView()  # the tables Fwd and Rev of the certificate (2-port tests)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.tabs.addTab(self.plots, icon("grafica", style.PRIMARY.name()), "Gráfica")
+        self.tabs.addTab(self.report_tables, icon("tabla", style.PRIMARY.name()), "Tabla")
         self.tabs.addTab(self.spec_table, icon("veredicto", style.PRIMARY.name()), "Pasa / falla")
         self.tabs.addTab(self.diagram, icon("setups", style.PRIMARY.name()), "Hardware setup")
         self.tabs.addTab(self.results, icon("ok", style.PRIMARY.name()), "Resultados")
@@ -646,6 +649,7 @@ class TestWindow(QWidget):
         self.plot = self.plots.for_algorithm(self.procedure.algorithm)
         self.results.setRowCount(0)
         self.spec_table.setRowCount(0)
+        self._show_tables(self.procedure.algorithm)
         self.log_view.clear()
         self._reset_steps()
         for issue in self.plan.issues:
@@ -711,6 +715,7 @@ class TestWindow(QWidget):
         show_display_settings(self.plot, record)
         self._fill_results(record)
         self._fill_specs(record)
+        self._show_tables(record.algorithm, record)
         log = record.folder / "registro.txt" if record.folder else None
         if log is not None and log.is_file():
             self.log_view.setPlainText(log.read_text(encoding="utf-8", errors="replace"))
@@ -990,7 +995,17 @@ class TestWindow(QWidget):
             self.spec_table.setItem(0, 0, QTableWidgetItem(text))
         self.spec_table.resizeColumnsToContents()
         verdict = record.verdict
-        self.tabs.setTabText(1, "Pasa / falla" + (f" — {VERDICTS[verdict].upper()}" if verdict and verdict != "SIN_ESPECIFICACIONES" else ""))
+        self.tabs.setTabText(
+            self.tabs.indexOf(self.spec_table), "Pasa / falla" + (f" — {VERDICTS[verdict].upper()}" if verdict and verdict != "SIN_ESPECIFICACIONES" else "")
+        )
+
+    def _show_tables(self, algorithm: str, record: TestRecord | None = None) -> None:
+        """Tab «Tabla»: the tables Fwd and Rev of the certificate, only in the 2-port tests."""
+        self.tabs.setTabVisible(self.tabs.indexOf(self.report_tables), algorithm == "vna_2_puertos")
+        if record is None:
+            self.report_tables.clear("Las tablas Fwd y Rev aparecen al terminar la medida")
+        elif algorithm == "vna_2_puertos":
+            self.report_tables.show_record(self.library, record)
 
     def _fill_results(self, record: TestRecord) -> None:
         rows: list[tuple[str, str]] = [("Ensayo", f"{record.title} [{record.id}]"), ("Estado", record.status_name)]

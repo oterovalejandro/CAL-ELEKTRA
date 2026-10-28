@@ -21,14 +21,12 @@ hardware_setup: cable_vna_292
 eut: CAB-DUT-0002
 barrido:
   potencia_dbm: -10
-  ifbw: 1 kHz               # todas las trazas…
+  ifbw: 1 kHz               # IFBW y promedios: los de todas las trazas (un solo barrido)
   promedios: 1
-  suavizado_pct: 0          # suavizado de la visualización (% de los puntos)
-  por_traza: true           # …o cada traza (vacío = el valor de todas)
+  suavizado_pct: 0          # suavizado de la visualización (% de los puntos) de todas las trazas…
+  por_traza: true           # …o de cada traza (vacío = el valor de todas)
   trazas:
     S11: { suavizado_pct: 1 }
-    S21: { ifbw: 100 Hz, promedios: 4 }
-    S12: { ifbw: 100 Hz, promedios: 4 }
     S22: { suavizado_pct: 1 }
 calibracion:
   metodo: automatico        # automatico | TOSM | UOSM | existente

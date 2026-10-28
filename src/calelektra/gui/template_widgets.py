@@ -2,8 +2,8 @@
 
 * :class:`FrequencyEditor`  frequency points of a hardware setup: linear (points
   or step), logarithmic (points) or a CSV list, inside its required range;
-* :class:`TraceEditor`      IFBW, averaging and display smoothing of a test
-  template, for all traces or per trace;
+* :class:`TraceEditor`      IFBW and averaging of a test template (all the
+  traces) and its display smoothing, for all traces or per trace;
 * :class:`SpecEditor`       S2P/S1P specification files of a catalogue model
   (pass / fail of its units); read only in the test template.
 
@@ -43,6 +43,7 @@ from calelektra.core.frequency import FrequencyRange
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.gui import style
+from calelektra.gui.frequency_input import install_frequency_completion
 from calelektra.gui.icons import icon
 from calelektra.catalog.model import SPEC_CRITERIA, SPEC_QUANTITIES, SpecFile
 from calelektra.procedures.model import SweepSettings
@@ -94,6 +95,7 @@ class FrequencyEditor(QWidget):
         self.points.setSingleStep(100)
         self.step = QLineEdit()
         self.step.setPlaceholderText("p. ej. 50 MHz")
+        install_frequency_completion(self.step)
         file_row = QWidget()
         file_layout = QHBoxLayout(file_row)
         file_layout.setContentsMargins(0, 0, 0, 0)
@@ -225,11 +227,18 @@ class FrequencyEditor(QWidget):
         return True
 
 
-TRACE_ROWS = ("Todas", "S11", "S21", "S12", "S22")
+TRACE_COLUMNS = ("Todas", "S11", "S21", "S12", "S22")
+TRACE_ROW_HEIGHT = 28
 
 
 class TraceEditor(QWidget):
-    """IFBW, averaging and smoothing of all traces, or of each trace (empty cell = value of «Todas»)."""
+    """IFBW and averaging of all the traces, and the display smoothing of all of them or of each trace.
+
+    The smoothing is a table of one row and a column per trace («Todas», S11,
+    S21, S12, S22); with «Suavizado por traza», an empty cell takes the value
+    of «Todas». ``form`` holds the IFBW and the averaging, so the template
+    editor can add its own rows (source power).
+    """
 
     changed = Signal()
 
@@ -238,123 +247,124 @@ class TraceEditor(QWidget):
         self._loading = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.per_trace = QCheckBox("Ajustes por traza")
-        self.per_trace.setToolTip("Una celda vacía toma el valor de «Todas las trazas»")
+        self.form = QFormLayout()
+        self.ifbw = QLineEdit()
+        self.ifbw.setPlaceholderText("p. ej. 1 kHz")
+        self.ifbw.setToolTip("IFBW de todas las trazas: el DUT se mide en un solo barrido")
+        install_frequency_completion(self.ifbw)
+        self.averages = QSpinBox()
+        self.averages.setRange(1, 10000)
+        self.averages.setToolTip("Promedios de todas las trazas")
+        self.form.addRow("IFBW", self.ifbw)
+        self.form.addRow("Promedios", self.averages)
+        layout.addLayout(self.form)
+        self.per_trace = QCheckBox("Suavizado por traza")
+        self.per_trace.setToolTip("Una celda vacía toma el valor de «Todas»")
         layout.addWidget(self.per_trace)
-        self.table = QTableWidget(len(TRACE_ROWS), 3)
-        self.table.setHorizontalHeaderLabels(["IFBW", "Promedios", "Suavizado (%)"])
-        self.table.horizontalHeaderItem(2).setToolTip("Solo visualización: los datos, el pasa / falla y los ficheros no se suavizan")
-        self.table.setVerticalHeaderLabels(["Todas las trazas", *TRACE_ROWS[1:]])
+        self.table = QTableWidget(1, len(TRACE_COLUMNS))
+        self.table.setHorizontalHeaderLabels(list(TRACE_COLUMNS))
+        self.table.horizontalHeaderItem(0).setToolTip("Todas las trazas")
+        self.table.setVerticalHeaderLabels(["Suavizado (%)"])
+        self.table.verticalHeaderItem(0).setToolTip("Solo visualización: los datos, el pasa / falla y los ficheros no se suavizan")
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.verticalHeader().setDefaultSectionSize(26)
+        self.table.verticalHeader().setDefaultSectionSize(TRACE_ROW_HEIGHT)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setFixedHeight(26 * len(TRACE_ROWS) + 42)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setFixedHeight(self.table.horizontalHeader().sizeHint().height() + TRACE_ROW_HEIGHT + 2 * self.table.frameWidth() + 2)
         layout.addWidget(self.table)
         hint = QLabel(
-            "Las trazas con IFBW o promedios distintos se miden en barridos separados. El suavizado (media móvil de la "
-            "magnitud en dB y de la fase sobre el % de puntos indicado) solo cambia la visualización: los datos, el "
-            "pasa / falla y los ficheros exportados no se suavizan."
+            "El IFBW y los promedios son los de todas las trazas: el DUT se mide en un solo barrido. El suavizado (media "
+            "móvil de la magnitud en dB y de la fase sobre el % de puntos indicado) solo cambia la visualización: los datos, "
+            "el pasa / falla y los ficheros exportados no se suavizan. El VSWR y el retardo de grupo se suavizan siempre al 1 %."
         )
         hint.setObjectName("pageSubtitle")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        for row in range(len(TRACE_ROWS)):
-            for column in range(3):
-                self.table.setItem(row, column, QTableWidgetItem(""))
+        for column in range(len(TRACE_COLUMNS)):
+            item = QTableWidgetItem("")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(0, column, item)
+        self.ifbw.textEdited.connect(self._edited)
+        self.averages.valueChanged.connect(self._edited)
         self.per_trace.toggled.connect(self._edited)
         self.table.itemChanged.connect(self._edited)
-        self.set_traces(TRACE_ROWS[1:])
-        self._update_rows()
+        self.set_traces(TRACE_COLUMNS[1:])
+        self._update_cells()
 
     def set_traces(self, traces: tuple[str, ...] | list[str]) -> None:
         """Show only the traces measured by the algorithm (S11 for 1 port)."""
-        for row, name in enumerate(TRACE_ROWS[1:], start=1):
-            self.table.setRowHidden(row, name not in traces)
-        visible = 1 + sum(1 for name in TRACE_ROWS[1:] if name in traces)
-        self.table.setFixedHeight(26 * visible + 42)
+        for column, name in enumerate(TRACE_COLUMNS[1:], start=1):
+            self.table.setColumnHidden(column, name not in traces)
 
     def load(self, sweep: SweepSettings) -> None:
         self._loading = True
         self.table.blockSignals(True)
-        self._set_row(0, sweep.if_bandwidth, sweep.averages, sweep.smoothing_pct)
-        for row, name in enumerate(TRACE_ROWS[1:], start=1):
+        self.ifbw.setText(_frequency_text(sweep.if_bandwidth))
+        self.averages.setValue(sweep.averages)
+        self.table.item(0, 0).setText(f"{sweep.smoothing_pct:g}")
+        for column, name in enumerate(TRACE_COLUMNS[1:], start=1):
             own = sweep.traces.get(name)
-            self._set_row(row, own.if_bandwidth if own else None, own.averages if own else None, own.smoothing_pct if own else None)
+            self.table.item(0, column).setText("" if own is None or own.smoothing_pct is None else f"{own.smoothing_pct:g}")
         self.table.blockSignals(False)
         self.per_trace.setChecked(sweep.per_trace)
         self._loading = False
-        self._update_rows()
+        self._update_cells()
 
-    def _set_row(self, row: int, ifbw: float | None, averages: int | None, smoothing: float | None) -> None:
-        self.table.item(row, 0).setText(_frequency_text(ifbw))
-        self.table.item(row, 1).setText("" if averages is None else str(averages))
-        self.table.item(row, 2).setText("" if smoothing is None else f"{smoothing:g}")
-
-    def _cell(self, row: int, column: int) -> str:
-        item = self.table.item(row, column)
-        return item.text().strip() if item else ""
-
-    def _row_values(self, row: int, required: bool) -> dict[str, Any]:
-        label = "todas las trazas" if row == 0 else TRACE_ROWS[row]
-        values: dict[str, Any] = {}
-        ifbw, averages, smoothing = (self._cell(row, c) for c in range(3))
-        if ifbw or required:
-            try:
-                values["ifbw"] = _frequency_text(parse_frequency(ifbw or "?"))
-            except UnitError as exc:
-                raise ValueError(f"IFBW de {label}: {exc}") from exc
-        if averages or required:
-            try:
-                count = int(averages or "x")
-            except ValueError:
-                raise ValueError(f"Promedios de {label}: «{averages}» no es un número entero") from None
-            if count < 1:
-                raise ValueError(f"Promedios de {label}: mínimo 1")
-            values["promedios"] = count
-        if smoothing or required:
-            try:
-                pct = float((smoothing or "0").replace(",", "."))
-            except ValueError:
-                raise ValueError(f"Suavizado de {label}: «{smoothing}» no es un número") from None
-            if not 0 <= pct <= 100:
-                raise ValueError(f"Suavizado de {label}: entre 0 y 100 %")
-            values["suavizado_pct"] = pct
-        return values
+    def _smoothing(self, column: int, required: bool) -> float | None:
+        label = "todas las trazas" if column == 0 else TRACE_COLUMNS[column]
+        item = self.table.item(0, column)
+        text = item.text().strip() if item else ""
+        if not text and not required:
+            return None
+        try:
+            pct = float((text or "0").replace(",", "."))
+        except ValueError:
+            raise ValueError(f"Suavizado de {label}: «{text}» no es un número") from None
+        if not 0 <= pct <= 100:
+            raise ValueError(f"Suavizado de {label}: entre 0 y 100 %")
+        return pct
 
     def values(self) -> dict[str, Any]:
-        """``barrido`` keys of the trace settings; ``ValueError`` with the reason if a cell is wrong."""
-        data = self._row_values(0, required=True)
-        data["por_traza"] = self.per_trace.isChecked()
+        """``barrido`` keys of the trace settings; ``ValueError`` with the reason if a value is wrong."""
+        try:
+            ifbw = parse_frequency(self.ifbw.text().strip() or "?")
+        except UnitError as exc:
+            raise ValueError(f"IFBW: {exc}") from exc
+        data: dict[str, Any] = {
+            "ifbw": _frequency_text(ifbw),
+            "promedios": self.averages.value(),
+            "suavizado_pct": self._smoothing(0, required=True),
+            "por_traza": self.per_trace.isChecked(),
+        }
         traces = {}
-        for row, name in enumerate(TRACE_ROWS[1:], start=1):
-            if self.table.isRowHidden(row):
+        for column, name in enumerate(TRACE_COLUMNS[1:], start=1):
+            if self.table.isColumnHidden(column):
                 continue
-            own = self._row_values(row, required=False)
-            if own:
-                traces[name] = own
+            pct = self._smoothing(column, required=False)
+            if pct is not None:
+                traces[name] = {"suavizado_pct": pct}
         if traces:
             data["trazas"] = traces  # kept even when «por traza» is off, so they are not lost
         return data
 
     def _edited(self, *_args) -> None:
-        self._update_rows()
+        self._update_cells()
         if not self._loading:
             self.changed.emit()
 
-    def _update_rows(self) -> None:
+    def _update_cells(self) -> None:
         enabled = self.per_trace.isChecked()
         self.table.blockSignals(True)
-        for row in range(1, len(TRACE_ROWS)):
-            for column in range(3):
-                item = self.table.item(row, column)
-                flags = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
-                if enabled:
-                    flags |= Qt.ItemFlag.ItemIsEditable
-                else:
-                    flags &= ~Qt.ItemFlag.ItemIsEnabled
-                item.setFlags(flags)
-                item.setToolTip("Vacío: valor de «Todas las trazas»" if enabled else "Active «Ajustes por traza»")
+        for column in range(1, len(TRACE_COLUMNS)):
+            item = self.table.item(0, column)
+            flags = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            if enabled:
+                flags |= Qt.ItemFlag.ItemIsEditable
+            else:
+                flags &= ~Qt.ItemFlag.ItemIsEnabled
+            item.setFlags(flags)
+            item.setToolTip("Vacío: valor de «Todas»" if enabled else "Active «Suavizado por traza»")
         self.table.blockSignals(False)
 
 

@@ -42,6 +42,7 @@ from calelektra.core.issues import Issue, Severity
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.core.connectors import GENDERS
 from calelektra.gui import style
+from calelektra.gui.frequency_input import FrequencyDelegate, install_frequency_completion
 from calelektra.gui.coverage_widget import CoverageWidget
 from calelektra.gui.equipment_icons import icon_pixmap
 from calelektra.gui.icons import icon
@@ -392,6 +393,9 @@ class SegmentsPanel(QWidget):
         help_label.setWordWrap(True)
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Nombre", "Inicio", "Fin"])
+        frequencies = FrequencyDelegate(self.table)
+        for column in (1, 2):
+            self.table.setItemDelegateForColumn(column, frequencies)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.cellChanged.connect(self._cell_changed)
@@ -644,6 +648,7 @@ class SetupEditor(QWidget):
             edit.setFixedWidth(120)
             edit.setCursorPosition(0)
             edit.editingFinished.connect(self._range_edited)
+            install_frequency_completion(edit)
         self.state_combo = QComboBox()
         for state_name in (self.template.connection_states if self.template else {}):
             self.state_combo.addItem(state_name)

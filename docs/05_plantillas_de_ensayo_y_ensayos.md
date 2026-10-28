@@ -6,7 +6,7 @@ Este paso fija la estructura del caso del **cable de RF con VNA**, que sirve par
 |---|---|---|
 | **Hardware setup** (configurado) | El banco de un **grupo de cables**: VNA, kit, cables de medida… y las **frecuencias** de medida: lineal (nº de puntos o paso), logarítmico (nº de puntos) o lista CSV, dentro de su rango requerido | `hardware_setups/configurados/*.yaml` (listas en `hardware_setups/listas/`) |
 | **Modelo del EUT** (catálogo) | Las **especificaciones S** (ficheros S2P/S1P) que dan el **pasa / falla** de cada unidad del modelo | `catalogo/modelos/*.yaml` (`especificaciones_s`; ficheros en `catalogo/especificaciones/`) |
-| **Plantilla de ensayo** (*test template*) | **Llama a un hardware setup** y define el **EUT**; además potencia, **IFBW y promedios** (para todas las trazas o por traza), **suavizado de la visualización**, calibración, verificación y exportación | `procedimientos/*.yaml` |
+| **Plantilla de ensayo** (*test template*) | **Llama a un hardware setup** y define el **EUT**; además potencia, **IFBW y promedios** (de todas las trazas), **suavizado de la visualización** (de todas las trazas o por traza), calibración, verificación y exportación | `procedimientos/*.yaml` |
 | **Ensayo** | El **registro** de una medida lanzada a partir de una plantilla en una **carpeta** elegida por el usuario | `<carpeta>/<ensayo>/ensayo.yaml` y sus ficheros |
 
 ## 5.1 Qué cambia respecto a la versión 0.4
@@ -106,23 +106,25 @@ hardware_setup: cable_vna_292     # banco y frecuencias
 eut: CAB-DUT-0002                 # su modelo da las especificaciones
 barrido:
   potencia_dbm: -10
-  ifbw: 1 kHz                     # todas las trazas…
+  ifbw: 1 kHz                     # IFBW y promedios: los de todas las trazas (un solo barrido)
   promedios: 1
-  suavizado_pct: 0                # suavizado de la visualización
-  por_traza: true                 # …o cada traza (vacío = el valor de todas)
+  suavizado_pct: 0                # suavizado de la visualización de todas las trazas…
+  por_traza: true                 # …o de cada traza (vacío = el valor de todas)
   trazas:
     S11: { suavizado_pct: 1 }
-    S21: { ifbw: 100 Hz, promedios: 4 }
-    S12: { ifbw: 100 Hz, promedios: 4 }
     S22: { suavizado_pct: 1 }
 calibracion: { metodo: automatico }
 verificacion: { activa: true, tolerancia_s21_db: 0.1, s11_max_db: -30 }
 exportacion: { formato: RI, unidad_frecuencia: HZ, nombre_fichero: "{dut}_{fecha}", csv: true }
 ```
 
-- **IFBW y promedios** son ajustes del canal del VNA: las trazas que los comparten se leen del mismo barrido y cada combinación distinta necesita su propio barrido (en el ejemplo: S11/S22 a 1 kHz y S21/S12 a 100 Hz con 4 promedios). La calibración y la verificación usan los ajustes de todas las trazas.
-- **Suavizado**: media móvil de la magnitud en dB y de la fase desenrollada sobre el % de puntos indicado, como la apertura de suavizado del ZNB. Solo se aplica al dibujar las trazas (casilla *Suavizado* de la gráfica); los ficheros exportados llevan la medida sin suavizar (lo indica su cabecera).
-- Las plantillas de versiones anteriores se siguen leyendo: se ignoran las claves de frecuencias, `plantillas_compatibles` y `especificaciones`.
+- **IFBW y promedios** (0.10.3): son los de todas las trazas, así que el DUT se mide en un solo barrido. La calibración y la verificación usan los mismos.
+- **Suavizado**: media móvil de la magnitud en dB y de la fase desenrollada sobre el % de puntos indicado, como la apertura de suavizado del ZNB. Solo se aplica al dibujar las trazas (casilla *Suavizado* de la gráfica); los ficheros exportados llevan la medida sin suavizar (lo indica su cabecera). El VSWR y el retardo de grupo se suavizan siempre al 1 % ([`13_certificado_de_cables.md`](13_certificado_de_cables.md)).
+- **Editor:** en la tarjeta «Medida: potencia y trazas», la potencia, el IFBW y los promedios; debajo, la tabla del suavizado, con una columna por traza (Todas, S11, S21, S12, S22) y una fila. Con «Suavizado por traza», una celda vacía toma el valor de «Todas».
+- **Hardware setup:** un doble clic en el diagrama del setup de la plantilla lo abre en su propia pestaña.
+- Las plantillas de versiones anteriores se siguen leyendo: se ignoran las claves de frecuencias, `plantillas_compatibles` y `especificaciones`, y el IFBW y los promedios por traza.
+
+![La tarjeta «Medida: potencia y trazas» con la tabla del suavizado por traza](capturas/v10/08_plantilla_trazas.png)
 
 ## 5.6 El ensayo: registro de la medida
 
@@ -146,7 +148,7 @@ El **explorador de ensayos** muestra `ensayos/` de la biblioteca, sus subcarpeta
 |---|---|
 | Lineal / logarítmico | `SENS1:SWE:TYPE LIN\|LOG`, `SENS1:FREQ:STAR`, `SENS1:FREQ:STOP`, `SENS1:SWE:POIN` |
 | Lista de frecuencias | barrido segmentado: `SENS1:SEGM:DEL:ALL`; un segmento por cada tramo de paso constante: `SENS1:SEGM<n>:INS inicio,fin,puntos,potencia,0,0,ifbw,AUTO,NORM,AUTO,STEP`; `SENS1:SEGM:BWID:CONT OFF`, `SENS1:SEGM:POW:CONT OFF`; `SENS1:SWE:TYPE SEGM` |
-| IFBW y promedios por traza | `SENS1:BAND`, `SENS1:AVER:COUN` antes del barrido de cada grupo de trazas |
+| IFBW y promedios | `SENS1:BAND`, `SENS1:AVER:COUN` (los de todas las trazas) |
 | Suavizado | en la visualización de CAL-ELEKTRA (no se usa `CALC:SMO` del ZNB, para no alterar los datos) |
 
 La lista del ejemplo (30 MHz – 1 GHz cada 10 MHz y 1,1 – 18 GHz cada 100 MHz) da dos segmentos. **Pendiente de comprobar con el ZNB43**: número máximo de segmentos y orden de los parámetros de `SEGM:INS`.
@@ -167,7 +169,7 @@ Las máscaras y la referencia son **sintéticas** (`tools/generar_s2p_sinteticos
 - **UOSM con listas poco densas**: el through desconocido se resuelve siguiendo su fase entre puntos (como el retardo automático del VNA); con pasos grandes puede fallar. Para UOSM conviene un barrido denso; con listas de pocos puntos, mejor TOSM.
 - Especificaciones de fase: se comparan con la fase desenrollada de la especificación; conviene que el S2P de referencia esté bien muestreado.
 - Una plantilla define un EUT concreto; para calibrar otra unidad se duplica la plantilla y se cambia el EUT (las especificaciones vienen solas de su modelo).
-- La incertidumbre y el informe todavía no están. Validación con el ZNB43 real: barrido segmentado, IFBW por traza y tiempos de barrido con promedios.
+- La incertidumbre y el informe todavía no están. Validación con el ZNB43 real: barrido segmentado y tiempos de barrido con promedios.
 
 ## 5.10 Interfaz
 

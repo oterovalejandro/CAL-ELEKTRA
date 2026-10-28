@@ -45,6 +45,7 @@ from calelektra.core.connectors import (
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import format_frequency
 from calelektra.gui.bands_dialog import BandsDialog
+from calelektra.gui.frequency_input import install_frequency_completion
 
 PLACEHOLDERS = {
     "frecuencia": "p. ej. 18 GHz",
@@ -147,6 +148,8 @@ class FieldEditor(QWidget):
             for edit, text in ((self.low, "mínimo"), (self.high, "máximo")):
                 edit.setPlaceholderText(text)
                 edit.textEdited.connect(lambda _t: self.changed.emit())
+                if kind == "rango_frecuencia":
+                    install_frequency_completion(edit)
             if hint:
                 self.low.setPlaceholderText(hint)
             self.widgets += [self.low, QLabel("–"), self.high]
@@ -176,6 +179,8 @@ class FieldEditor(QWidget):
                 placeholder = spec.unit  # numbers show the unit as a label after the editor
             self.edit.setPlaceholderText(placeholder)
             self.edit.textEdited.connect(lambda _t: self.changed.emit())
+            if kind == "frecuencia":
+                install_frequency_completion(self.edit)
             self.widgets.append(self.edit)
             if kind == "numero_bandas":  # the bands in a table
                 self.bands_button = QToolButton()

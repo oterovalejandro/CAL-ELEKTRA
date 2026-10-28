@@ -75,7 +75,7 @@ def test_vna_only_cable_calibration_exports_s2p(library):
     assert record.dut["id"] == "CAB-DUT-0002" and record.dut_id == "CAB-DUT-0002"
 
 
-def test_per_trace_settings_and_unsmoothed_data(library, monkeypatch):
+def test_per_trace_smoothing_and_unsmoothed_data(library, monkeypatch):
     calls = []
     original = DummyVna.single_sweep
 
@@ -86,9 +86,9 @@ def test_per_trace_settings_and_unsmoothed_data(library, monkeypatch):
     monkeypatch.setattr(DummyVna, "single_sweep", single_sweep)
     result, _, _ = run(library, "cable_CAB-DUT-0002")
     record = result.record
-    # the DUT is measured in two sweeps: S11/S22 with the settings of all traces, S21/S12 with 100 Hz and 4 averages
-    assert calls[-2:] == [(1e3, 1), (100.0, 4)]
-    assert record.sweep["trazas"]["S11"] == {"ifbw": "1 kHz", "promedios": 1, "suavizado_visualizacion_pct": 1.0}
+    # every sweep, the DUT's too, with the IFBW and averaging of all the traces; S11 and S22 are shown smoothed
+    assert calls and set(calls) == {(1e3, 1)}
+    assert record.sweep["trazas"]["S11"] == {"suavizado_visualizacion_pct": 1.0} and record.sweep["trazas"]["S21"] == {"suavizado_visualizacion_pct": 0.0}
     # smoothing is only for display: the exported S11 is the measured one
     data = read_touchstone(next(record.folder / f for f in record.files if f.endswith(".s2p")))
     assert np.allclose(data.s, result.data["DUT"], rtol=1e-6, atol=1e-9)
@@ -306,9 +306,9 @@ def test_algorithm_and_vna_limits(library):
     plan = prepare_run(library, template_with(library, "cable_CAB-DUT-0001", setup_id="sac_nsa_3m"), TODAY)
     assert any("no tiene todavía algoritmo de ensayo" in i.message for i in plan.issues)
     template = library.procedures["cable_CAB-DUT-0002"].model_copy(deep=True)
-    template.sweep.traces["S21"].if_bandwidth = 1e9
+    template.sweep.if_bandwidth = 1e9
     plan = prepare_run(library, template, TODAY)
-    assert any("IFBW" in i.message and "S21" in i.message for i in plan.issues)
+    assert any("IFBW de 1 GHz fuera del rango" in i.message for i in plan.issues)
 
 
 def test_operator_can_stop_the_test(library):

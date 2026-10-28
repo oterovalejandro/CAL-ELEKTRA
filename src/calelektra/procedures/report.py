@@ -284,6 +284,41 @@ def _rows(results: CableResults, nominal: list[float]) -> dict[str, list[dict[st
     return rows
 
 
+@dataclass
+class ReportTables:
+    """The tables Fwd and Rev of the certificate of a 2-port test, with what they come from."""
+
+    rows: dict[str, list[dict[str, str]]]  # «fwd» and «rev», formatted as in the certificate
+    results: CableResults
+    nominal: list[float]  # frequencies of the rows
+    span: FrequencyRange  # measured range
+    logarithmic: bool  # sweep
+    settings: ReportSettings
+    spec: CableSpecification | None
+    k: float
+    uncertainty: bool  # whether the test has its uncertainty
+
+
+def _tables(library: Library, record: TestRecord) -> ReportTables:
+    template = _template_of(record, library)
+    settings = template.report if template is not None else ReportSettings()
+    frequencies, s, uncertainty = _measurement(record)
+    spec = CableSpecification.from_record(record.cable_specification)
+    k = float(record.uncertainty.get("k", template.uncertainty.coverage_factor if template else 2.0))
+    results = CableResults.compute(frequencies, s, uncertainty, spec, k)
+    span = _range(record, frequencies)
+    logarithmic = record.sweep.get("modo", record.sweep.get("tipo")) == "logaritmico"
+    nominal = report_frequencies(settings.frequencies, span.start, span.stop, logarithmic)
+    return ReportTables(_rows(results, nominal), results, nominal, span, logarithmic, settings, spec, k, bool(uncertainty))
+
+
+def report_tables(library: Library, record: TestRecord) -> ReportTables:
+    """The rows of the tables Fwd and Rev of a 2-port test, as in its certificate (``ReportError`` without measurement)."""
+    if record.algorithm != "vna_2_puertos":
+        raise ReportError("Las tablas Fwd y Rev son de los ensayos de 2 puertos (parámetros S → .s2p)")
+    return _tables(library, record)
+
+
 def certificate_problem(record: TestRecord) -> str | None:
     """Why a test cannot give a certificate of a cable (None if it can)."""
     if record.algorithm != "vna_2_puertos":
@@ -311,19 +346,12 @@ def prepare_certificate(
     problem = certificate_problem(record)
     if problem:
         raise ReportError(problem)
-    template = _template_of(record, library)
-    settings = template.report if template is not None else ReportSettings()
-    frequencies, s, uncertainty = _measurement(record)
-    spec = CableSpecification.from_record(record.cable_specification)
-    k = float(record.uncertainty.get("k", template.uncertainty.coverage_factor if template else 2.0))
-    results = CableResults.compute(frequencies, s, uncertainty, spec, k)
-    span = _range(record, frequencies)
+    tables = _tables(library, record)
+    settings, spec, k, results, span = tables.settings, tables.spec, tables.k, tables.results, tables.span
     criteria = span
     if spec is not None and spec.nominal_range is not None:
         low, high = max(span.start, spec.nominal_range.start), min(span.stop, spec.nominal_range.stop)
         criteria = FrequencyRange(low, high) if high > low else span
-    logarithmic = record.sweep.get("modo", record.sweep.get("tipo")) == "logaritmico"
-    nominal = report_frequencies(settings.frequencies, span.start, span.stop, logarithmic)
     eut = _eut(library, record)
     warnings = []
     if eut["referencia"] == eut["id"]:
@@ -341,7 +369,7 @@ def prepare_certificate(
         warnings.append("Faltan las condiciones ambientales del ensayo (fichero de la sonda TPH)")
     if record.uncertainty.get("estado") == "pendiente":
         warnings.append("La incertidumbre está pendiente: calculada sin la componente de temperatura")
-    if not uncertainty:
+    if not tables.uncertainty:
         warnings.append("El ensayo no tiene incertidumbre calculada")
     if spec is None:
         warnings.append("El modelo del cable no tiene especificación por fórmula: sin límites")
@@ -371,12 +399,12 @@ def prepare_certificate(
         "ambiente": _ambient(record),
         "figuras": {key: f"[Gráfica: {title}]" for key, title in FIGURES.items()},  # the PNG, when it is generated
         "resultado_final": VERDICTS.get(str(record.verdict), str(record.verdict or NONE)),
-        **_rows(results, nominal),
+        **tables.rows,
     }
     path = library.root / settings.template_path
     if not path.is_file():
         path = library.root / DEFAULT_REPORT_TEMPLATE
-    return Certificate(context, reference, path, results, warnings, logarithmic)
+    return Certificate(context, reference, path, results, warnings, tables.logarithmic)
 
 
 def figures_folder(certificate: Path) -> Path:

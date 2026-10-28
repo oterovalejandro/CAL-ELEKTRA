@@ -84,13 +84,15 @@ def test_setup_analysis_checks_the_frequencies(library):
 
 # ── trace settings of the template ─────────────────────────────────────────
 def test_trace_settings_inherit_from_all_traces():
+    # IFBW and averaging are those of all the traces: the per-trace ones of earlier versions are read and dropped
     sweep = SweepSettings(ifbw="1 kHz", promedios=2, suavizado_pct=0, por_traza=True, trazas={"S21": {"ifbw": "100 Hz"}, "S11": {"suavizado_pct": 5}})
-    assert sweep.trace("S21") == (100.0, 2, 0.0)
+    assert sweep.trace("S21") == (1e3, 2, 0.0)
     assert sweep.trace("S11") == (1e3, 2, 5.0)
     assert sweep.trace("S22") == (1e3, 2, 0.0)
     assert sweep.smoothing(("S11", "S21", "S12", "S22")) == {"S11": 5.0}
+    assert set(sweep.traces) == {"S11"} and sweep.model_dump(by_alias=True)["trazas"] == {"S11": {"suavizado_pct": 5.0}}
     sweep.per_trace = False
-    assert sweep.trace("S21") == (1e3, 2, 0.0)  # per-trace values are kept but not used
+    assert sweep.trace("S11") == (1e3, 2, 0.0)  # per-trace values are kept but not used
 
 
 def test_templates_of_earlier_versions_load():

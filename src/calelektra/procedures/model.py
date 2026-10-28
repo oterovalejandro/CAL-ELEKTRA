@@ -52,52 +52,52 @@ OBSOLETE_SWEEP_KEYS = ("modo", "tipo", "mode", "inicio", "fin", "definicion", "p
 OBSOLETE_TEMPLATE_KEYS = ("plantillas_compatibles", "especificaciones")
 # the group delay and the VSWR are always smoothed over 1 % of the points (``core/networks.py``)
 OBSOLETE_REPORT_KEYS = ("apertura_retardo", "suavizado_pct")
+# the IFBW and the averaging are those of all the traces: per trace there is only the display smoothing (0.10.3)
+OBSOLETE_TRACE_KEYS = ("ifbw", "promedios")
 
 
 class _Section(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
-def _optional_frequency(value: Any) -> float | None:
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return None
-    return parse_frequency(value)
-
-
-def _frequency_text(value: float | None) -> str | None:
-    if value is None:
-        return None
-    return "DC" if value == 0 else format_frequency(value, decimal=".")
+def _without_obsolete_trace_keys(traces: Any) -> Any:
+    """Per-trace settings without IFBW and averaging (earlier versions); the traces left empty are dropped."""
+    if not isinstance(traces, dict):
+        return traces
+    kept = {}
+    for name, own in traces.items():
+        if isinstance(own, dict):
+            own = {key: value for key, value in own.items() if key not in OBSOLETE_TRACE_KEYS}
+            if not own:
+                continue
+        kept[name] = own
+    return kept
 
 
 class TraceSettings(_Section):
-    """Settings of one trace; empty values take those of «all traces»."""
+    """Display smoothing of one trace; empty, that of «all traces»."""
 
-    if_bandwidth: float | None = Field(default=None, alias="ifbw")
-    averages: int | None = Field(default=None, alias="promedios", ge=1)
     smoothing_pct: float | None = Field(default=None, alias="suavizado_pct", ge=0, le=100)
 
-    @field_validator("if_bandwidth", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _frequency(cls, value: Any) -> float | None:
-        return _optional_frequency(value)
-
-    @field_serializer("if_bandwidth")
-    def _frequency_out(self, value: float | None) -> str | None:
-        return _frequency_text(value)
+    def _drop_obsolete(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if k not in OBSOLETE_TRACE_KEYS}
+        return data
 
 
 class SweepSettings(_Section):
-    """Source power and trace settings: IFBW, averaging and display smoothing, for all traces or per trace.
+    """Source power, IFBW and averaging of all the traces, and the display smoothing, for all traces or per trace.
 
     The smoothing only changes how the traces are displayed; measurement,
     pass / fail and exported files use the traces as measured.
     """
 
     power_dbm: float = Field(default=-10.0, alias="potencia_dbm")
-    # settings of all the traces …
     if_bandwidth: float = Field(default=1e3, alias="ifbw")
     averages: int = Field(default=1, alias="promedios", ge=1)
+    # display smoothing of all the traces …
     smoothing_pct: float = Field(default=0.0, alias="suavizado_pct", ge=0, le=100)
     # … or of each trace
     per_trace: bool = Field(default=False, alias="por_traza")
@@ -107,7 +107,10 @@ class SweepSettings(_Section):
     @classmethod
     def _drop_frequencies(cls, data: Any) -> Any:
         if isinstance(data, dict):
-            return {k: v for k, v in data.items() if k not in OBSOLETE_SWEEP_KEYS}
+            data = {k: v for k, v in data.items() if k not in OBSOLETE_SWEEP_KEYS}
+            for key in ("trazas", "traces"):
+                if key in data:
+                    data[key] = _without_obsolete_trace_keys(data[key])
         return data
 
     @field_validator("if_bandwidth", mode="before")
@@ -120,12 +123,10 @@ class SweepSettings(_Section):
         return format_frequency(value, decimal=".")
 
     def trace(self, name: str) -> tuple[float, int, float]:
-        """Effective IFBW, averaging and display smoothing (% of the points) of a trace."""
+        """IFBW and averaging (those of all the traces) and display smoothing (% of the points) of a trace."""
         own = self.traces.get(name) if self.per_trace else None
-        ifbw = own.if_bandwidth if own and own.if_bandwidth is not None else self.if_bandwidth
-        averages = own.averages if own and own.averages is not None else self.averages
         smoothing = own.smoothing_pct if own and own.smoothing_pct is not None else self.smoothing_pct
-        return ifbw, averages, smoothing
+        return self.if_bandwidth, self.averages, smoothing
 
     def smoothing(self, traces: tuple[str, ...]) -> dict[str, float]:
         """Display smoothing of each trace (only the traces with smoothing)."""

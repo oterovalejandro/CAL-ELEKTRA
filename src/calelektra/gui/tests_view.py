@@ -237,7 +237,7 @@ class TestDetail(QWidget):
                 f"{sweep.get('puntos')} puntos · IFBW {sweep.get('ifbw')}, {sweep.get('potencia_dbm')} dBm"
             )
             if sweep.get("por_traza"):
-                text += " (ajustes por traza)"
+                text += " (suavizado por traza)"
             parts.append(text)
         if record.instrument:
             parts.append(f"<b>VNA:</b> {html.escape(str(record.instrument.get('identificacion', '—')))}")
