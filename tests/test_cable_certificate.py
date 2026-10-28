@@ -19,7 +19,12 @@ from calelektra.catalog.fields import FieldSpec
 from calelektra.catalog.library import Library
 from calelektra.core.bands import BandValues
 from calelektra.core.frequency import FrequencyRange
-from calelektra.core.networks import group_delay, moving_average, step_delay
+from calelektra.core.networks import (
+    group_delay,
+    moving_average,
+    smoothing_points,
+    step_delay,
+)
 from calelektra.gui.certificate_dialog import CertificateDialog
 from calelektra.gui.equipment_dialogs import EquipmentDialog
 from calelektra.gui.field_form import FieldEditor
@@ -32,6 +37,14 @@ from calelektra.procedures.cable_results import (
 )
 from calelektra.procedures.cable_specs import CableSpecification
 from calelektra.procedures.engine import AutoOperator, ProcedureRunner, prepare_run
+from calelektra.procedures.figures import (
+    NAMES,
+    delay_figure,
+    insertion_loss_figure,
+    range_of_use,
+    vswr_figure,
+)
+from calelektra.procedures.model import ReportSettings
 from calelektra.procedures.record_uncertainty import load_ambient_conditions
 from calelektra.procedures.report import (
     ReportError,
@@ -46,6 +59,8 @@ from calelektra.procedures.report import (
     vswr_note,
 )
 from calelektra.procedures.results import read_csv_columns
+from calelektra.uncertainty.engine import UncertaintyEngine
+from calelektra.uncertainty.traces import dataset_uncertainty
 
 # the rows of the tables of the certificate of the laboratory, 10 MHz – 26.5 GHz
 ROWS = [10e6, 1.3e9, 2.7e9, 4e9, 5.3e9, 6.6e9, 8e9, 9.3e9, 11e9, 12e9, 13e9, 15e9, 16e9, 17e9, 19e9, 20e9, 21e9, 23e9, 24e9, 25e9, 26.5e9]
@@ -86,24 +101,29 @@ def png(path: Path, width: int = 40, height: int = 10) -> Path:
     return path
 
 
-def test_group_delay_as_the_delay_format_of_a_vna():
+def test_group_delay_between_points_smoothed_as_the_laboratory():
     f = np.linspace(10e6, 26.5e9, 2650)
     s21 = 0.9 * np.exp(-2j * np.pi * f * 11.03e-9)
-    assert np.allclose(group_delay(f, s21, 10), 11.03e-9, atol=1e-15)
+    assert np.allclose(step_delay(f, s21), 11.03e-9, atol=1e-15) and np.allclose(group_delay(f, s21), 11.03e-9, atol=1e-15)
     # a list with steps where a long cable turns more than half a turn: unwrapped with the delay of the whole trace
     listed = np.concatenate([np.arange(30e6, 1000e6, 10e6), np.arange(1000e6, 18000e6 + 1, 100e6)])
-    assert np.allclose(group_delay(listed, 0.8 * np.exp(-2j * np.pi * listed * 40e-9 + 0.4j), 10), 40e-9, rtol=1e-9)
+    assert np.allclose(group_delay(listed, 0.8 * np.exp(-2j * np.pi * listed * 40e-9 + 0.4j)), 40e-9, rtol=1e-9)
     gaps = s21.copy()
     gaps[100:110] = np.nan
-    delay = group_delay(f, gaps, 10)
+    delay = group_delay(f, gaps)
     assert np.isnan(delay[100:110]).all() and np.allclose(delay[~np.isnan(delay)], 11.03e-9, atol=1e-15)
+    # the mean of the delays between points over 1 % of the points: 26 of 2650, a ripple of 2 points averages out
+    rippled = s21 * np.exp(1j * np.where(np.arange(len(f)) % 2, 0.01, -0.01))
+    assert smoothing_points(len(f)) == 26 and np.allclose(group_delay(f, rippled)[26:-26], 11.03e-9, rtol=1e-6, atol=0)
+    assert not np.allclose(step_delay(f, rippled), 11.03e-9, rtol=1e-3, atol=0)
+    assert smoothing_points(150) == 1 and np.array_equal(group_delay(f[:150], rippled[:150]), step_delay(f[:150], rippled[:150]))
 
 
 def test_results_by_direction_with_their_uncertainty_and_limits(tmp_path):
     f = np.linspace(10e6, 26.5e9, 2650)
     uncertainty = {p: (np.full(len(f), 0.5), np.full(len(f), 3.0)) for p in ("S11", "S22")}
     uncertainty |= {p: (np.where(f <= 10e9, 0.04, 0.05), np.full(len(f), 0.4)) for p in ("S21", "S12")}
-    results = CableResults.compute(f, line(f), uncertainty, sucoflex_526s(), aperture=10)
+    results = CableResults.compute(f, line(f), uncertainty, sucoflex_526s())
     fwd, rev = results.directions["Fwd"], results.directions["Rev"]
     assert (fwd.reflection, fwd.transmission, fwd.port) == ("S11", "S21", 1) and (rev.reflection, rev.transmission, rev.port) == ("S22", "S12", 2)
     assert np.allclose(fwd.vswr, 1.04 / 0.96) and np.allclose(rev.vswr, 1.05 / 0.95)
@@ -120,11 +140,51 @@ def test_results_by_direction_with_their_uncertainty_and_limits(tmp_path):
     assert stripped(fwd.vswr_limit[first]) == "1.3181" and stripped(fwd.vswr_limit[last]) == "1.4152"
     assert fwd.passes().all() and rev.passes().all()
     summary = results.summary()
-    assert summary["apertura_retardo_pasos"] == 10 and summary["Fwd"]["retardo_grupo_ns"]["media"] == pytest.approx(11.03)
+    assert (summary["suavizado_pct"], summary["suavizado_puntos"]) == (1.0, 26) and summary["Fwd"]["retardo_grupo_ns"]["media"] == pytest.approx(11.03)
     assert summary["Rev"]["vswr_max"] == pytest.approx(1.1053, abs=1e-4) and summary["Fwd"]["margen_perdida_insercion_db"] > 0
     header, columns = read_csv_columns(results.write_csv(results_csv_path(tmp_path / "DUT.s2p")))
-    assert header[:3] == ["Frecuencia (Hz)", "VSWR puerto 1 (Fwd)", "U VSWR puerto 1 (Fwd, k=2)"] and columns.shape[1] == len(f)
-    assert "Retardo de grupo S12 (Rev, ns)" in header
+    assert header[:4] == ["Frecuencia (Hz)", "VSWR puerto 1 (Fwd)", "VSWR puerto 1 (Fwd, suavizado 1 %)", "U VSWR puerto 1 (Fwd, k=2)"]
+    assert "Retardo de grupo S12 (Rev, ns, suavizado 1 %)" in header and columns.shape[1] == len(f)
+
+
+def test_vswr_uncertainty_of_each_port_at_its_own_level(library):
+    """U_VSWR = 2·ρ·ln10/20·U_dB/(1 − ρ)²; in Rev, U_dB is that of S22 at the level of S22 (not that of S11)."""
+    f = np.array([1e9, 4e9, 5.3e9, 12e9, 23e9])
+    s = line(f)
+    s[:, 0, 0], s[:, 1, 1] = 0.04, 0.1  # S11 at −28 dB, S22 at −20 dB: two ranges of the uncertainty of the ZNB43
+    engine = UncertaintyEngine(library.uncertainty_path(library.equipment["VNA-01"]))
+    traces = dataset_uncertainty(engine, "ZNB43", f, s)
+    u11, u22 = traces["S11"].magnitude_db, traces["S22"].magnitude_db
+    assert (u11 > 2 * u22).all()  # the level decides the range: far apart
+    results = CableResults.compute(f, s, traces)
+    fwd, rev = results.directions["Fwd"], results.directions["Rev"]
+    assert np.allclose(fwd.vswr_u, 2 * 0.04 * np.log(10) / 20 * u11 / 0.96**2)
+    assert np.allclose(rev.vswr_u, 2 * 0.1 * np.log(10) / 20 * u22 / 0.9**2)  # the factor 2 of dVSWR/dρ = 2/(1 − ρ)²
+    with np.errstate(divide="ignore"):  # the same VSWR uncertainty with the derivative of VSWR(ρ)
+        derivative = (results.directions["Rev"].vswr - (1 + 0.1 * 10 ** (-1e-6 / 20)) / (1 - 0.1 * 10 ** (-1e-6 / 20))) / 1e-6
+    assert np.allclose(rev.vswr_u, derivative * u22, rtol=1e-4)
+
+
+def test_charts_of_the_certificate_in_the_format_of_the_laboratory():
+    f = np.linspace(10e6, 26.5e9, 2650)
+    uncertainty = {p: (np.full(len(f), 0.5), np.full(len(f), 3.0)) for p in ("S11", "S22")}
+    uncertainty |= {p: (np.full(len(f), 0.04), np.full(len(f), 0.4)) for p in ("S21", "S12")}
+    results = CableResults.compute(f, line(f), uncertainty, sucoflex_526s())
+    assert range_of_use(results).all()  # the limits cover the sweep: the axes, over it
+    rev = results.directions["Rev"]
+    figure = vswr_figure(results, rev)
+    (axes,) = figure.axes
+    assert tuple(figure.get_size_inches()) == (16, 4) and (axes.get_ylabel(), axes.get_xlabel()) == ("VSWR Port 2", "Frec (Hz)")
+    assert [text.get_text() for text in axes.get_legend().get_texts()] == ["S22 (Reflection)", f"u_exp ±{np.mean(rev.vswr_u):.3f}", "Limit"]
+    assert axes.get_xlim() == (f[0], f[-1]) and axes.xaxis.get_major_formatter()(5e9, 0) == "5.0e+09"
+    assert axes.get_ylim() == pytest.approx((1.05 / 0.95 - 0.1, 1.05 / 0.95 + 0.3))  # a flat VSWR: the margins only
+    loss = insertion_loss_figure(results, results.directions["Fwd"])
+    assert [item.get_ylabel() for item in loss.axes] == ["S21 (dB)", "S21 (º)"]
+    assert [text.get_text() for text in loss.axes[0].get_legend().get_texts()] == ["S21 (Insertion Loss)", "u_exp(dB) ±0.040", "Limit"]
+    assert [text.get_text() for text in loss.axes[1].get_legend().get_texts()] == ["S21 (Insertion Loss)", "u_exp(º) ±0.400"]
+    delay = delay_figure(results, results.directions["Fwd"]).axes[0]
+    assert delay.get_ylabel() == "S21 (ns)" and delay.get_ylim() == pytest.approx((11.03 * 0.7, 11.03 * 1.3), rel=1e-6)
+    assert [text.get_text() for text in delay.get_legend().get_texts()][0] == "S21 (Transmision)"
 
 
 def test_rows_of_the_certificate_at_the_nearest_measured_point():
@@ -176,12 +236,12 @@ def docx_xml(path: Path) -> dict[str, str]:
 
 def test_certificate_of_the_example_cable(library, tmp_path):
     record = run_example(library, tmp_path)
-    assert record.verdict == "PASA" and record.results["sentidos"]["apertura_retardo_pasos"] == 10
+    assert record.verdict == "PASA" and record.results["sentidos"]["suavizado_pct"] == 1.0
     entry = next(e for e in record.equipment if e["id"] == "VNA-01")  # the record keeps what the certificate needs
     assert entry["referencia"] == "LE1941.000" and entry["fabricante"] == "Rohde & Schwarz" and entry["designacion"] == "ZNB43"
     assert record.dut["referencia"] == "LE2333.001" and record.dut["denominacion"] == "Cable Sucoflex 526s 3.5mm-3.5mm"
 
-    path, certificate = generate_certificate(library, record, report_date=date(2026, 10, 27), figures={"retardo": png(tmp_path / "retardo.png")})
+    path, certificate = generate_certificate(library, record, report_date=date(2026, 10, 27), figures={"retardo": png(tmp_path / "otra.png")})
     reference = f"LE2333.001_{record.started:%Y_%m}"
     assert path == record.folder / "certificado" / f"{reference}.docx" and path.is_file()
     context = certificate.context
@@ -204,7 +264,10 @@ def test_certificate_of_the_example_cable(library, tmp_path):
     assert [row["inventario"] for row in context["equipos"]] == ["LE1941.000", "LE1941.002", "ADP-NMD292-01", "LE1941.001", "LE1689.000"]
     assert context["equipos"][-1]["proxima_calibracion"] == "20/12/2027"
     assert any("ADP-NMD292-01" in warning for warning in certificate.warnings)
-    assert any(warning.startswith("Gráficas pendientes") and "Retardo de grupo" not in warning for warning in certificate.warnings)
+    assert not any("ráfica" in warning for warning in certificate.warnings)
+    # the charts, in the format of the laboratory, next to the certificate (the one given replaces the one drawn)
+    figures = path.with_name(f"{reference}_figuras")
+    assert sorted(item.name for item in figures.iterdir()) == sorted(NAMES.values())
 
     # the document: no tag left, the values where the laboratory has them
     parts = docx_xml(path)
@@ -217,7 +280,7 @@ def test_certificate_of_the_example_cable(library, tmp_path):
     body = "".join(re.findall(r"<w:t(?: [^>]*)?>([^<]*)</w:t>", parts["word/document.xml"]))  # the cover is a content control
     assert "Bienal" in body and "ATN-Q-IO-22-164" in body and "k=2 (nivel de confianza aproximado del 95,5%)" in body
     assert "rango de frecuencias de 10 MHz a 26,5 GHz" in body and "tolerancia de 1 dB" in body and "tolerancia de un 5%" in body
-    assert "[Gráfica pendiente: VSWR del puerto 1 (Fwd)]" in body and "Resultado final: PASA" in body
+    assert "[Gráfica" not in body and "Resultado final: PASA" in body
     tables = {table.rows[0].cells[0].text: table for table in document.tables}
     fwd, rev = [table for table in document.tables if table.rows[0].cells[0].text == "Frecuencia"]
     assert len(fwd.rows) == len(rev.rows) == 22 and fwd.rows[1].cells[0].text == "10 MHz" and rev.rows[21].cells[0].text == "26.5 GHz"
@@ -225,9 +288,11 @@ def test_certificate_of_the_example_cable(library, tmp_path):
     assert [row.cells[0].text for row in tables["N.º de inventario"].rows[1:]] == [row["inventario"] for row in context["equipos"]]
     assert "1,32:1 entre 10 MHz y 18 GHz, ni 1,42:1 entre 18 y 26,5 GHz" in parts["word/footnotes.xml"]
     assert "a = 0,229 dB/m y b = 0,0071 dB/m" in parts["word/footnotes.xml"]
-    assert len([r for r in document.part.rels.values() if r.reltype.endswith("/image")]) == 1  # the figure given
+    images = [r for r in document.part.rels.values() if r.reltype.endswith("/image")]
+    assert len(images) == 5 and png(tmp_path / "otra.png").read_bytes() in [r.target_part.blob for r in images]
     saved = library.load_test(record.folder)
     assert saved.results["certificado"]["referencia"] == reference and f"certificado/{reference}.docx" in saved.files
+    assert saved.results["certificado"]["figuras"] == f"certificado/{reference}_figuras" and saved.results["certificado"]["suavizado_pct"] == 1.0
 
 
 def test_certificate_only_of_finished_two_port_tests(library, tmp_path):
@@ -291,11 +356,11 @@ def test_certificate_settings_in_the_template_editor(qapp, library):
     assert editor.report_card.isVisibleTo(editor) and editor.report_sensor.currentData() == "TPH-01"
     assert (editor.report_procedure.text(), editor.report_interval.text(), editor.report_rows.text()) == ("ATN-Q-IO-22-164", "Bienal", "21")
     assert editor.build().report == library.procedures["cable_CAB-DUT-0006"].report  # saving from the editor keeps it
+    assert "1 %" in editor.report_smoothing.text()  # always as the laboratory: not a setting
     editor.report_rows.setText("10 MHz; 1 GHz; 26,5 GHz")
-    editor.report_aperture.setValue(20)
-    editor.report_smoothing.setValue(2.5)
-    built = editor.build().report
-    assert built.frequencies == ["10 MHz", "1 GHz", "26,5 GHz"] and built.aperture == 20 and built.smoothing_pct == 2.5
+    assert editor.build().report.frequencies == ["10 MHz", "1 GHz", "26,5 GHz"]
+    # the settings of 0.10.1 are read and dropped
+    assert ReportSettings.model_validate({"apertura_retardo": 10, "suavizado_pct": 1}) == ReportSettings()
     editor.report_rows.setText("10 MHz; uno")
     with pytest.raises(ValueError, match="no es una frecuencia"):
         editor.build()
@@ -357,6 +422,7 @@ def test_vswr_tolerance_choice_in_the_template_editor(qapp, library):
 
 
 def test_smoothing_of_the_tables_as_the_certificates_of_the_lab():
+    """Always: the VSWR and the group delay over 1 % of the points; the insertion loss and the verdict, of the point."""
     # moving average with the ends mirrored, as scipy.ndimage.uniform_filter1d(x, size)
     x = np.arange(10, dtype=float)
     smooth = moving_average(x, 4)  # window [k − 2, k + 1]
@@ -367,10 +433,12 @@ def test_smoothing_of_the_tables_as_the_certificates_of_the_lab():
     s = line(f)
     s[:, 0, 0] = np.where(np.arange(len(f)) % 2, 0.02, 0.06)  # a VSWR that jumps from point to point
     results = CableResults.compute(f, s, None, sucoflex_526s())
-    assert results.smoothing_points(1.0) == 52  # 1 % of 5299 points, as the laboratory
-    raw, smoothed = results.report_rows(ROWS), results.report_rows(ROWS, smoothing_pct=1.0)
+    assert results.smoothing == 52  # 1 % of 5299 points, as the laboratory
+    rows = results.report_rows(ROWS)
     middle = 10  # 13 GHz, far from the ends: half the points of each value
-    assert smoothed["Fwd"][middle]["vswr"] == pytest.approx(((1.02 / 0.98) + (1.06 / 0.94)) / 2)
-    assert raw["Fwd"][middle]["vswr"] in (pytest.approx(1.02 / 0.98), pytest.approx(1.06 / 0.94))
-    assert smoothed["Fwd"][middle]["perdida_insercion"] == raw["Fwd"][middle]["perdida_insercion"]  # not smoothed
-    assert smoothed["Fwd"][middle]["retardo_grupo"] == pytest.approx(11.03, abs=1e-6)
+    index = int(np.argmin(np.abs(f - ROWS[middle])))
+    fwd = results.directions["Fwd"]
+    assert rows["Fwd"][middle]["vswr"] == pytest.approx(((1.02 / 0.98) + (1.06 / 0.94)) / 2)
+    assert fwd.vswr[index] in (pytest.approx(1.02 / 0.98), pytest.approx(1.06 / 0.94))  # that of the point: the verdict
+    assert rows["Fwd"][middle]["perdida_insercion"] == fwd.insertion_loss_db[index]  # not smoothed
+    assert rows["Fwd"][middle]["retardo_grupo"] == pytest.approx(11.03, abs=1e-6)

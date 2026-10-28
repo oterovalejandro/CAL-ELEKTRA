@@ -18,12 +18,12 @@ names of older records), from the library:
   specification by formula as evaluated: ``especificacion_cable``);
 * the ambient conditions of the probe (minimum and maximum);
 * the tables Fwd and Rev (``cable_results.py``): a row per report frequency
-  (``informe.frecuencias``), with the values of the nearest measured point;
+  (``informe.frecuencias``), with the values of the nearest measured point
+  (the VSWR and the group delay smoothed over 1 % of the points, as the
+  laboratory);
+* the five charts, in the format of those of the laboratory (``figures.py``),
+  saved as PNG next to the certificate (``<certificado>_figuras``);
 * the verdict of the test.
-
-The charts keep the format of those of the laboratory: their code is not
-integrated yet, so each one is a placeholder (``figures`` takes their PNG
-files when there are).
 """
 
 from __future__ import annotations
@@ -40,10 +40,12 @@ import numpy as np
 from calelektra.catalog.library import Library
 from calelektra.core.bands import BandValues, merge_limits
 from calelektra.core.frequency import FrequencyRange
+from calelektra.core.networks import SMOOTHING_PCT
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError, format_frequency, parse_frequency
 from calelektra.procedures.cable_results import CableResults, report_frequencies
 from calelektra.procedures.cable_specs import CableSpecification
+from calelektra.procedures.figures import FiguresUnavailable, certificate_figures
 from calelektra.procedures.model import (
     DEFAULT_REPORT_TEMPLATE,
     ProcedureTemplate,
@@ -79,6 +81,7 @@ class Certificate:
     template: Path
     results: CableResults
     warnings: list[str] = field(default_factory=list)
+    logarithmic: bool = False  # sweep: the scale of the charts
 
 
 # ── formats of the certificate ──────────────────────────────────────────────
@@ -259,9 +262,9 @@ def _cable(spec: CableSpecification | None) -> dict[str, str]:
     }
 
 
-def _rows(results: CableResults, nominal: list[float], smoothing_pct: float = 0.0) -> dict[str, list[dict[str, str]]]:
+def _rows(results: CableResults, nominal: list[float]) -> dict[str, list[dict[str, str]]]:
     rows: dict[str, list[dict[str, str]]] = {}
-    for name, values in results.report_rows(nominal, smoothing_pct).items():
+    for name, values in results.report_rows(nominal).items():
         rows[name.lower()] = [
             {
                 "frecuencia": format_frequency(row["frecuencia"], decimal="."),
@@ -303,7 +306,6 @@ def prepare_certificate(
     record: TestRecord,
     reference: str | None = None,
     report_date: date | None = None,
-    figures: dict[str, Any] | None = None,
 ) -> Certificate:
     """The data of the certificate of the cable of ``record``, with what is missing in ``warnings``."""
     problem = certificate_problem(record)
@@ -314,7 +316,7 @@ def prepare_certificate(
     frequencies, s, uncertainty = _measurement(record)
     spec = CableSpecification.from_record(record.cable_specification)
     k = float(record.uncertainty.get("k", template.uncertainty.coverage_factor if template else 2.0))
-    results = CableResults.compute(frequencies, s, uncertainty, spec, settings.aperture, k)
+    results = CableResults.compute(frequencies, s, uncertainty, spec, k)
     span = _range(record, frequencies)
     criteria = span
     if spec is not None and spec.nominal_range is not None:
@@ -347,10 +349,6 @@ def prepare_certificate(
         warnings.append("La plantilla de ensayo no indica el procedimiento de calibración (informe.procedimiento)")
     if not settings.interval:
         warnings.append("La plantilla de ensayo no indica el intervalo de calibración (informe.intervalo)")
-    figures = dict(figures or {})
-    missing = [title for key, title in FIGURES.items() if key not in figures]
-    if missing:
-        warnings.append("Gráficas pendientes (se integrarán con el código de gráficas del laboratorio): " + ", ".join(missing))
     finished = record.finished.date() if record.finished else record.started.date()
     started = record.started.date()
     reference = (reference or "").strip() or default_reference(record, eut["referencia"])
@@ -371,14 +369,19 @@ def prepare_certificate(
         "cable": _cable(spec),
         "nota_vswr": vswr_note(spec, criteria) if spec is not None else "El modelo del cable no declara el VSWR de sus conectores.",
         "ambiente": _ambient(record),
-        "figuras": {key: figures.get(key, f"[Gráfica pendiente: {title}]") for key, title in FIGURES.items()},
+        "figuras": {key: f"[Gráfica: {title}]" for key, title in FIGURES.items()},  # the PNG, when it is generated
         "resultado_final": VERDICTS.get(str(record.verdict), str(record.verdict or NONE)),
-        **_rows(results, nominal, settings.smoothing_pct),
+        **_rows(results, nominal),
     }
     path = library.root / settings.template_path
     if not path.is_file():
         path = library.root / DEFAULT_REPORT_TEMPLATE
-    return Certificate(context, reference, path, results, warnings)
+    return Certificate(context, reference, path, results, warnings, logarithmic)
+
+
+def figures_folder(certificate: Path) -> Path:
+    """``<certificado>_figuras``: the PNG of the charts, next to the certificate."""
+    return certificate.with_name(f"{certificate.stem}_figuras")
 
 
 def default_certificate_path(record: TestRecord, reference: str) -> Path:
@@ -397,44 +400,59 @@ def generate_certificate(
 ) -> tuple[Path, Certificate]:
     """Write the certificate (.docx) of the cable of ``record``; kept in the record when it is in its folder.
 
-    ``figures``: PNG of the charts (keys of ``FIGURES``), placed with the size of those of the template.
+    The charts are drawn in the format of the laboratory (``figures.py``) and saved as PNG in
+    ``<certificado>_figuras`` next to it; ``figures`` (keys of ``FIGURES``) replaces some of them with other
+    PNG files. They are placed with the size of those of the template.
     """
     try:
         from docx.shared import Mm
         from docxtpl import DocxTemplate, InlineImage, Listing
     except ImportError as exc:  # pragma: no cover - dependency of the package
         raise ReportError("Falta docxtpl para generar el certificado (pip install docxtpl)") from exc
-    certificate = prepare_certificate(library, record, reference, report_date, figures)
+    certificate = prepare_certificate(library, record, reference, report_date)
     if not certificate.template.is_file():
         raise ReportError(f"No se encuentra la plantilla del certificado «{certificate.template}»")
+    target = Path(output) if output is not None else default_certificate_path(record, certificate.reference)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    charts = dict(figures or {})
+    folder = figures_folder(target)
+    if any(key not in charts for key in FIGURES):
+        try:
+            drawn = certificate_figures(certificate.results, folder, certificate.logarithmic)
+        except (FiguresUnavailable, OSError) as exc:
+            certificate.warnings.append(f"Sin gráficas: {exc}")
+        else:
+            charts = {**drawn, **charts}
     document = DocxTemplate(str(certificate.template))
     pictures = certificate.context["figuras"]
     for key in FIGURES:
-        if key in (figures or {}):
-            pictures[key] = InlineImage(document, str(figures[key]), width=Mm(FIGURE_WIDTH_MM))
+        if key in charts:
+            pictures[key] = InlineImage(document, str(charts[key]), width=Mm(FIGURE_WIDTH_MM))
         else:
             pictures[key] = Listing(f"\n{pictures[key]}\n")  # on its own line, as the chart it stands for
-    target = Path(output) if output is not None else default_certificate_path(record, certificate.reference)
-    target.parent.mkdir(parents=True, exist_ok=True)
     try:
         document.render(certificate.context, autoescape=True)
         document.save(str(target))
     except Exception as exc:  # docxtpl and jinja2 raise many kinds of errors on a wrong template
         raise ReportError(f"No se pudo generar el certificado con «{certificate.template.name}»: {exc}") from exc
     assert record.folder is not None
-    try:
-        name = target.resolve().relative_to(record.folder.resolve()).as_posix()
-    except ValueError:
-        name = None
+
+    def inside(path: Path) -> str | None:
+        try:
+            return path.resolve().relative_to(record.folder.resolve()).as_posix()
+        except ValueError:
+            return None
+
+    name = inside(target)
     record.results["certificado"] = {
         "referencia": certificate.reference,
         "fecha": certificate.context["fecha_informe"],
         "fichero": name or str(target),
         "plantilla": certificate.template.name,
+        "suavizado_pct": SMOOTHING_PCT,  # VSWR and group delay of the tables and charts
     }
-    template = _template_of(record, library)
-    if template is not None and template.report.smoothing_pct:
-        record.results["certificado"]["suavizado_pct"] = template.report.smoothing_pct
+    if folder.is_dir():
+        record.results["certificado"]["figuras"] = inside(folder) or str(folder)
     if name and name not in record.files:
         record.files.append(name)
     library.save_test(record)

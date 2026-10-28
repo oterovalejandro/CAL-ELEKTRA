@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QMessage
 
 from calelektra.catalog.library import Library
 from calelektra.core.frequency import FrequencyRange
+from calelektra.core.networks import smoothed
 from calelektra.gui import test_window as test_window_module
 from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
 from calelektra.gui.main_window import SECTIONS, MainWindow
@@ -430,7 +431,7 @@ def test_units_of_the_charts(qapp):
     plot.set_uncertainty("DUT", {p: (np.full(5, 0.5), np.full(5, 2.0)) for p in ("S11", "S21", "S12", "S22")})
     plot.mode.setCurrentIndex(plot.mode.findData("vswr_db"))  # VSWR of the reflections, dB of the transmissions on the right axis
     item = plot.plot.getPlotItem()
-    assert item.getAxis("right").isVisible() and item.getAxis("left").labelText == "VSWR"
+    assert item.getAxis("right").isVisible() and item.getAxis("left").labelText == "VSWR, suavizado 1 %"
     left = {c.opts["name"]: c.yData for c in item.listDataItems()}
     right = {c.opts["name"]: c.yData for c in plot.right.addedItems if isinstance(c, pg.PlotDataItem)}
     assert set(left) == {"S11", "S22"} and set(right) == {"S21", "S12"}
@@ -446,12 +447,20 @@ def test_units_of_the_charts(qapp):
     plot.mode.setCurrentIndex(plot.mode.findData("retardo"))
     curves = {c.opts["name"]: c.yData for c in item.listDataItems()}
     assert set(curves) == {"S21", "S12"} and np.allclose(curves["S21"], 0.3)
-    assert item.getAxis("left").labelText == "Retardo de grupo (ns), apertura 10 pasos" and not item.getAxis("right").isVisible()
+    assert item.getAxis("left").labelText == "Retardo de grupo (ns), suavizado 1 %" and not item.getAxis("right").isVisible()
     fills = [i for i in item.items if isinstance(i, pg.FillBetweenItem)]
     assert fills and np.allclose(fills[0].curves[0].yData, 0.3 + 2.0 / (360 * f) * 1e9)
     assert not plot.show_limits.isEnabled()
-    plot.set_group_delay_aperture(2)
-    assert item.getAxis("left").labelText == "Retardo de grupo (ns), apertura 2 pasos"
+    # the VSWR is always smoothed over 1 % of the points, as in the certificates, not with the smoothing of the template
+    many = np.linspace(1e9, 2e9, 600)
+    jumping = np.zeros((600, 2, 2), dtype=complex)
+    jumping[:, 0, 0] = np.where(np.arange(600) % 2, 0.02, 0.06)
+    jumping[:, 1, 1], jumping[:, 1, 0], jumping[:, 0, 1] = 0.05, 0.5, 0.5
+    plot.set_data("DUT", many, jumping)
+    plot.set_smoothing({"S11": 10.0})
+    plot.mode.setCurrentIndex(plot.mode.findData("vswr_db"))
+    curves = {c.opts["name"]: c.yData for c in item.listDataItems()}
+    assert curves["S11"][300] == pytest.approx((1.02 / 0.98 + 1.06 / 0.94) / 2) and "1 %" in plot.smooth_box.toolTip()
 
     impedance_plots = ResultPlots()
     impedance = impedance_plots.for_algorithm("vna_1_puerto")  # the 1-port impedance measurement
@@ -699,7 +708,7 @@ def test_transmission_and_coupler_tests_in_the_window(window, qapp):
     plots.mode.setCurrentIndex(plots.mode.findData("vswr_db"))  # VSWR of each port, TL of each pair
     assert "VSWR" in plots.reflection.heading.text() and "TL" in plots.transmission.heading.text()
     gamma = np.abs(plots.datasets["In-Out"][1][:, 0, 0])
-    assert np.allclose(plots.reflection_traces()[0].values, (1 + gamma) / (1 - gamma))
+    assert np.allclose(plots.reflection_traces()[0].values, smoothed((1 + gamma) / (1 - gamma)))  # over 1 % of the points
     assert plots.nominal_lines()[0][0].label == "Espec. VSWR ≤ 1.5 (In, Out)"
     plots.mode.setCurrentIndex(plots.mode.findData("fase"))
     assert plots.nominal_lines() == ([], []) and not plots.show_limits.isEnabled()

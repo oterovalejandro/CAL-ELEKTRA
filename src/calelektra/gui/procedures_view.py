@@ -32,13 +32,13 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from calelektra.catalog.library import Library, LibraryError, validation_message
+from calelektra.core.networks import SMOOTHING_PCT
 from calelektra.core.units import UnitError, parse_frequency
 from calelektra.gui import style
 from calelektra.gui.icons import icon
@@ -299,20 +299,12 @@ class ProcedureEditor(QWidget):
             "Filas de las tablas Fwd y Rev: n frecuencias igualmente espaciadas en el barrido (redondeadas a dos cifras "
             "significativas, salvo la primera y la última) o una lista; cada fila lleva los valores del punto medido más cercano"
         )
-        self.report_aperture = QSpinBox()
-        self.report_aperture.setRange(1, 1000)
-        self.report_aperture.setSuffix(" pasos")
-        self.report_aperture.setToolTip("Pasos de frecuencia en que se ajusta el retardo de grupo (gráficas, resultados y certificado)")
-        self.report_smoothing = QDoubleSpinBox()
-        self.report_smoothing.setRange(0.0, 50.0)
-        self.report_smoothing.setDecimals(1)
-        self.report_smoothing.setSingleStep(0.5)
-        self.report_smoothing.setSuffix(" % de los puntos")
-        self.report_smoothing.setSpecialValueText("sin suavizado")
+        # always as the laboratory: not a setting
+        self.report_smoothing = QLabel(f"VSWR y retardo de grupo: media móvil del {SMOOTHING_PCT:g} % de los puntos")
+        self.report_smoothing.setWordWrap(True)
         self.report_smoothing.setToolTip(
-            "VSWR y retardo de grupo de las tablas: media móvil sobre este porcentaje de los puntos del barrido, "
-            "como en los certificados del laboratorio (1 %); el retardo, entre puntos consecutivos. "
-            "La pérdida de inserción y las incertidumbres son las del punto."
+            "Como en los certificados del laboratorio, en las tablas, las gráficas del certificado y las del programa; "
+            "el retardo, entre puntos consecutivos. La pérdida de inserción, las incertidumbres y el veredicto son los del punto."
         )
         self.report_sensor = QComboBox()
         self.report_sensor.setToolTip("Sonda de las condiciones ambientales: va en la tabla de equipos del certificado")
@@ -322,8 +314,7 @@ class ProcedureEditor(QWidget):
         report_form.addRow("Procedimiento", self.report_procedure)
         report_form.addRow("Intervalo de calibración", self.report_interval)
         report_form.addRow("Frecuencias de las tablas", self.report_rows)
-        report_form.addRow("Apertura del retardo de grupo", self.report_aperture)
-        report_form.addRow("Suavizado de VSWR y retardo", self.report_smoothing)
+        report_form.addRow("Suavizado", self.report_smoothing)
         report_form.addRow("Sonda ambiental", self.report_sensor)
         report_form.addRow("Plantilla de Word", self.report_template)
         self.report_card = report
@@ -368,8 +359,6 @@ class ProcedureEditor(QWidget):
             self.report_procedure, self.report_interval, self.report_rows, self.report_template,
         ):  # fmt: skip
             widget.textEdited.connect(self._edited)
-        self.report_aperture.valueChanged.connect(self._edited)
-        self.report_smoothing.valueChanged.connect(self._edited)
         self.report_sensor.currentIndexChanged.connect(self._edited)
         for widget in (self.description, self.options):
             widget.textChanged.connect(self._edited)
@@ -564,8 +553,6 @@ class ProcedureEditor(QWidget):
             "procedimiento": self.report_procedure.text().strip() or None,
             "intervalo": self.report_interval.text().strip() or None,
             "frecuencias": rows,
-            "apertura_retardo": self.report_aperture.value(),
-            "suavizado_pct": self.report_smoothing.value() or None,
             "sonda_ambiental": self.report_sensor.currentData(),
         }
         return {key: value for key, value in values.items() if value is not None}
@@ -679,8 +666,6 @@ class ProcedureEditor(QWidget):
         self.report_interval.setText(report.interval or "")
         rows = report.frequencies
         self.report_rows.setText("; ".join(rows) if isinstance(rows, list) else ("" if rows is None else str(rows)))
-        self.report_aperture.setValue(report.aperture)
-        self.report_smoothing.setValue(report.smoothing_pct)
         self.report_sensor.clear()
         self.report_sensor.addItem("— (ninguna)", None)
         for equipment in sorted(self.library.equipment_in_categories(["sensor_ambiental"]), key=lambda e: e.id):

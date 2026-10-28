@@ -61,14 +61,29 @@ def transmission_delay(frequencies: np.ndarray, s21: np.ndarray, nominal: float 
     return float(first - np.polyfit(2 * np.pi * f, residual, 1)[0])
 
 
-def group_delay(frequencies: np.ndarray, s21: np.ndarray, aperture: int = 10) -> np.ndarray:
-    """Group delay (s) at each point, −dφ/dω, as the delay format of a VNA.
+# VSWR and group delay, in the charts, the results and the certificates: a moving average over 1 % of
+# the points of the trace, as the laboratory does (``moving_average``)
+SMOOTHING_PCT = 1.0
 
-    The slope of the phase is fitted (least squares) over ``aperture``
-    frequency steps centred on the point, fewer at the ends of the sweep. The
-    phase is first unwrapped against the delay of the whole trace
-    (``transmission_delay``), so that the steps of a list where a long cable
-    turns more than half a turn do not alias. NaN where there is no data.
+
+def smoothing_points(points: int, pct: float = SMOOTHING_PCT) -> int:
+    """Points of the moving average over ``pct`` % of a trace of ``points`` points: int(pct/100·N), at least 1."""
+    return max(1, int(pct / 100 * points))
+
+
+def smoothed(values: np.ndarray, pct: float = SMOOTHING_PCT) -> np.ndarray:
+    """``values`` averaged over ``pct`` % of their points (``moving_average``); with fewer than 200 points, as they are."""
+    return moving_average(values, smoothing_points(len(values), pct))
+
+
+def step_delay(frequencies: np.ndarray, s21: np.ndarray) -> np.ndarray:
+    """Delay (s) between each point and the previous one, −Δφ/Δω (the first point: that of the second).
+
+    The point-wise delay of the laboratory, before its smoothing. The phase is
+    unwrapped against the delay of the whole trace (``transmission_delay``),
+    so that the steps of a list where a long cable turns more than half a turn
+    do not alias; with steps of less than half a turn it is the plain unwrap.
+    NaN where there is no data.
     """
     f = np.asarray(frequencies, dtype=float)
     s = np.asarray(s21, dtype=complex)
@@ -82,41 +97,27 @@ def group_delay(frequencies: np.ndarray, s21: np.ndarray, aperture: int = 10) ->
         overall = 0.0
     omega = 2 * np.pi * fv
     residual = np.unwrap(np.angle(sv * np.exp(1j * omega * overall)))  # what is left changes little between points
-    x = omega - omega.mean()
-    half = max(1, int(aperture) // 2)
-    index = np.arange(len(fv))
-    low, high = np.clip(index - half, 0, len(fv) - 1), np.clip(index + half, 0, len(fv) - 1) + 1
-    sums = [np.concatenate([[0.0], np.cumsum(values)]) for values in (x, residual, x * x, x * residual)]
-    sx, sy, sxx, sxy = (total[high] - total[low] for total in sums)
-    count = (high - low).astype(float)
     with np.errstate(divide="ignore", invalid="ignore"):
-        slope = (count * sxy - sx * sy) / (count * sxx - sx * sx)
-    out[valid] = overall - slope
+        steps = overall - np.diff(residual) / np.diff(omega)
+    out[np.flatnonzero(valid)] = np.concatenate([steps[:1], steps])
     return out
 
 
-def step_delay(frequencies: np.ndarray, s21: np.ndarray) -> np.ndarray:
-    """Delay (s) between each point and the previous one, −Δφ/Δω of the unwrapped phase (the first point: that of the second).
+def group_delay(frequencies: np.ndarray, s21: np.ndarray) -> np.ndarray:
+    """Group delay (s) at each point, −dφ/dω: the delay between consecutive points (``step_delay``) averaged
+    over 1 % of the points (``smoothed``), as the laboratory.
 
-    The point-wise delay of the certificates of the laboratory, before their smoothing (``moving_average``).
+    With equally spaced points, the mean of n steps is the phase difference over n steps: the delay format of
+    a VNA with an aperture of 1 % of the points.
     """
-    f = np.asarray(frequencies, dtype=float)
-    out = np.full(len(f), np.nan)
-    if len(f) < 2:
-        return out
-    phase = np.unwrap(np.angle(np.asarray(s21, dtype=complex)))
-    with np.errstate(divide="ignore", invalid="ignore"):
-        steps = -np.diff(phase) / np.diff(2 * np.pi * f)
-    out[1:] = steps
-    out[0] = steps[0]
-    return out
+    return smoothed(step_delay(frequencies, s21))
 
 
 def moving_average(values: np.ndarray, size: int) -> np.ndarray:
     """Mean over ``size`` points, window [k − size//2, k + (size − 1)//2], mirrored at the ends.
 
     The same as ``scipy.ndimage.uniform_filter1d(values, size)`` (mode ``reflect``): the smoothing of the
-    certificates of the laboratory, with ``size`` = 1 % of the points.
+    laboratory, with ``size`` = 1 % of the points.
     """
     x = np.asarray(values, dtype=float)
     if size < 2 or len(x) < 2:

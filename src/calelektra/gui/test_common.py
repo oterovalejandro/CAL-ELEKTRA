@@ -17,7 +17,6 @@ from calelektra.gui import style
 from calelektra.gui.plots import CouplerPlots, SParameterPlot
 from calelektra.instruments.factory import is_simulated
 from calelektra.procedures.ambient import AmbientError
-from calelektra.procedures.cable_results import DEFAULT_APERTURE
 from calelektra.procedures.cable_specs import CableSpecification
 from calelektra.procedures.coupler import nominal_values_from_record
 from calelektra.procedures.engine import RunPlan
@@ -406,17 +405,6 @@ def record_smoothing(record: TestRecord) -> dict[str, float]:
     return template.sweep.smoothing(TRACES[template.algorithm])
 
 
-def record_group_delay_aperture(record: TestRecord) -> int:
-    """Frequency steps of the group delay of a test: those of its results, else those of the template as launched."""
-    stored = (record.results.get("sentidos") or {}).get("apertura_retardo_pasos")
-    if isinstance(stored, int) and stored >= 1:
-        return stored
-    template = record.launched_template()
-    return template.report.aperture if template is not None else DEFAULT_APERTURE
-
-
 def show_display_settings(plot: SParameterPlot | CouplerPlots, record: TestRecord) -> None:
-    """Smoothing of the traces and aperture of the group delay of a test on its chart."""
+    """Smoothing of the traces of a test on its chart (the VSWR and the group delay: always 1 %)."""
     plot.set_smoothing(record_smoothing(record))
-    if isinstance(plot, SParameterPlot):
-        plot.set_group_delay_aperture(record_group_delay_aperture(record))

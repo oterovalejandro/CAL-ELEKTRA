@@ -1,4 +1,4 @@
-# Certificado de calibración de cables — versiones 0.10 y 0.10.1
+# Certificado de calibración de cables — versiones 0.10 a 0.10.2
 
 Esta versión calcula todo lo que da el certificado de calibración de un cable del laboratorio y lo genera en Word con su plantilla:
 
@@ -8,7 +8,7 @@ Esta versión calcula todo lo que da el certificado de calibración de un cable 
 4. **VSWR de los conectores por bandas**, introducidas en una tabla, con la tolerancia sobre el VSWR del cable ensamblado ([`11_especificacion_de_cables_por_formula.md`](11_especificacion_de_cables_por_formula.md)).
 5. **Referencia de inventario y denominación** de cada equipo, por ejemplo LE2333.001 (§6).
 
-Las gráficas del certificado mantendrán el formato de las del laboratorio: su código se integrará en la próxima versión. Hasta entonces, cada gráfica es un marcador (§4).
+Las gráficas del certificado tienen el formato de las del laboratorio (§4).
 
 **0.10.1.** Con el S2P de vuestro certificado LE2333.001_2026_10, el programa reproduce exactamente sus tablas Fwd y Rev (§8). Además:
 - la tolerancia del VSWR vuelve a aplicarse al cable ensamblado;
@@ -16,6 +16,11 @@ Las gráficas del certificado mantendrán el formato de las del laboratorio: su 
 - las filas de un barrido logarítmico van espaciadas logarítmicamente;
 - el diálogo del certificado carga el Excel de la sonda si faltan las condiciones;
 - los pies de las figuras 1 y 2 quedan confirmados (Fwd = S11).
+
+**0.10.2.**
+- **Suavizado del 1 %, siempre**, del VSWR y del retardo de grupo: en las tablas y las gráficas del certificado y en las gráficas del programa (§2, §3.5). Ya no es un ajuste: `informe.suavizado_pct` y `informe.apertura_retardo` se leen y se ignoran.
+- **Las cinco gráficas del certificado**, con el formato del código de gráficas del laboratorio (§4).
+- **Incertidumbre del VSWR:** el laboratorio confirma el factor 2 de la derivada y, en Rev, el rango de nivel de S22. El programa ya la calculaba así; ahora un test lo comprueba (§8.2).
 
 | | |
 |---|---|
@@ -33,8 +38,9 @@ Los calcula `procedures/cable_results.py` en todo ensayo de parámetros S (`vna_
 Las fórmulas, también las de la incertidumbre, están en [`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md) §5. Los límites son los de la especificación por fórmula del cable, dentro de su rango nominal.
 
 Dónde quedan:
-- **CSV** `<resultado>_fwd_rev.csv`, junto al .s2p: punto a punto, por sentido, el valor, su U y su límite.
-- **Registro**, `resultados.sentidos`: el VSWR máximo y dónde, la pérdida de inserción peor, el retardo de grupo (media, mínimo y máximo), los márgenes mínimos y las U máximas. Se ve en la pestaña «Resultados».
+- **CSV** `<resultado>_fwd_rev.csv`, junto al .s2p: punto a punto, por sentido, el valor, su U y su límite. El VSWR va dos veces, el del punto y el suavizado al 1 %; el retardo de grupo, suavizado.
+- **Registro**, `resultados.sentidos`: el VSWR máximo y dónde, la pérdida de inserción peor, el retardo de grupo (media, mínimo y máximo), los márgenes mínimos, las U máximas y el suavizado (`suavizado_pct: 1`, `suavizado_puntos`). Se ve en la pestaña «Resultados».
+- **Veredicto y márgenes:** con el VSWR de cada punto, sin suavizar.
 - **Condiciones ambientales:** al cargarlas se recalcula la incertidumbre y se reescriben el CSV y `sentidos`.
 
 ![Resultados por sentido en la pestaña «Resultados»](capturas/v10/33c_cable_resultados_sentidos.png)
@@ -43,9 +49,11 @@ Dónde quedan:
 
 Las gráficas de parámetros S tienen una unidad más: **«Retardo de grupo (ns)»**.
 - Solo se dibujan las transmisiones (S21, S12).
-- El retardo es −dφ/dω, ajustado en `informe.apertura_retardo` pasos de frecuencia (10 por defecto). La apertura se indica en el eje.
+- El retardo es el del laboratorio: −Δφ/Δω entre puntos consecutivos, con media móvil del 1 % de los puntos (§3.5; `group_delay` de `core/networks.py`). Con puntos igualmente espaciados es el formato de retardo de un VNA con una apertura del 1 % de los puntos. El eje lo indica: «Retardo de grupo (ns), suavizado 1 %».
+- La fase se desenrolla con el retardo de toda la traza, así que una lista de frecuencias con pasos grandes no se confunde.
 - La zona sombreada es la incertidumbre del retardo, U_φ / (360°·f). Es grande a baja frecuencia: 0,11 ns a 10 MHz con 0,4° de fase.
 - Las especificaciones no se dibujan sobre el retardo.
+- **El VSWR también se dibuja siempre suavizado al 1 %** («VSWR, suavizado 1 %»), con la banda de incertidumbre de cada punto alrededor. El suavizado de la plantilla de ensayo (ajustes de trazas) sigue valiendo para las magnitudes en dB y la fase.
 
 | | |
 |---|---|
@@ -62,7 +70,8 @@ Las gráficas de parámetros S tienen una unidad más: **«Retardo de grupo (ns)
   - **Fichero:** por defecto, `<carpeta del ensayo>/certificado/<referencia>.docx`.
   - **Avisos:** lo que falta en los datos (§3.6).
   - **«Cargar el Excel de la sonda TPH…»**, si el ensayo aún no tiene las condiciones ambientales. Las condiciones se calculan del mismo .xlsx con el que se completa la incertidumbre: el mínimo y el máximo de las lecturas que cubren el ensayo. Al cargarlo se recalcula la incertidumbre y se actualizan los datos del certificado.
-- **Registro:** guarda `resultados.certificado` (referencia, fecha, fichero y plantilla) y añade el fichero a `ficheros`, así que el .zip del ensayo lo incluye.
+- **Gráficas:** se dibujan al generar el certificado y quedan también como PNG en `<referencia>_figuras/`, junto al .docx (§4).
+- **Registro:** guarda `resultados.certificado` (referencia, fecha, fichero, plantilla, `suavizado_pct` y la carpeta de las `figuras`) y añade el fichero a `ficheros`, así que el .zip del ensayo lo incluye.
 - **Código:** `generate_certificate(biblioteca, ensayo, fichero, referencia, fecha, figuras)` de `procedures/report.py`. `prepare_certificate` da los datos y los avisos sin escribir nada.
 
 ![Diálogo del certificado](capturas/v10/34_certificado_dialogo.png)
@@ -79,7 +88,7 @@ Cambios respecto al original:
 | Campo DATE en el encabezado y en el control de cambios: Word lo cambia cada vez que se abre | La fecha del informe, fija |
 | «Ref.» vacía («[Título]») | La referencia del certificado, también en las propiedades del documento |
 | Filas de las tablas de equipos y de resultados | Una fila que se repite (`{%tr for … %}`) |
-| Gráficas del ejemplo | `{{ figuras.… }}` (§4) |
+| Gráficas del ejemplo | `{{ figuras.… }}`: las gráficas del ensayo (§4) |
 | Saltos de página manuales | «Salto de página anterior» en «Requisitos de calibración», «Resultados» y la tabla Rev: una tabla más larga ya no deja una página en blanco |
 | Numeración guardada de las figuras y tablas (Figura 5 dos veces, Tablas 5 y 5) | Figuras 1 – 5 y Tablas 1 – 5 |
 | La tabla Rev decía «Pérdida de inserción Fwd (dB)» | «Pérdida de inserción Rev (dB)» |
@@ -97,7 +106,6 @@ informe:
   procedimiento: ATN-Q-IO-22-164
   intervalo: Bienal
   frecuencias: 21              # filas de las tablas Fwd y Rev
-  apertura_retardo: 10         # pasos de frecuencia del retardo de grupo
   sonda_ambiental: TPH-01
 ```
 
@@ -107,11 +115,10 @@ informe:
 | `procedimiento` | Procedimiento de calibración del laboratorio |
 | `intervalo` | Intervalo de calibración del EUT: Anual, Bienal… |
 | `frecuencias` | Filas de las tablas: un número n o una lista (§3.5). Por defecto, 21 |
-| `apertura_retardo` | Pasos de frecuencia del retardo de grupo, en las gráficas, en `sentidos` y en el certificado. Por defecto, 10 |
-| `suavizado_pct` | VSWR y retardo de grupo de las tablas: media móvil sobre este % de los puntos (§3.5). El laboratorio usa 1; por defecto, sin suavizado |
 | `sonda_ambiental` | Equipo de la sonda de las condiciones ambientales; va en la tabla de equipos |
 
-En el editor de plantillas de ensayo están en la tarjeta **«Certificado de calibración (cables)»**, visible en los ensayos de parámetros S.
+- **Editor:** están en la tarjeta **«Certificado de calibración (cables)»** del editor de plantillas de ensayo, visible en los ensayos de parámetros S. La tarjeta recuerda el suavizado, que no es un ajuste.
+- **Claves de 0.10.1:** `apertura_retardo` y `suavizado_pct` se leen y se ignoran; al guardar la plantilla desaparecen.
 
 ![Ajustes del certificado en el editor de plantillas de ensayo](capturas/v10/07d_plantilla_certificado.png)
 
@@ -132,7 +139,7 @@ En el editor de plantillas de ensayo están en la tarjeta **«Certificado de cal
 | `cable.a`, `cable.b`, `cable.unidad`, `cable.por`, `cable.unidad_f`, `cable.longitud` | Nota 1: «a = 0,229 dB/m y b = 0,0071 dB/m… 2,5 m» | Especificación del cable del registro |
 | `nota_vswr` | Nota 2: el VSWR de los conectores y el máximo, por bandas | Especificación del cable del registro |
 | `ambiente.temperatura`, `.humedad`, `.presion` (`min`, `max`) | Condiciones ambientales; presión en Pa | Condiciones del registro (sonda TPH) |
-| `figuras.vswr_fwd`, `.vswr_rev`, `.perdida_fwd`, `.perdida_rev`, `.retardo` | Gráficas | §4 |
+| `figuras.vswr_fwd`, `.vswr_rev`, `.perdida_fwd`, `.perdida_rev`, `.retardo` | Figuras 1 a 5 | Las gráficas del ensayo (§4) |
 | `fwd[]`, `rev[]`: `frecuencia`, `vswr`, `u_vswr`, `limite_vswr`, `perdida`, `u_perdida`, `limite_perdida`, `retardo`, `u_retardo` (y `frecuencia_medida`, `pasa`) | Tablas Fwd y Rev | §1, en las frecuencias del certificado (§3.5) |
 | `resultado_final` | PASA, FALLA, NO EVALUADO… | Veredicto del registro |
 
@@ -149,12 +156,10 @@ En el editor de plantillas de ensayo están en la tarjeta **«Certificado de cal
   - **Barrido logarítmico:** espaciadas logarítmicamente. Por ejemplo, de 9 kHz a 3 GHz: 9, 17, 32, 61, 110, 220, 410 y 770 kHz, 1,5 MHz… 840 MHz, 1,6 y 3 GHz.
 - **Con una lista** (`frecuencias: [10 MHz, 1 GHz, …]`): las de la lista dentro del rango medido.
 - **Valores de cada fila:** los del punto medido más cercano. La fila lleva la frecuencia nominal; su variable `frecuencia_medida` da la del punto usado.
-- **Suavizado** (`suavizado_pct`): el VSWR y el retardo de grupo de las filas se suavizan como en los certificados del laboratorio:
+- **Suavizado, siempre:** el VSWR y el retardo de grupo de las filas se suavizan como en los certificados del laboratorio:
   - VSWR del punto y retardo entre puntos consecutivos, −Δφ/Δω (`step_delay`);
-  - media móvil de n = int(pct/100 · N) puntos, con ventana [k − n/2, k + (n − 1)/2] y los extremos reflejados (`moving_average`, como `scipy.ndimage.uniform_filter1d`). Con N = 5299 y 1 %, n = 52;
-  - la pérdida de inserción y las incertidumbres son las del punto, sin suavizar.
-
-  El registro y el CSV `_fwd_rev` guardan los valores de cada punto, sin suavizar.
+  - media móvil de n = int(0,01 · N) puntos, con ventana [k − n/2, k + (n − 1)/2] y los extremos reflejados (`moving_average`, como `scipy.ndimage.uniform_filter1d`). Con N = 5299, n = 52; con menos de 200 puntos, n = 1: sin suavizado;
+  - la pérdida de inserción, las incertidumbres y la columna `pasa` son las del punto, sin suavizar.
 
 ### 3.6 Avisos
 
@@ -164,15 +169,33 @@ El diálogo y el mensaje final avisan, para revisar el certificado antes de emit
 - las condiciones ambientales sin cargar, o la incertidumbre pendiente o no calculada;
 - un cable sin especificación por fórmula: sin límites;
 - el procedimiento o el intervalo sin indicar en la plantilla de ensayo;
-- las gráficas pendientes.
+- sin gráficas, si falta matplotlib: cada figura queda como el texto «[Gráfica: …]».
 
-## 4. Pendiente de la próxima versión
+## 4. Las gráficas del certificado
 
-- **Gráficas:** se integrará el código Python con el que el laboratorio genera las suyas, para mantener su formato. Hasta entonces, cada figura del certificado es el texto «[Gráfica pendiente: …]» en su sitio.
-  - El generador ya acepta una imagen PNG por figura: el argumento `figuras` de `generate_certificate`, con las claves de `figuras` de §3.4.
-  - Las imágenes se colocan con el ancho de las de la plantilla (184,6 mm).
-- **Incertidumbre del VSWR:** pendiente de la revisión del laboratorio (§8.2). El programa usa U_VSWR = 2·U_ρ/(1−ρ)² ([`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md) §5.1).
-- **Pies de las figuras 1 y 2 (resuelto):** en la plantilla de ejemplo, la figura «VSWR asociado a RL Fwd» mostraba S22 y la «Rev», S11, al revés que los pies. El laboratorio lo confirma: Fwd es el puerto 1 (S11) y Rev el puerto 2 (S22), como en las tablas. Las gráficas seguirán a los pies.
+Las dibuja `procedures/figures.py` con matplotlib, con el formato del código de gráficas del laboratorio (`graphics.py` de sus herramientas de S2P). Solo se ha tomado el formato: los valores son los de las tablas (§1, §3.5).
+
+| Figura | Pie | Contenido |
+|---|---|---|
+| 1 (`vswr_fwd`) | VSWR asociado a RL Fwd | VSWR del puerto 1 (S11), suavizado: «VSWR Port 1», «S11 (Reflection)» |
+| 2 (`vswr_rev`) | VSWR asociado a RL Rev | VSWR del puerto 2 (S22), suavizado: «VSWR Port 2», «S22 (Reflection)» |
+| 3 (`perdida_fwd`) | Pérdida de inserción Fwd | S21 en dB con su límite y su fase en grados, una al lado de la otra: «S21 (Insertion Loss)» |
+| 4 (`perdida_rev`) | Pérdida de inserción Rev | Lo mismo con S12 |
+| 5 (`retardo`) | Desfase de grupo | Retardo de grupo de S21 (ns), suavizado: «S21 (Transmision)» |
+
+- **Formato:**
+  - figura de 16 × 4 pulgadas a 300 ppp, colocada con el ancho de las de la plantilla (184,6 mm);
+  - la medida en azul (0,9), su incertidumbre expandida como banda azul claro con la media en la leyenda («u_exp ±0.011», «u_exp(dB) ±0.046»…), el límite en salmón («Limit»);
+  - eje «Frec (Hz)» con marcas 5.0e+09, rejilla discontinua, escala lineal o logarítmica según el barrido;
+  - donde hay límites (el rango nominal del cable), los ejes como los del laboratorio: x en ese rango; y con media amplitud de la traza por encima y por debajo, más 0,1 / 0,3 en el VSWR y 3 en dB y grados; en el retardo, de 0,7 a 1,3 veces su mínimo.
+- **Ficheros:** `<referencia>_figuras/figura_1_vswr_fwd.png` … `figura_5_retardo.png`, junto al .docx. El argumento `figuras` de `generate_certificate` puede sustituir cualquiera por otro PNG.
+- **Pies de las figuras 1 y 2:** las gráficas siguen a los pies, confirmados por el laboratorio: Fwd es el puerto 1 (S11) y Rev el puerto 2 (S22), como en las tablas. En la plantilla de ejemplo estaban al revés.
+- **Del código del laboratorio no se ha integrado** lo que no es formato, a la espera de que lo confirméis:
+  - la línea de tolerancia del retardo, ±20 % de un retardo nominal;
+  - la banda «Tolerance ±x dB» alrededor de un S2P de referencia (su modo `limit`), y los límites leídos de otros S2P: aquí el límite es el de la especificación por fórmula del cable;
+  - las gráficas de impedancia y las de S11 / S22 en dB y fase, que el certificado no usa.
+
+![Página de resultados del certificado de ejemplo con las figuras 1 a 4](capturas/v10/35c_certificado_figuras.png)
 
 ## 5. Ejemplo de la biblioteca: SUCOFLEX 526S LE2333.001
 
@@ -183,7 +206,7 @@ Es el cable del certificado de ejemplo del laboratorio:
 | Modelo | `catalogo/modelos/hs_sucoflex_526s_35mm.yaml`: SF526S/11PC35/11PC35/2500mm, conectores 3,5 mm macho; a = 0,229 y b = 0,0071 dB/m con f en GHz; VSWR de los conectores 1,12 hasta 18 GHz y 1,16 hasta 26,5 GHz |
 | EUT | `catalogo/equipos/CAB-DUT-0006.yaml`: referencia LE2333.001, nº de serie 682138001 |
 | Setup | `hardware_setups/configurados/cable_35_nmd.yaml`: ZNB43 (LE1941.000) con el cable de puerto NMD (LE1941.002) en P1 y la transición NMD en P2; kit ZN-Z229 (LE1941.001); 10 MHz – 26,5 GHz con paso de 10 MHz |
-| Plantilla de ensayo | `procedimientos/cable_CAB-DUT-0006.yaml`: +1 dB y +5 % sobre el cable ensamblado; `informe` con ATN-Q-IO-22-164, Bienal, 21 frecuencias, suavizado del 1 % y la sonda TPH-01 (OMEGA iBTHX-W, LE1689.000) |
+| Plantilla de ensayo | `procedimientos/cable_CAB-DUT-0006.yaml`: +1 dB y +5 % sobre el cable ensamblado; `informe` con ATN-Q-IO-22-164, Bienal, 21 frecuencias y la sonda TPH-01 (OMEGA iBTHX-W, LE1689.000) |
 | Plantilla de Word | `informes/certificado_cable.docx` |
 
 - **Resultado:** con el VNA simulado el ensayo **PASA** y el certificado sale como el del laboratorio, con los datos de la simulación.
@@ -213,15 +236,15 @@ Cada equipo del inventario tiene dos campos nuevos:
 | Fichero | Contenido |
 |---|---|
 | `procedures/cable_results.py` | Resultados por sentido, su U y sus límites; CSV `_fwd_rev`; filas del certificado (`report_rows`, `report_frequencies`) |
-| `core/networks.py` | `group_delay`: retardo de grupo con apertura |
+| `core/networks.py` | `group_delay`: retardo entre puntos (`step_delay`) con la media móvil del 1 % (`smoothed`, `moving_average`, `SMOOTHING_PCT`) |
 | `core/bands.py` | Valores por bandas de frecuencia (`BandValues`) |
 | `procedures/report.py` | Datos del certificado, formatos, avisos y generación con docxtpl |
 | `procedures/model.py` | `informe` de la plantilla de ensayo (`ReportSettings`) |
 | `gui/certificate_dialog.py` | Diálogo «Certificado de calibración» y la acción de la ventana del ensayo y del explorador |
-| `gui/plots.py` | Unidad «Retardo de grupo (ns)» |
+| `gui/plots.py` | Unidad «Retardo de grupo (ns)»; VSWR y retardo suavizados al 1 % |
+| `procedures/figures.py` (0.10.2) | Las cinco gráficas del certificado, con el formato del laboratorio |
 | `biblioteca_ejemplo/informes/certificado_cable.docx` | La plantilla de Word del laboratorio, con etiquetas |
-| `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido frente al certificado del laboratorio, filas, formatos, nota del VSWR, certificado del ejemplo, ventana del ensayo y referencia de los equipos |
-| `core/networks.py` (0.10.1) | `step_delay` y `moving_average`: el retardo entre puntos y el suavizado del laboratorio |
+| `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido frente al certificado del laboratorio, U del VSWR de cada puerto, filas, formatos, nota del VSWR, certificado del ejemplo con sus gráficas, ventana del ensayo y referencia de los equipos |
 | `gui/bands_dialog.py` | Tabla de las bandas de un campo «número por bandas» (botón «Bandas…») |
 
 ## 8. Comparación con el certificado LE2333.001_2026_10
@@ -233,10 +256,10 @@ Datos: el S2P del ZNB43 con el que se hizo el certificado (10 MHz – 26,5 GHz c
 | Columna | Filas iguales al certificado (de 42) | Cómo se calcula |
 |---|---|---|
 | Pérdida de inserción | 42 | 20·log10 \|S21\| (Fwd) y \|S12\| (Rev) del punto más cercano, sin suavizar |
-| VSWR | 42 con `suavizado_pct: 1`; sin suavizar difiere hasta 0,13 | VSWR de S11 (Fwd) y S22 (Rev), media móvil de 52 puntos (§3.5) |
-| Retardo de grupo | 42 con `suavizado_pct: 1`; con la apertura de 10 pasos sin suavizar difiere hasta 0,08 ns | Retardo entre puntos consecutivos, media móvil de 52 puntos |
+| VSWR | 42; sin suavizar difiere hasta 0,13 | VSWR de S11 (Fwd) y S22 (Rev), media móvil de 52 puntos (§3.5) |
+| Retardo de grupo | 42; con la apertura de 10 pasos de 0.10.1 difería hasta 0,08 ns | Retardo entre puntos consecutivos, media móvil de 52 puntos |
 | U de la pérdida de inserción y del retardo | 42 | U_dB(Sji) y U_φ(Sji) / (360°·f) |
-| U del VSWR | 36 son la mitad que las del programa; 6, distintas (§8.2) | — |
+| U del VSWR | 36 son la mitad que las del programa; 6, distintas (§8.2): el certificado tenía dos errores | — |
 
 ### 8.2 Incertidumbre del VSWR
 
@@ -251,5 +274,7 @@ Tiene dos diferencias con la del programa, U_VSWR = 2 · ρ · ln10/20 · U_dB /
 1. **Falta el factor 2 de la derivada** dVSWR/dρ = 2/(1 − ρ)². La U del certificado es la mitad, como si fuera k = 1, aunque el certificado declara k = 2.
 2. **En Rev, el rango de nivel del fichero del VNA se elige con \|S11\|**, no con \|S22\|. Cambia U_dB en 4; 5,3; 12; 13; 23 y 25 GHz: por ejemplo, a 4 GHz, \|S22\| = −26,6 dB pero \|S11\| = −22,4 dB, y se toma 0,23 dB en lugar de 0,91 dB.
 
-El programa sigue con su fórmula hasta que el laboratorio la revise.
+**Revisión del laboratorio (0.10.2):** las dos son errores del certificado. El programa ya calculaba U_VSWR con el factor 2 y, en cada sentido, con U_dB del nivel de su propia reflexión (S11 en Fwd, S22 en Rev), porque la incertidumbre de cada traza se calcula con el nivel de esa traza (`uncertainty/traces.py`). El test `test_vswr_uncertainty_of_each_port_at_its_own_level` lo comprueba con el fichero del ZNB43: S11 a −28 dB y S22 a −20 dB caen en rangos distintos, y U_VSWR de Rev usa el de S22.
+
+En las gráficas del certificado, la media de la banda de incertidumbre del VSWR es, por eso, el doble que en las del laboratorio: con LE2333.001, «u_exp ±0.011» en Rev frente a ±0.006.
 

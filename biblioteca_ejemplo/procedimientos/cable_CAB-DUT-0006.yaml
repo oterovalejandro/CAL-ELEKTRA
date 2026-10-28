@@ -33,9 +33,7 @@ tolerancias_cable:
 informe:
   procedimiento: ATN-Q-IO-22-164
   intervalo: Bienal
-  frecuencias: 21              # filas de las tablas Fwd y Rev
-  apertura_retardo: 10         # pasos de frecuencia del retardo de grupo (gráficas)
-  suavizado_pct: 1             # VSWR y retardo de las tablas: media móvil del 1 % de los puntos, como el laboratorio
+  frecuencias: 21              # filas de las tablas Fwd y Rev (VSWR y retardo, siempre suavizados al 1 %, como el laboratorio)
   sonda_ambiental: TPH-01
 exportacion:
   formato: RI

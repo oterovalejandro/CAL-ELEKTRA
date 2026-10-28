@@ -50,6 +50,8 @@ DEFAULT_COUPLER_PAIRS = (("In", "Out"), ("In", "Coupl. Fwd"), ("Out", "Coupl. Fw
 # the specifications by the model of the EUT
 OBSOLETE_SWEEP_KEYS = ("modo", "tipo", "mode", "inicio", "fin", "definicion", "puntos", "paso", "fichero_lista")
 OBSOLETE_TEMPLATE_KEYS = ("plantillas_compatibles", "especificaciones")
+# the group delay and the VSWR are always smoothed over 1 % of the points (``core/networks.py``)
+OBSOLETE_REPORT_KEYS = ("apertura_retardo", "suavizado_pct")
 
 
 class _Section(BaseModel):
@@ -178,10 +180,14 @@ class ReportSettings(_Section):
     procedure: str | None = Field(default=None, alias="procedimiento")  # code of the calibration procedure of the lab
     interval: str | None = Field(default=None, alias="intervalo")  # calibration interval of the EUT (Anual, Bienal…)
     frequencies: int | list[str] | None = Field(default=None, alias="frecuencias")  # rows of the tables: number or list
-    aperture: int = Field(default=10, alias="apertura_retardo", ge=1)  # frequency steps of the group delay
-    # VSWR and group delay of the tables: moving average over this % of the points (the laboratory: 1)
-    smoothing_pct: float = Field(default=0.0, alias="suavizado_pct", ge=0, le=50)
     ambient_sensor: str | None = Field(default=None, alias="sonda_ambiental")  # equipment of the probe of the conditions
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_obsolete(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if k not in OBSOLETE_REPORT_KEYS}
+        return data
 
     @field_validator("frequencies", mode="before")
     @classmethod

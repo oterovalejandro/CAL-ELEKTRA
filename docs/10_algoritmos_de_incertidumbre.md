@@ -154,13 +154,14 @@ Las gráficas no calculan incertidumbre nueva: transforman la U de los parámetr
 |---|---|---|
 | Magnitud (dB) | M | M ± U_dB |
 | Fase (°) | ∠S | ∠S ± U_φ |
-| VSWR (reflexiones) | VSWR(ρ) = (1+ρ)/(1−ρ) | [VSWR(ρ·10^(−U_dB/20)), VSWR(ρ·10^(+U_dB/20))]: exacta y no simétrica; NaN si el límite superior llega a ρ ≥ 1 |
+| VSWR (reflexiones) | VSWR(ρ) = (1+ρ)/(1−ρ), con media móvil del 1 % de los puntos (§5.1) | Alrededor de la traza suavizada, la anchura de cada punto: [VSWR(ρ·10^(−U_dB/20)), VSWR(ρ·10^(+U_dB/20))] − VSWR(ρ), exacta y no simétrica; NaN si el límite superior llega a ρ ≥ 1 |
 | Pérdidas RL, TL (acoplador) | L = −20·log10\|S\| | L ± U_dB (la misma anchura que la magnitud) |
 | Impedancia (Ω, dBΩ, ∠Z) | \|Z\|, 20·log10\|Z\|, ∠Z | Los límites de §4, que no son simétricos donde la cota es exacta |
-| Retardo de grupo (ns), transmisiones | τ_g de §5.3 | τ_g ± U_φ/(360°·f) (§5.3) |
+| Retardo de grupo (ns), transmisiones | τ_g de §5.3, con media móvil del 1 % de los puntos | τ_g ± U_φ/(360°·f) (§5.3) |
 
 - Las especificaciones de reflexión en dB se dibujan en VSWR como VSWR(10^(v/20)). El RL mínimo del acoplador, RL_mín, se dibuja como VSWR(10^(−RL_mín/20)).
 - Si la plantilla suaviza la visualización, la zona se dibuja alrededor de la traza suavizada. La U no se suaviza.
+- El VSWR y el retardo de grupo se suavizan siempre (0.10.2), como en los certificados del laboratorio; el suavizado de la plantilla solo afecta a las otras unidades.
 - El **pasa / falla no usa la incertidumbre**: compara el valor medido con el límite (aceptación simple).
 
 ## 4. Incertidumbre de la impedancia (nueva en 0.8.4)
@@ -377,9 +378,11 @@ U_ρ    = ρ · ln10/20 · U_dB(Sii)                 (el paso 1 de §4.2)
 U_VSWR = dVSWR/dρ · U_ρ = 2·U_ρ / (1 − ρ)²       (primer orden, simétrica)
 ```
 
-La gráfica dibuja en «VSWR» la zona exacta de §3, que no es simétrica; en reflexiones pequeñas coinciden.
+- **U_dB(Sii)** es la de la propia reflexión, con el rango de nivel del fichero del VNA elegido con |Sii|: S11 en Fwd y **S22 en Rev**.
+- **VSWR mostrado** (gráficas, tablas y figuras del certificado): el VSWR de cada punto con media móvil de int(0,01·N) puntos, ventana [k − n/2, k + (n − 1)/2] y extremos reflejados (`smoothed` y `moving_average` de `core/networks.py`), como el laboratorio. U_VSWR, el veredicto y los márgenes son los de cada punto.
+- La gráfica del programa dibuja en «VSWR» la anchura exacta de §3, que no es simétrica; en reflexiones pequeñas coincide con ±U_VSWR. Las figuras del certificado dibujan ±U_VSWR, como las del laboratorio.
 
-**Comparación con el certificado del laboratorio** ([`13_certificado_de_cables.md`](13_certificado_de_cables.md) §8.2): su columna «Incertidumbre VSWR» sale de ρ·ln10/20·U_dB/(1 − ρ)², sin el factor 2 de la derivada, y en Rev elige el rango de U_dB con el nivel de |S11|. El programa mantiene esta fórmula, pendiente de la revisión del laboratorio.
+**Comparación con el certificado del laboratorio** ([`13_certificado_de_cables.md`](13_certificado_de_cables.md) §8.2): su columna «Incertidumbre VSWR» sale de ρ·ln10/20·U_dB/(1 − ρ)², sin el factor 2 de la derivada, y en Rev elige el rango de U_dB con el nivel de |S11|. El laboratorio ha confirmado que las dos son errores de su certificado (0.10.2): la fórmula buena es la de arriba, la del programa, con el factor 2 y el rango de S22 en Rev.
 
 ### 5.2 Pérdida de inserción
 
@@ -397,12 +400,14 @@ Reproduce el certificado de ejemplo: 0,0400 dB hasta 10 GHz y 0,0500 dB por enci
 U_τ    = U_φ(Sji) / (360°·f)               (s; en el registro y el certificado, en ns)
 ```
 
-- **Cálculo** (`core/networks.py`, `group_delay`): la pendiente de la fase se ajusta por mínimos cuadrados en `apertura` pasos de frecuencia centrados en el punto, como el formato «delay» de un VNA. En los extremos del barrido el ajuste usa los pasos que hay.
-- **Desenrollado:** la fase se desenrolla antes contra el retardo de toda la traza (`transmission_delay`). Así una lista de frecuencias con pasos donde un cable largo gira más de media vuelta no se confunde.
-- **Apertura:** `informe.apertura_retardo` de la plantilla de ensayo, 10 pasos por defecto. El registro guarda la usada (`resultados.sentidos.apertura_retardo_pasos`).
-- **Incertidumbre:** la de la fase convertida en tiempo a esa frecuencia. Reproduce el certificado de ejemplo: U_φ = 0,4° da 0,1111 ns a 10 MHz y 0,0009 ns a 1,3 GHz.
-- Donde falta la fase de un punto, el retardo es NaN.
-- **En el certificado**, con `informe.suavizado_pct` (el laboratorio: 1 %), el retardo de las tablas es el de los certificados del laboratorio: el retardo entre puntos consecutivos, −Δφ/Δω, promediado en int(pct/100·N) puntos con los extremos reflejados (`step_delay` y `moving_average`). El VSWR de las tablas se promedia igual. La U es la del punto.
+- **Cálculo** (`core/networks.py`, `group_delay`, desde 0.10.2), el de los certificados del laboratorio, en las gráficas, los resultados y el certificado:
+  1. el retardo entre cada punto y el anterior, −Δφ/Δω (`step_delay`; el primer punto toma el del segundo);
+  2. su media móvil de n = int(0,01·N) puntos, con ventana [k − n/2, k + (n − 1)/2] y los extremos reflejados (`smoothed`, `moving_average`). Con 5299 puntos, n = 52; con menos de 200, n = 1 y no se suaviza.
+
+  Con puntos igualmente espaciados, la media de n retardos entre puntos es la diferencia de fase en n pasos: el formato «delay» de un VNA con una apertura del 1 % de los puntos. Hasta 0.10.1 era un ajuste por mínimos cuadrados en `informe.apertura_retardo` pasos; esa clave ya no se usa.
+- **Desenrollado:** la fase se desenrolla contra el retardo de toda la traza (`transmission_delay`). Así una lista de frecuencias con pasos donde un cable largo gira más de media vuelta no se confunde. Con pasos de menos de media vuelta es el desenrollado normal.
+- **Incertidumbre:** la de la fase convertida en tiempo a esa frecuencia, sin suavizar. Reproduce el certificado de ejemplo: U_φ = 0,4° da 0,1111 ns a 10 MHz y 0,0009 ns a 1,3 GHz.
+- Donde falta la fase de un punto, el retardo es NaN, y también en las medias que lo incluyen.
 
 ### 5.4 Límites
 
@@ -415,8 +420,9 @@ Los de la especificación por fórmula del cable ([`11_especificacion_de_cables_
   - `perdida_insercion_peor_db`;
   - `retardo_grupo_ns` (media, mínimo y máximo);
   - `margen_vswr` y `margen_perdida_insercion_db`, los mínimos;
-  - `U_vswr_max`, `U_perdida_insercion_max_db` y `U_retardo_grupo_max_ns`.
-- **CSV** `<resultado>_fwd_rev.csv`, punto a punto y por sentido: VSWR, U, límite; pérdida de inserción, U, límite; retardo de grupo y U.
+  - `U_vswr_max`, `U_perdida_insercion_max_db` y `U_retardo_grupo_max_ns`;
+  - `suavizado_pct` (1) y `suavizado_puntos`, junto a `Fwd` y `Rev`.
+- **CSV** `<resultado>_fwd_rev.csv`, punto a punto y por sentido: VSWR, VSWR suavizado, U, límite; pérdida de inserción, U, límite; retardo de grupo (suavizado) y U.
 - **Recálculo:** al cargar las condiciones ambientales se reescriben el CSV y `sentidos` con la nueva U.
 - **Gráfica:** la unidad «Retardo de grupo (ns)» (§3).
 - **Certificado del cable:** [`13_certificado_de_cables.md`](13_certificado_de_cables.md).
@@ -432,7 +438,7 @@ Los de la especificación por fórmula del cable ([`11_especificacion_de_cables_
 | `procedures/results.py` | Columnas de U en los CSV (`uncertainty_columns`, `impedance_columns`) |
 | `gui/plots.py` | Zonas sombreadas y conversiones (§3), retardo de grupo |
 | `procedures/cable_results.py` | Resultados de un cable por sentido y su U (§5) |
-| `core/networks.py` | `group_delay` y `transmission_delay` (§5.3) |
+| `core/networks.py` | `group_delay`, `step_delay`, `smoothed` y `transmission_delay` (§5.3) |
 | `tests/test_uncertainty.py` | Motor frente al script del laboratorio; incertidumbre del ensayo de la LISN, con Z |
 | `tests/test_uncertainty_impedance.py` | Fórmulas de §4 frente a Monte Carlo y al muestreo del disco |
 | `tests/test_conditions.py` | Pendiente / completa y recálculo, también de Z |

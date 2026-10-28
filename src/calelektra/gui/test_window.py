@@ -50,7 +50,7 @@ from calelektra.gui import style
 from calelektra.gui.certificate_dialog import make_certificate
 from calelektra.gui.icons import icon
 from calelektra.gui.illustrations import illustration
-from calelektra.gui.plots import ResultPlots, SParameterPlot
+from calelektra.gui.plots import ResultPlots
 from calelektra.gui.setup_diagram import SetupDiagramView, connection_picture
 from calelektra.gui.test_common import (
     SETTINGS,
@@ -798,8 +798,6 @@ class TestWindow(QWidget):
         self.plots.clear()
         self.plot = self.plots.for_algorithm(self.procedure.algorithm)
         self.plot.set_smoothing(self.procedure.sweep.smoothing(self.procedure.traces))
-        if isinstance(self.plot, SParameterPlot):
-            self.plot.set_group_delay_aperture(self.procedure.report.aperture)
         if self.plan is not None:
             show_plan_specifications(self.plot, self.plan)  # the specifications while measuring
         self.results.setRowCount(0)

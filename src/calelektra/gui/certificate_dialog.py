@@ -7,8 +7,9 @@ from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import QDate, QSettings, Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QCursor, QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QDateEdit,
     QDialog,
     QFileDialog,
@@ -135,8 +136,9 @@ class CertificateDialog(QDialog):
 
     def generate(self) -> Path | None:
         selected = self.report_date.date()
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))  # the charts take a few seconds
         try:
-            path, _certificate = generate_certificate(
+            path, certificate = generate_certificate(
                 self.library,
                 self.record,
                 Path(self.path.text().strip()),
@@ -146,6 +148,9 @@ class CertificateDialog(QDialog):
         except (ReportError, OSError) as exc:
             QMessageBox.warning(self, "Certificado de calibración", str(exc))
             return None
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.certificate = certificate
         self.saved = path
         QSettings(*SETTINGS).setValue("carpeta_certificados", str(path.parent))
         self.accept()
@@ -163,7 +168,11 @@ def make_certificate(parent: QWidget, library: Library, record: TestRecord, path
         return None
     try:
         if path is not None:
-            saved, certificate = generate_certificate(library, record, Path(path))
+            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+            try:
+                saved, certificate = generate_certificate(library, record, Path(path))
+            finally:
+                QApplication.restoreOverrideCursor()
             warnings = certificate.warnings
         else:
             dialog = CertificateDialog(library, record, parent)

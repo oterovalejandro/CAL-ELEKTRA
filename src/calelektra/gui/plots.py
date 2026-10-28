@@ -38,7 +38,12 @@ from PySide6.QtWidgets import (
 from calelektra.catalog.library import Library
 from calelektra.catalog.model import Equipment
 from calelektra.core.frequency import FrequencyRange
-from calelektra.core.networks import gamma_to_impedance, group_delay
+from calelektra.core.networks import (
+    SMOOTHING_PCT,
+    gamma_to_impedance,
+    group_delay,
+    smoothed,
+)
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError, parse_frequency
 from calelektra.gui import style
@@ -68,8 +73,11 @@ SPEC_COLOR = "#34495e"  # a nominal value that applies to several traces
 # units of the charts of S-parameters: VSWR of the reflections with the magnitude of the transmissions (second
 # axis), magnitude or phase. The impedance is another quantity: only in the chart of the 1-port impedance measurement.
 S_MODES = {"vswr_db": "VSWR, Magnitud (dB)", "db": "Magnitud (dB)", "fase": "Fase (°)"}
-# the phase of the transmissions as time: the group delay (−dφ/dω, over ``aperture`` steps) and U_φ/(360°·f)
+# the phase of the transmissions as time: the group delay (−dφ/dω, the laboratory's: over 1 % of the points) and U_φ/(360°·f)
 DELAY_MODES = {"retardo": "Retardo de grupo (ns)"}
+# the VSWR and the group delay are always smoothed over 1 % of the points, as in the certificates (``core/networks.py``);
+# the smoothing of the template (settings of the traces) is that of the other units
+FIXED_SMOOTHING = f"El VSWR y el retardo de grupo se suavizan siempre: media móvil del {SMOOTHING_PCT:g} % de los puntos"
 IMPEDANCE_MODES = {"z": "Impedancia (Ω)", "z_db": "Impedancia (dBΩ)", "z_fase": "Fase (°)"}  # its uncertainty: uncertainty/impedance.py
 
 BAND_ALPHA = 60  # opacity (0–255) of the uncertainty band of a trace
@@ -92,6 +100,32 @@ def vswr(gamma_magnitude: np.ndarray | float) -> np.ndarray:
 def vswr_band(gamma_magnitude: np.ndarray, u_db: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """VSWR at |Γ| ∓ its expanded uncertainty in dB (the band is not symmetric)."""
     return vswr(gamma_magnitude * 10 ** (-u_db / 20)), vswr(gamma_magnitude * 10 ** (u_db / 20))
+
+
+def smoothed_vswr(
+    gamma_magnitude: np.ndarray, u_db: np.ndarray | None = None
+) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
+    """VSWR averaged over 1 % of the points, as the laboratory, and the band of each point around it."""
+    point = vswr(gamma_magnitude)
+    y = smoothed(point)
+    if u_db is None:
+        return y, None
+    low, high = vswr_band(gamma_magnitude, u_db)
+    return y, (y - (point - low), y + (high - point))
+
+
+def _template_smoothing(mode: str, reflection: bool) -> bool:
+    """Whether the smoothing of the template applies to a trace in ``mode`` (not to the VSWR nor to the delay)."""
+    return not (mode == "retardo" or (mode == "vswr_db" and reflection))
+
+
+def smoothing_tip(smoothing: dict[str, float]) -> str:
+    template = (
+        "Suavizado de la plantilla de ensayo: solo cambia la visualización, no los datos"
+        if smoothing
+        else "La plantilla de ensayo no define suavizado (ajustes de trazas)"
+    )
+    return f"{template}. {FIXED_SMOOTHING}"
 
 
 def band_segments(y: np.ndarray, u: np.ndarray, wrap: bool = False) -> list[slice]:
@@ -154,7 +188,6 @@ class SParameterPlot(QWidget):
         self.coverage_factor = 2.0
         self.result = result
         self.impedance = False
-        self.aperture = 10  # frequency steps of the group delay (that of the test template)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         controls = QHBoxLayout()
@@ -242,12 +275,6 @@ class SParameterPlot(QWidget):
         self.uncertainty_box.setText(f"Incertidumbre (k={coverage_factor:g})")
         self.redraw()
 
-    def set_group_delay_aperture(self, aperture: int) -> None:
-        """Frequency steps over which the group delay is fitted (``apertura_retardo`` of the test template)."""
-        if aperture != self.aperture:
-            self.aperture = max(1, int(aperture))
-            self.redraw()
-
     def set_smoothing(self, smoothing: dict[str, float]) -> None:
         """Display smoothing per trace (% of the points); the data sets are not changed."""
         self.smoothing = {name: pct for name, pct in smoothing.items() if pct > 0}
@@ -300,11 +327,7 @@ class SParameterPlot(QWidget):
             self.show_limits.setToolTip("El modelo del EUT no tiene especificaciones S")
         self.smooth_box.setVisible(bool(self.smoothing) or self.result)
         self.smooth_box.setEnabled(bool(self.smoothing))
-        self.smooth_box.setToolTip(
-            "Suavizado de la plantilla de ensayo: solo cambia la visualización, no los datos"
-            if self.smoothing
-            else "La plantilla de ensayo no define suavizado (ajustes de trazas)"
-        )
+        self.smooth_box.setToolTip(smoothing_tip(self.smoothing))
         self.uncertainty_box.setVisible(bool(self.uncertainty))
         if impedance:
             tip = (
@@ -337,13 +360,13 @@ class SParameterPlot(QWidget):
         transmissions = any(not _is_reflection(trace[2]) for trace in traces)
         split = mode == "vswr_db" and reflections and transmissions  # transmissions on the second axis
         left = {
-            "vswr_db": "VSWR" if reflections else "Magnitud (dB)",
+            "vswr_db": f"VSWR, suavizado {SMOOTHING_PCT:g} %" if reflections else "Magnitud (dB)",
             "db": "Magnitud (dB)",
             "fase": "Fase (°)",
             "z": "Impedancia |Z|",
             "z_db": "Impedancia |Z| (dBΩ)",
             "z_fase": "Fase de Z (°)",
-            "retardo": f"Retardo de grupo (ns), apertura {self.aperture} pasos",
+            "retardo": f"Retardo de grupo (ns), suavizado {SMOOTHING_PCT:g} %",
         }[mode]
         self.plot.setLabel("left", left, units="Ω" if mode == "z" else None)
         if split:
@@ -361,9 +384,9 @@ class SParameterPlot(QWidget):
         smoothing = self.smoothing if self.smooth_box.isChecked() else {}
         bands = self.uncertainty_box.isChecked()
         for label, dataset, parameter, f, values, color in traces:
-            if parameter in smoothing:
-                values = smooth(values, smoothing[parameter])
             reflection = _is_reflection(parameter)
+            if parameter in smoothing and _template_smoothing(mode, reflection):
+                values = smooth(values, smoothing[parameter])
             self.visible.setdefault(label, True)
             box = QCheckBox(label)
             box.setChecked(self.visible[label])
@@ -392,13 +415,12 @@ class SParameterPlot(QWidget):
         if u is not None and len(u[0]) != len(values):
             u = None
         if mode == "retardo":
-            y = group_delay(frequencies, values, self.aperture) * 1e9
+            y = group_delay(frequencies, values) * 1e9
             with np.errstate(divide="ignore", invalid="ignore"):
                 spread = np.where(frequencies > 0, u[1] / (360.0 * frequencies) * 1e9, np.nan) if u is not None else None
             return y, ((y - spread, y + spread) if spread is not None else None)
         if mode == "vswr_db" and _is_reflection(parameter):
-            magnitude = np.abs(values)
-            return vswr(magnitude), (vswr_band(magnitude, u[0]) if u is not None else None)
+            return smoothed_vswr(np.abs(values), u[0] if u is not None else None)
         if mode in ("vswr_db", "db"):
             y = _db(values)
             return y, ((y - u[0], y + u[0]) if u is not None else None)
@@ -683,7 +705,7 @@ class CouplerPlots(QWidget):
         self, mode: str, name: str, parameter: str, values: np.ndarray, reflection: bool
     ) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
         """A trace in the units of ``mode`` (losses in dB, VSWR or phase) and its uncertainty band."""
-        if self.smooth_box.isChecked() and parameter in self.smoothing:
+        if self.smooth_box.isChecked() and parameter in self.smoothing and _template_smoothing(mode, reflection):
             values = smooth(values, self.smoothing[parameter])
         u = self.uncertainty.get(name, {}).get(parameter) if self.uncertainty_box.isChecked() else None
         if u is not None and len(u[0]) != len(values):
@@ -692,8 +714,7 @@ class CouplerPlots(QWidget):
             y = np.degrees(np.angle(values))
             return y, ((y - u[1], y + u[1]) if u is not None else None)
         if mode == "vswr_db" and reflection:
-            magnitude = np.abs(values)
-            return vswr(magnitude), (vswr_band(magnitude, u[0]) if u is not None else None)
+            return smoothed_vswr(np.abs(values), u[0] if u is not None else None)
         y = -_db(values)
         return y, ((y - u[0], y + u[0]) if u is not None else None)
 
@@ -776,11 +797,7 @@ class CouplerPlots(QWidget):
             else "Sin valores nominales: el modelo del acoplador no los tiene o el ensayo no los guardó"
         )
         self.smooth_box.setEnabled(bool(self.smoothing))
-        self.smooth_box.setToolTip(
-            "Suavizado de la plantilla de ensayo: solo cambia la visualización, no los datos"
-            if self.smoothing
-            else "La plantilla de ensayo no define suavizado (ajustes de trazas)"
-        )
+        self.smooth_box.setToolTip(smoothing_tip(self.smoothing))
         self.uncertainty_box.setVisible(bool(self.uncertainty))
 
     def redraw(self) -> None:
@@ -790,7 +807,7 @@ class CouplerPlots(QWidget):
         log_x = self.log_x.isChecked() and bool(pairs) and all(f[0] > 0 for f, _ in pairs.values())
         reflection_lines, transmission_lines = self.nominal_lines(mode)
         reflection = {
-            "vswr_db": ("VSWR de cada puerto", "VSWR"),
+            "vswr_db": (f"VSWR de cada puerto (suavizado {SMOOTHING_PCT:g} %)", "VSWR"),
             "db": ("Pérdidas de retorno (RL) de cada puerto", "RL (dB)"),
             "fase": ("Fase de la reflexión de cada puerto", "Fase (°)"),
         }[mode]

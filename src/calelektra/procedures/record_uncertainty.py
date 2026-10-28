@@ -239,7 +239,7 @@ def recalculate_uncertainty(record: TestRecord) -> str:
         by_direction = results_csv_path(path)
         if by_direction.is_file() and s.shape[1] == 2:  # VSWR, insertion loss and group delay of each direction
             spec = CableSpecification.from_record(record.cable_specification)
-            cable = CableResults.compute(f, s, traces, spec, template.report.aperture, k)
+            cable = CableResults.compute(f, s, traces, spec, k)
             cable.write_csv(by_direction)
             record.results["sentidos"] = cable.summary()
         results_csv = path.with_suffix(".csv")

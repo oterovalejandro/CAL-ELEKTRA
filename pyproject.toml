@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cal-elektra"
-version = "0.10.1"
+version = "0.10.2"
 description = "Software para laboratorio de calibración de equipos de MC: catálogo de equipos, hardware setups y control de VNA"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=2.7",
     "openpyxl>=3.1",  # condiciones ambientales: ficheros .xlsx de la sonda TPH
     "docxtpl>=0.16",  # certificados de calibración: plantillas de Word del laboratorio
+    "matplotlib>=3.8",  # gráficas del certificado, con el formato de las del laboratorio
 ]
 
 [project.optional-dependencies]

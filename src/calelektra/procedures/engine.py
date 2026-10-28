@@ -1352,9 +1352,7 @@ class ProcedureRunner:
             if algorithm == "vna_2_puertos":
                 summary = self._delay_summary(self._summary_2p(result.data["DUT"]), f, result.data["DUT"][:, 1, 0])
                 if dut_path is not None:  # by direction, as the calibration certificate gives them
-                    cable = CableResults.compute(
-                        f, result.data["DUT"], result.uncertainty.get("DUT"), self.plan.cable_spec, self.procedure.report.aperture, self._k
-                    )
+                    cable = CableResults.compute(f, result.data["DUT"], result.uncertainty.get("DUT"), self.plan.cable_spec, self._k)
                     files.append(cable.write_csv(results_csv_path(dut_path)))
                     summary["sentidos"] = cable.summary()
             else:

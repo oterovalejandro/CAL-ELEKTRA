@@ -11,16 +11,19 @@ same coverage factor):
     IL   = 20·log10|Sji|  (dB, negative)     U_IL = U_dB(Sji)
     τ_g  = −dφ/dω of Sji (``group_delay``)   U_τ = U_φ(Sji) / (360°·f)
 
+U_dB(Sii) is that of the level of Sii itself (S22 in Rev). The VSWR shown
+(charts, tables, figures) and the group delay are smoothed as the laboratory
+does: a moving average over 1 % of the points (``core/networks.py``), of the
+VSWR and of the delay between consecutive points; the verdict and the margins
+are those of each measured point.
+
 and the limits of the specification by formula of the cable, when it has one,
 inside its nominal range: VSWR_max(f) and −IL_max(f). The algorithms are in
 ``docs/10_algoritmos_de_incertidumbre.md``.
 
 The table of the certificate (``report_rows``) has a row per report
-frequency, with the values of the nearest measured point. With a smoothing
-(``informe.suavizado_pct``, the laboratory: 1 %), its VSWR and group delay are
-those of the laboratory: the VSWR and the delay between consecutive points
-(``step_delay``) averaged over int(pct/100·N) points (``moving_average``); the
-insertion loss and the uncertainties are those of the point.
+frequency, with the values of the nearest measured point: the smoothed VSWR
+and group delay, the insertion loss and the uncertainties of the point.
 """
 
 from __future__ import annotations
@@ -33,7 +36,12 @@ from typing import Any
 
 import numpy as np
 
-from calelektra.core.networks import group_delay, moving_average, step_delay
+from calelektra.core.networks import (
+    SMOOTHING_PCT,
+    group_delay,
+    smoothed,
+    smoothing_points,
+)
 from calelektra.core.units import format_frequency, parse_frequency
 from calelektra.procedures.cable_specs import CableSpecification, vswr_of_gamma
 from calelektra.procedures.results import db, write_csv
@@ -41,7 +49,6 @@ from calelektra.procedures.results import db, write_csv
 DIRECTIONS = {"Fwd": ("S11", "S21"), "Rev": ("S22", "S12")}  # reflection of the port, transmission
 INDEX = {"S11": (0, 0), "S21": (1, 0), "S12": (0, 1), "S22": (1, 1)}
 PORT = {"S11": 1, "S22": 2}
-DEFAULT_APERTURE = 10  # frequency steps of the group delay
 DEFAULT_REPORT_POINTS = 21
 LN10_20 = math.log(10) / 20
 
@@ -66,15 +73,17 @@ class DirectionResults:
     name: str  # Fwd | Rev
     reflection: str  # S11 | S22
     transmission: str  # S21 | S12
-    vswr: np.ndarray
+    vswr: np.ndarray  # of each point: the verdict
+    vswr_smoothed: np.ndarray  # over 1 % of the points: charts, tables and figures
     vswr_u: np.ndarray
     vswr_limit: np.ndarray  # NaN without specification
     insertion_loss_db: np.ndarray  # 20·log10|Sji|, negative
     insertion_loss_u: np.ndarray
     insertion_loss_limit: np.ndarray  # −IL_max(f), negative; NaN without specification
-    group_delay_ns: np.ndarray
+    group_delay_ns: np.ndarray  # the delay between consecutive points, over 1 % of the points
     group_delay_u_ns: np.ndarray
-    step_delay_ns: np.ndarray  # between consecutive points: the delay smoothed in the certificate
+    phase_deg: np.ndarray  # of the transmission, wrapped (figures of the certificate)
+    phase_u_deg: np.ndarray
 
     @property
     def port(self) -> int:
@@ -132,7 +141,6 @@ class DirectionResults:
 class CableResults:
     frequencies: np.ndarray
     directions: dict[str, DirectionResults]
-    aperture: int = DEFAULT_APERTURE
     coverage_factor: float = 2.0
 
     @classmethod
@@ -142,7 +150,6 @@ class CableResults:
         s: np.ndarray,
         uncertainty: Mapping[str, Any] | None = None,
         spec: CableSpecification | None = None,
-        aperture: int = DEFAULT_APERTURE,
         coverage_factor: float = 2.0,
     ) -> CableResults:
         """From the S-parameters (points, 2, 2), their uncertainty per trace and the specification of the cable."""
@@ -160,7 +167,7 @@ class CableResults:
         with np.errstate(divide="ignore", invalid="ignore"):
             for name, (reflection, transmission) in DIRECTIONS.items():
                 rho = np.abs(s[:, INDEX[reflection][0], INDEX[reflection][1]])
-                u_reflection_db, _ = _bands(uncertainty, reflection, points)
+                u_reflection_db, _ = _bands(uncertainty, reflection, points)  # at the level of Sii
                 u_rho = rho * LN10_20 * u_reflection_db
                 values = s[:, INDEX[transmission][0], INDEX[transmission][1]]
                 u_transmission_db, u_transmission_deg = _bands(uncertainty, transmission, points)
@@ -169,21 +176,29 @@ class CableResults:
                     reflection=reflection,
                     transmission=transmission,
                     vswr=vswr_of_gamma(rho),
+                    vswr_smoothed=smoothed(vswr_of_gamma(rho)),
                     vswr_u=2 * u_rho / (1 - rho) ** 2,
                     vswr_limit=vswr_limit,
                     insertion_loss_db=db(values),
                     insertion_loss_u=u_transmission_db,
                     insertion_loss_limit=loss_limit,
-                    group_delay_ns=group_delay(f, values, aperture) * 1e9,
+                    group_delay_ns=group_delay(f, values) * 1e9,
                     group_delay_u_ns=np.where(f > 0, u_transmission_deg / (360.0 * f) * 1e9, np.nan),
-                    step_delay_ns=step_delay(f, values) * 1e9,
+                    phase_deg=np.degrees(np.angle(values)),
+                    phase_u_deg=u_transmission_deg,
                 )
-        return cls(f, directions, int(aperture), coverage_factor)
+        return cls(f, directions, coverage_factor)
+
+    @property
+    def smoothing(self) -> int:
+        """Points of the moving average of the VSWR and of the group delay (1 % of the sweep)."""
+        return smoothing_points(len(self.frequencies))
 
     def summary(self) -> dict[str, Any]:
         """``resultados.sentidos`` of the record."""
         data: dict[str, Any] = {name: direction.summary(self.frequencies) for name, direction in self.directions.items()}
-        data["apertura_retardo_pasos"] = self.aperture
+        data["suavizado_pct"] = SMOOTHING_PCT
+        data["suavizado_puntos"] = self.smoothing
         return data
 
     def write_csv(self, path: Path) -> Path:
@@ -192,52 +207,43 @@ class CableResults:
         for name, d in self.directions.items():
             header += [
                 f"VSWR puerto {d.port} ({name})",
+                f"VSWR puerto {d.port} ({name}, suavizado {SMOOTHING_PCT:g} %)",
                 f"U VSWR puerto {d.port} ({name}, {k})",
                 f"Límite VSWR ({name})",
                 f"Pérdida de inserción {d.transmission} ({name}, dB)",
                 f"U pérdida de inserción {d.transmission} ({name}, dB, {k})",
                 f"Límite pérdida de inserción ({name}, dB)",
-                f"Retardo de grupo {d.transmission} ({name}, ns)",
+                f"Retardo de grupo {d.transmission} ({name}, ns, suavizado {SMOOTHING_PCT:g} %)",
                 f"U retardo de grupo {d.transmission} ({name}, ns, {k})",
             ]
             columns += [
-                d.vswr, d.vswr_u, d.vswr_limit, d.insertion_loss_db, d.insertion_loss_u, d.insertion_loss_limit, d.group_delay_ns, d.group_delay_u_ns,
+                d.vswr, d.vswr_smoothed, d.vswr_u, d.vswr_limit, d.insertion_loss_db, d.insertion_loss_u, d.insertion_loss_limit, d.group_delay_ns, d.group_delay_u_ns,
             ]
         write_csv(path, header, columns)
         return path
 
-    def smoothing_points(self, smoothing_pct: float) -> int:
-        """Points of the moving average of ``smoothing_pct`` % of the sweep (fewer than 2: no smoothing)."""
-        return int(smoothing_pct / 100 * len(self.frequencies)) if smoothing_pct > 0 else 0
-
-    def report_rows(self, nominal: list[float], smoothing_pct: float = 0.0) -> dict[str, list[dict[str, Any]]]:
+    def report_rows(self, nominal: list[float]) -> dict[str, list[dict[str, Any]]]:
         """Rows of the tables of the certificate: at each report frequency, the values of the nearest measured point.
 
-        With ``smoothing_pct``, the VSWR and the group delay of the rows are smoothed as in the certificates of
-        the laboratory (moving average of the VSWR and of the delay between consecutive points).
+        The VSWR and the group delay are the smoothed ones, as in the certificates of the laboratory; ``pasa``,
+        the verdict of the point.
         """
         f = self.frequencies
-        size = self.smoothing_points(smoothing_pct)
-        shown = {
-            name: (moving_average(d.vswr, size), moving_average(d.step_delay_ns, size)) if size >= 2 else (d.vswr, d.group_delay_ns)
-            for name, d in self.directions.items()
-        }
         rows: dict[str, list[dict[str, Any]]] = {name: [] for name in self.directions}
         for target in nominal:
             index = int(np.argmin(np.abs(f - target)))
             for name, d in self.directions.items():
-                vswr, delay = shown[name]
                 rows[name].append(
                     {
                         "frecuencia": float(target),
                         "frecuencia_medida": float(f[index]),
-                        "vswr": float(vswr[index]),
+                        "vswr": float(d.vswr_smoothed[index]),
                         "u_vswr": float(d.vswr_u[index]),
                         "limite_vswr": float(d.vswr_limit[index]),
                         "perdida_insercion": float(d.insertion_loss_db[index]),
                         "u_perdida_insercion": float(d.insertion_loss_u[index]),
                         "limite_perdida_insercion": float(d.insertion_loss_limit[index]),
-                        "retardo_grupo": float(delay[index]),
+                        "retardo_grupo": float(d.group_delay_ns[index]),
                         "u_retardo_grupo": float(d.group_delay_u_ns[index]),
                         "pasa": bool(d.passes()[index]),
                     }
