@@ -73,7 +73,8 @@ QToolButton#railButton {
 }
 QToolButton#railButton:hover { background: #1d3150; color: #ffffff; }
 QToolButton#railButton:checked { background: #22385a; color: #ffffff; border-left: 3px solid #3d9be9; }
-QLabel#railLogo { color: #ffffff; font-weight: 700; font-size: 12px; padding: 12px 4px 10px 4px; }
+QLabel#railIcon { padding: 14px 0 0 0; }
+QLabel#railLogo { color: #ffffff; font-weight: 700; font-size: 12px; padding: 6px 4px 10px 4px; }
 
 /* ribbon */
 QToolBar#ribbon { background: #ffffff; border: none; border-bottom: 1px solid #d9dee6; padding: 4px 8px; spacing: 2px; }

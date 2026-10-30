@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from calelektra.catalog.library import Library, LibraryError
+from calelektra.gui.app_icon import app_icon
 from calelektra.gui.main_window import MainWindow
 from calelektra.gui.style import apply_theme
 
@@ -23,11 +24,24 @@ def default_library_path(argv: list[str]) -> Path | None:
     return EXAMPLE_LIBRARY if EXAMPLE_LIBRARY.is_dir() else None
 
 
+def configure_application(app: QApplication) -> None:
+    """Name, theme and icon of the application (navy: windows and taskbar)."""
+    app.setApplicationName("CAL-ELEKTRA")
+    apply_theme(app)
+    app.setWindowIcon(app_icon("marino"))
+    if sys.platform == "win32":  # the taskbar shows the icon of the application, not that of Python
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CAL-ELEKTRA")
+        except (AttributeError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     app = QApplication(argv)
-    app.setApplicationName("CAL-ELEKTRA")
-    apply_theme(app)
+    configure_application(app)
     path = default_library_path(argv)
     if path is None:
         folder = QFileDialog.getExistingDirectory(None, "Carpeta de la biblioteca de CAL-ELEKTRA")

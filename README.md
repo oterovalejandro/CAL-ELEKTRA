@@ -10,7 +10,7 @@ Ejemplos de lo que cubre:
 
 ## Estado
 
-**Versión 0.10.3** — funcional con el VNA simulado:
+**Versión 0.10.4** — funcional con el VNA simulado:
 
 - **Equipos definidos por categorías con campos tipados** (rango, puertos, conectores, potencia, IFBW, métodos de calibración, kit, longitud…). Los modelos dan los valores comunes y cada equipo los suyos; altas y ediciones con formularios generados a partir de esos campos. Los **modelos de EUT** llevan sus **especificaciones S** (ficheros S2P) para el **pasa / falla**; los cables también se pueden especificar **por fórmula** (atenuación K1·√f + K2·f y VSWR de los conectores, también por bandas de frecuencia, con las tolerancias de la plantilla de ensayo) y llevan los **datos de su hoja**: impedancia, retardo nominal, que se compara con el medido, radio de curvatura, que se recuerda al operador, y otros.
 - **Hardware setups con una estructura común**: el VNA a la izquierda, una línea que se divide en sus puertos (P1, P2…) y, de cada puerto, un **camino** (cables de medida, adaptadores, paths, preamplificadores…, en orden) que lleva el plano de referencia hasta el puerto del DUT. El conector del final de cada camino dice **qué conectores de DUT se pueden calibrar** con el setup. Se dibujan como en ELEKTRA, con un **icono para cada familia de equipos**, y un acoplador direccional se ve con sus cuatro puertos conectados a los planos y a las cargas (también en cada par al calibrarlo). Ver [`docs/12_iconos_y_conexiones_de_los_hardware_setups.md`](docs/12_iconos_y_conexiones_de_los_hardware_setups.md). Cada setup tiene sus **frecuencias de medida** (lineal por nº de puntos o por paso, logarítmico o lista CSV), alarma de rango, **requisitos sobre los campos**, comprobación de **conectores** de cada unión y **diseño automático de la calibración** del VNA (TOSM si los planos se unen; si no, UOSM; OSM en 1 puerto; normalización de transmisión). Ver [`docs/09_caminos_y_nuevas_plantillas.md`](docs/09_caminos_y_nuevas_plantillas.md).
@@ -49,6 +49,8 @@ python -m calelektra                  # abre la biblioteca de ejemplo
 python -m calelektra C:\ruta\biblioteca   # o una biblioteca propia
 python -m pytest                      # pruebas (núcleo + GUI)
 ```
+
+Para un acceso directo, el icono del programa está en `src/calelektra/gui/recursos/`: `cal-elektra.ico` (Windows) y `cal-elektra-256.png`.
 
 Depuración del control del VNA (sin interfaz gráfica):
 

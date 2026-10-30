@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from calelektra import __version__
 from calelektra.catalog.library import Library, LibraryError
 from calelektra.gui import style
+from calelektra.gui.app_icon import app_pixmap
 from calelektra.gui.catalog_view import CatalogView
 from calelektra.gui.equipment_dialogs import ModelDialog
 from calelektra.gui.home_view import HomeView
@@ -40,6 +41,7 @@ from calelektra.instruments.factory import is_simulated
 from calelektra.procedures.record import TestRecord
 from calelektra.setups.model import ConfiguredSetup
 
+RAIL_ICON_SIZE = 44  # the icon of the application on the rail
 SECTIONS = [
     ("inicio", "Inicio", "inicio"),
     ("ensayos", "Ensayos", "ensayos"),
@@ -121,6 +123,12 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(rail)
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(2)
+        mark = QLabel()  # the icon of the application, on the light tile of the hardware setups
+        mark.setObjectName("railIcon")
+        mark.setPixmap(app_pixmap(RAIL_ICON_SIZE, "claro"))
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mark.setToolTip(f"CAL-ELEKTRA {__version__}")
+        layout.addWidget(mark)
         logo = QLabel("CAL\nELEKTRA")
         logo.setObjectName("railLogo")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -516,15 +524,19 @@ class MainWindow(QMainWindow):
             vnas.append(f"{equipment.id}: {mode}")
         self.status_instruments.setText("VNA  ·  " + "  ·  ".join(vnas) if vnas else "Sin VNA en el inventario")
 
-    def _about(self) -> None:
-        QMessageBox.about(
-            self,
-            "CAL-ELEKTRA",
+    def _about(self) -> QMessageBox:
+        box = QMessageBox(self)
+        box.setWindowTitle("CAL-ELEKTRA")
+        box.setIconPixmap(app_pixmap(64, "claro"))
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(
             f"<b>CAL-ELEKTRA {__version__}</b><br><br>Software de laboratorio de calibración de equipos de MC, "
             "inspirado en la arquitectura de R&amp;S ELEKTRA (hardware setups, procedimientos, ensayos).<br><br>"
             "Equipos definidos por categorías con campos tipados; hardware setups con comprobación de rango, "
-            "requisitos, conectores y calibración; ensayos con VNA (simulado o R&amp;S ZNB vía comandos del driver RsZnx).",
+            "requisitos, conectores y calibración; ensayos con VNA (simulado o R&amp;S ZNB vía comandos del driver RsZnx)."
         )
+        box.open()
+        return box
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         dirty = [e.setup.name for e in self._documents(SetupEditor) if e.dirty]

@@ -1,4 +1,4 @@
-# Iconos de los equipos y conexiones en los hardware setups — versión 0.9.2
+# Iconos de los equipos y conexiones en los hardware setups — versión 0.9.2 (icono del programa: 0.10.4)
 
 Los diagramas de los hardware setups se dibujan ahora como en ELEKTRA. Cada equipo es el **icono de su familia** sobre una tesela clara, con el nombre del rol encima y el equipo y sus conectores debajo. Las conexiones unen los lados de las teselas.
 
@@ -97,7 +97,23 @@ En el editor de setups, el estado de conexión «medida» de la plantilla «Acop
 |---|---|
 | ![Petición del par In – Coupl. Fwd con el acoplador conectado](capturas/v09/21c_peticion_par_acoplador.png) | ![La pestaña «Hardware setup» durante el par In – Coupl. Fwd](capturas/v09/25b_ensayo_par_acoplador.png) |
 
-## 5. Ficheros del código
+## 5. El icono del programa (0.10.4)
+
+Es una **carta de Smith con el marcador de una medida**, dibujada como los iconos de los equipos: línea de un solo tono en la rejilla de 48 × 48, sobre una tesela. El laboratorio lo eligió entre seis propuestas.
+
+![El icono en marino y en claro, en barras de tareas clara y oscura y en la barra lateral](capturas/v10/37_icono_aplicacion.png)
+
+- **Marino**, el color de la barra lateral, con el dibujo en gris claro: el icono de la **aplicación**. Es el de sus ventanas, la barra de tareas y el `.ico` de los accesos directos. El borde, algo más claro, lo separa de una barra de tareas oscura.
+- **Claro**, la tesela de los hardware setups, con el dibujo en pizarra: **dentro de la aplicación**. Va en la barra lateral, encima de «CAL ELEKTRA», y en «Acerca de».
+- **Un dibujo por tamaño:**
+  - por debajo de 21 px, solo el círculo, el eje y el marcador;
+  - desde 21 px, también la circunferencia r = 1 y los arcos x = ±1.
+  
+  Por debajo de 64 px las líneas son más gruesas, para que no bajen de 1,3 px.
+- **Ficheros para los accesos directos:** `src/calelektra/gui/recursos/`, instalados con el paquete. `cal-elektra.ico` es el de Windows, con las imágenes de 16 a 256 px; `cal-elektra-<n>.png` son de 16 a 256 px. Los reescribe `tools/icono_app.py`; el programa no los usa, porque dibuja su icono.
+- **Windows:** el programa declara su identificador de aplicación, para que la barra de tareas muestre su icono y no el de Python.
+
+## 6. Ficheros del código
 
 | Fichero | Contenido |
 |---|---|
@@ -108,3 +124,6 @@ En el editor de setups, el estado de conexión «medida» de la plantilla «Acop
 | `procedures/engine.py` | `PromptRequest.measurement` |
 | `tools/capturas.py` | La lámina de iconos (`15_iconos_equipos.png`) y las capturas de los pares |
 | `tests/test_equipment_icons.py` | Icono de cada categoría y tipo, dibujo de todos, esquinas del acoplador, diagramas de ejemplo, pares del acoplador, ventana del ensayo y «Recolocar nodos» |
+| `gui/app_icon.py` (0.10.4) | El icono del programa: dibujo por tamaño, teselas marino y clara, `app_icon`, `app_pixmap` y los ficheros `.ico` y PNG |
+| `gui/app.py`, `gui/main_window.py` | El icono de la aplicación (`configure_application`), el de la barra lateral y el de «Acerca de» |
+| `tools/icono_app.py`, `tests/test_app_icon.py` | Los ficheros del icono y sus pruebas |
