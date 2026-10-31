@@ -1,4 +1,4 @@
-# Algoritmos y fórmulas del cálculo de incertidumbres — versiones 0.8.4 y 0.10
+# Algoritmos y fórmulas del cálculo de incertidumbres — versiones 0.8.4, 0.10 y 0.11
 
 Este documento reúne todo lo que CAL-ELEKTRA calcula sobre incertidumbre y cómo lo calcula:
 
@@ -6,7 +6,8 @@ Este documento reúne todo lo que CAL-ELEKTRA calcula sobre incertidumbre y cóm
 - la componente de temperatura;
 - las conversiones a las unidades de las gráficas;
 - la incertidumbre de la impedancia, nueva en 0.8.4;
-- los resultados de un cable por sentido (VSWR, pérdida de inserción y retardo de grupo) y su incertidumbre, nuevos en 0.10.
+- los resultados de un cable por sentido (VSWR, pérdida de inserción y retardo de grupo) y su incertidumbre, nuevos en 0.10;
+- la incertidumbre con dependencias de los ficheros de METAS VNA Tools (`.sdatb`, `.sdatcv`), nueva en 0.11.
 
 Cada sección indica el código que la implementa y los tests que la comprueban.
 
@@ -17,6 +18,7 @@ Cada sección indica el código que la implementa y los tests que la comprueban.
 | U en VSWR y en pérdidas (RL, TL) | Conversión de la U de los parámetros S | `gui/plots.py` |
 | U de \|Z\| y ∠Z | Propagación a partir de la U de S11 | `uncertainty/impedance.py` |
 | U del VSWR, de la pérdida de inserción y del retardo de grupo de un cable (Fwd y Rev) | A partir de la U de S11, S21, S12 y S22 (§5) | `procedures/cable_results.py` |
+| u y covarianzas de los datos de un `.sdatb` o un `.sdatcv` | Propagación lineal del presupuesto de METAS (§6) | `sdata/unclib.py`, `sdata/model.py` |
 
 ## 1. Notación
 
@@ -427,7 +429,68 @@ Los de la especificación por fórmula del cable ([`11_especificacion_de_cables_
 - **Gráfica:** la unidad «Retardo de grupo (ns)» (§3).
 - **Certificado del cable:** [`13_certificado_de_cables.md`](13_certificado_de_cables.md).
 
-## 6. Ficheros del código y tests
+## 6. Incertidumbre con dependencias: los ficheros de METAS VNA Tools (nuevo en 0.11)
+
+Un `.sdatb` no guarda incertidumbres, sino su presupuesto: la propagación lineal (LinProp) de METAS UncLib.
+
+- Cada valor x_e depende de unas entradas i, a través de una sensibilidad J_ei. Un valor es la parte real o imaginaria de un parámetro S o de la Zr de un puerto.
+- Cada entrada tiene su distribución, y de ella sale su incertidumbre típica u_i.
+
+Ver el formato en [`14_parametros_s_con_incertidumbre_metas.md`](14_parametros_s_con_incertidumbre_metas.md).
+
+### 6.1 Incertidumbre típica y covarianza
+
+```
+u(x_e)²       = Σ_i (J_ei · u_i)²
+cov(x_a, x_b) = Σ_i J_ai · J_bi · u_i²          V = J · diag(u²) · Jᵀ
+```
+
+- Dos valores están correlacionados si comparten entradas.
+- Dos ficheros, también: una entrada es la misma en los dos si tiene el mismo identificador. Es el caso de un patrón y de una medida calibrada con él (`cross_covariance`).
+- Las incertidumbres de esta sección son típicas (k = 1).
+
+### 6.2 Incertidumbre típica de cada distribución
+
+Es la de los comentarios del esquema XML de METAS UncLib (Data Formats §1.2):
+
+| Distribución | u_i |
+|---|---|
+| Normal estándar, y las entradas de la versión 1 | 1 |
+| Normal (μ, σ) | σ |
+| Uniforme estándar | 1/√12 |
+| Uniforme (a, b) | (b − a)/√12 |
+| Trapecio curvilíneo (a, b, d) | √((b − a)²/12 + d²/9) |
+| Trapezoidal (a, b, β) | (b − a)·√((1 + β²)/24) |
+| Triangular (a, b) | (b − a)/√24 |
+| Arcoseno (a, b) | (b − a)/√8 |
+| Gamma (a, b) | √a · b |
+| Chi cuadrado (k) | √(2k) |
+| t de Student (μ, σ, ν) | σ·√(ν/(ν − 2)) |
+| t de Student de n muestras | s/√n · √((n − 1)/(n − 3)), con s la desviación típica de las muestras |
+| Elección aleatoria entre muestras | Desviación típica de las muestras (supuesto: los documentos no la dan) |
+
+### 6.3 De una matriz de covarianza a entradas (lectura de un `.sdatcv`)
+
+Un `.sdatcv` da, en cada frecuencia k, los valores y su matriz de covarianza C_k (2N² × 2N², en el orden del fichero). Para tenerlos como un `.sdatb`:
+
+1. Se separan los grupos de valores correlacionados: los que unen covarianzas no nulas. Así, dos parámetros sin correlación no comparten entradas.
+2. En cada grupo G, C_G = Q·Λ·Qᵀ (valores y vectores propios).
+3. Cada valor propio λ_j > 10⁻¹⁵·λ_max da una entrada normal estándar, con las sensibilidades q_j·√λ_j.
+
+Con esas entradas, J·Jᵀ = Q·Λ·Qᵀ = C_G: la covarianza se reproduce exactamente.
+
+- Los valores propios negativos, que vienen del redondeo del fichero, cuentan como cero.
+- Cada frecuencia tiene sus propias entradas: un `.sdatcv` no guarda la correlación entre frecuencias.
+- Las entradas se nombran como en VNA Tools: `Data Set <fichero> Frequency Index: k, Contribution: c`.
+
+### 6.4 Comprobación
+
+- **Ejemplo de METAS UncLib:** c = √(a² + b²), con a = 3 ± 0,3 y b = 4 ± 0,4, da u = 0,3671511950137164, el mismo valor que METAS.
+- **Carga de VNA Tools:** la u de cada parte coincide con la diagonal de `point_covariance`.
+- **Ida y vuelta por `.sdatcv`:** devuelve la misma covarianza en cada frecuencia (rtol 10⁻⁹).
+- **Adaptador:** su covarianza con la carga, a través de las entradas comunes, no es nula.
+
+## 7. Ficheros del código y tests
 
 | Fichero | Contenido |
 |---|---|
@@ -439,7 +502,10 @@ Los de la especificación por fórmula del cable ([`11_especificacion_de_cables_
 | `gui/plots.py` | Zonas sombreadas y conversiones (§3), retardo de grupo |
 | `procedures/cable_results.py` | Resultados de un cable por sentido y su U (§5) |
 | `core/networks.py` | `group_delay`, `step_delay`, `smoothed` y `transmission_delay` (§5.3) |
+| `sdata/unclib.py` | Números con dependencias, u de las distribuciones, covarianza y `cross_covariance` (§6.1 – 6.2), entradas a partir de una covarianza (§6.3) |
+| `sdata/model.py` | `standard_uncertainty` y `point_covariance` de los parámetros S |
 | `tests/test_uncertainty.py` | Motor frente al script del laboratorio; incertidumbre del ensayo de la LISN, con Z |
 | `tests/test_uncertainty_impedance.py` | Fórmulas de §4 frente a Monte Carlo y al muestreo del disco |
 | `tests/test_conditions.py` | Pendiente / completa y recálculo, también de Z |
 | `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido con su U y sus límites frente al certificado del laboratorio |
+| `tests/test_sdata.py` | §6 con los ficheros de VNA Tools del laboratorio y los ejemplos de METAS |

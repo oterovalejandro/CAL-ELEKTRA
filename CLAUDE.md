@@ -21,6 +21,13 @@
 - Los instrumentos solo se usan a través de `instruments/base.py`. Hay un VNA simulado (`dummy_vna.py`) y el adaptador R&S ZNx (`rs_znx.py`, comandos SCPI del driver RsZnx 4.25.0, sin probar aún con el equipo). `instruments/factory.py` elige uno u otro según los campos y la conexión del equipo.
 - Incertidumbre (`uncertainty/`): `engine.py` es el algoritmo del laboratorio (mismos resultados que su script; no cambiar el cálculo sin comprobarlo contra él) y `traces.py` lo aplica punto a punto. El fichero YAML de incertidumbres es de cada **unidad** de VNA (`incertidumbre` del equipo, `catalogo/incertidumbres/`, claves en inglés del laboratorio). El paso «incertidumbre» del motor la guarda en el registro y en `<resultado>_incertidumbre.csv` (`procedures/results.py`); `SParameterPlot.set_uncertainty` la sombrea.
 - Condiciones ambientales (`procedures/ambient.py`): las da el .xlsx exportado de la sonda TPH (hojas `CABECERA` y `DATOS`), nunca el operador. Al terminar el ensayo la incertidumbre queda `pendiente` (sin componente de temperatura); `load_ambient_conditions` (`procedures/record_uncertainty.py`) guarda las condiciones y la recalcula (`completa`) con lo guardado en el ensayo. `procedures/package.py` crea el .zip del ensayo (con `hardware_setup.yaml`, `plantilla_ensayo.yaml` y `resumen_ensayo.txt`). Los tests generan ficheros TPH sintéticos con `tph_workbook` de `conftest.py`. La incertidumbre de Z (`vna_1_puerto`) sale de la de S11 en `uncertainty/impedance.py` (primer orden con tangencial ≥ radial, cota exacta del disco cerca del abierto o del cortocircuito, Z₀ = 50 Ω, sin correlación); todos los algoritmos y fórmulas están en `docs/10_algoritmos_de_incertidumbre.md`: mantenerlo al día si cambia un cálculo.
+- Parámetros S con incertidumbre de METAS VNA Tools (`sdata/`):
+  - Motor propio, sin software de METAS (la licencia de UncLib no permite distribuirla), escrito a partir de «METAS VNA Tools – Data Formats V3.0.2» y «METAS UncLib – Data Formats V3.0.2».
+  - Lee y escribe `.sdatb` (versiones 1 a 5), `.sdatcv` y Touchstone: `load_sparam_data` y `save_sparam_data`. Los `.sdatb` de VNA Tools se reescriben idénticos byte a byte.
+  - `SParamData` tiene frecuencias, puertos, Zr y `s[:, receptor, fuente]`, sobre un `UncVector` (`sdata/unclib.py`, «vector plano» LinProp): entradas con identificador, descripción y distribución, y dependencias con su sensibilidad.
+  - Da la incertidumbre típica, la covarianza de cada frecuencia (`point_covariance`, en el orden del `.sdatcv`: por puerto fuente) y la covarianza entre ficheros (`cross_covariance`, por las entradas comunes).
+  - Los ficheros de VNA Tools del laboratorio (una carga y un adaptador) están en `tests/datos/metas/`, fuera de la biblioteca de ejemplo, que los tests copian.
+  - Es la base de los patrones con datos de los kits. Ver `docs/14_parametros_s_con_incertidumbre_metas.md` y `docs/10` §6.
 - Depuración del ZNx sin GUI (`instruments/znx_debug/`): tabla de parámetros con su comando SCPI (`settings.py`), `ZnxDebugger` (cada `set_…` escribe, relee y vacía `SYST:ERR?`), comprobación completa (`checks.py`), consola (`console.py`) y un ZNB simulado a nivel SCPI (`simulator.py`) que también sirve de transporte para `RsZnxVna` en los tests. Es la única pieza que habla SCPI fuera del adaptador.
 
 ## Comandos
@@ -33,6 +40,7 @@ QT_QPA_PLATFORM=offscreen python tools/icono_app.py            # ficheros .ico y
 python tools/generar_s2p_sinteticos.py             # regenera los S2P sintéticos de ejemplo
 python -m calelektra.instruments.znx_debug --simulado   # consola de depuración del VNA (--ip/--visa con el equipo)
 python -m calelektra.uncertainty --yaml <fichero> --equipment ZNB43 --parameter S21 --frequency-hz 1e9 --value -0.5 --unit dB
+python -m calelektra.sdata <fichero.sdatb> [--convertir destino.sdatcv]   # resumen y conversión de parámetros S con incertidumbre
 ```
 
 En contenedores Linux sin pantalla, Qt necesita `libegl1`, `libgl1`, `libxkbcommon0` y `libfontconfig1`.
