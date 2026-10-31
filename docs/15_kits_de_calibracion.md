@@ -1,4 +1,4 @@
-# Kits de calibración: alta y definición de sus patrones — versión 0.12
+# Kits de calibración: alta y definición de sus patrones — versiones 0.12 y 0.12.1
 
 ## 1. Qué cambia
 
@@ -60,11 +60,9 @@ Los campos de VNA Tools, en sus unidades:
 | C0, C1, C2, C3 (abierto) | 10⁻¹⁵ F, 10⁻²⁷ F/Hz, 10⁻³⁶ F/Hz², 10⁻⁴⁵ F/Hz³ |
 | L0, L1, L2, L3 (cortocircuito) | 10⁻¹² H, 10⁻²⁴ H/Hz, 10⁻³³ H/Hz², 10⁻⁴² H/Hz³ |
 | Impedancia de la carga (carga) | R y X en Ω; vacía: la de Z0 |
-| Standard Media | Coaxial o guía de onda |
-| Cutoff Frequency, Height / Width Ratio | Solo en guía (0,5 por defecto) |
 
 - Las fórmulas están en [`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md) §7.
-- La guía de onda se guarda, pero su cálculo no está disponible: el laboratorio trabaja en coaxial.
+- Solo patrones coaxiales. Desde 0.12.1 no hay opción de guía de onda («Standard Media», «Cutoff Frequency», «Height / Width Ratio»): el laboratorio no calibra en guía. Un YAML con `medio: guia` da error.
 
 ### 3.3 Por datos
 
@@ -84,6 +82,8 @@ Una tabla con una fila por frecuencia. Entre filas se interpola linealmente y, f
 | Through | Pérdidas de retorno de las reflexiones; desviación de módulo (dB) y de fase (°) de la transmisión |
 
 Cómo se convierten en incertidumbre: [`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md) §7.2. Así se construyeron los ficheros del kit AA180-VNACKN que el laboratorio comprobó en VNA Tools.
+
+Cada especificación es una sola contribución, común a todas las frecuencias: la desviación de un patrón respecto a su definición está totalmente correlacionada entre frecuencias. No cambia la incertidumbre de cada punto, pero sí la de lo que combina frecuencias, como un retardo de grupo o una media en una banda: ver §7.2.1 de [`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md).
 
 ## 4. Importar un `.ckt`
 
@@ -195,7 +195,7 @@ patrones:
 - **P8, el kit del VNA es el de la biblioteca:** cargar en el VNA la definición de la biblioteca, o comprobar la que tiene.
 - **Peticiones y registro con el patrón exacto:** p. ej. «Conecte el abierto hembra nº 975».
 - **Calibre de los patrones.**
-- **Otros cálculos:** la guía de onda y otros tipos de patrón (carga deslizante, líneas TRL).
+- **Otros tipos de patrón:** carga deslizante, líneas TRL.
 - **Incertidumbre de la medida:** la de los patrones no entra en la incertidumbre de las medidas, que sigue siendo el algoritmo del laboratorio.
 
 ## 11. Código y pruebas

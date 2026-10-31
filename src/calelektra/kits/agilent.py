@@ -17,7 +17,7 @@ The reflection is referred to the reference impedance Zr of the kit:
     Γ  = [Γ1·(1 − E − Γ1·ΓL) + E·ΓL] / [1 − Γ1·(E·Γ1 + ΓL·(1 − E))]
 
 which is the input impedance of the line, Zin = Zc·(Z + Zc·tanh γl)/(Zc + Z·tanh γl), seen from Zr.
-The model is not defined at DC (the loss term grows as 1/√f): f > 0. Only coaxial media.
+The model is not defined at DC (the loss term grows as 1/√f): f > 0. Coaxial standards only.
 """
 
 from __future__ import annotations
@@ -29,8 +29,6 @@ from calelektra.kits.model import C_UNITS, L_UNITS, KitError, KitStandard, Stand
 
 def offset_line(f: np.ndarray, definition: StandardDefinition) -> tuple[np.ndarray, np.ndarray]:
     """Characteristic impedance and γ·l of the offset line."""
-    if definition.media != "coaxial":
-        raise KitError("El modelo de guía de onda no está disponible: solo medios coaxiales")
     f = np.asarray(f, float)
     if np.any(f <= 0):
         raise KitError("El modelo del patrón no está definido en DC: las frecuencias deben ser mayores que 0 Hz")

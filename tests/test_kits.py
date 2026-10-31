@@ -104,8 +104,9 @@ def test_the_model_of_keysight_as_vna_tools():
     assert np.allclose(reflection(f, "cortocircuito", definition), (zin - 50) / (zin + 50), rtol=0, atol=1e-12)
     with pytest.raises(KitError, match="DC"):
         model_s(standards["abierto_m"], np.array([0.0, 1e9]))
-    with pytest.raises(KitError, match="guía de onda"):
-        model_s(standards["abierto_m"], f, definition=definition.model_copy(update={"media": "guia"}))
+    with pytest.raises(ValueError, match="guía de onda"):  # only coaxial standards
+        StandardDefinition.model_validate({"clase": "modelo", "medio": "guia", "frecuencia_corte": "6.557 GHz"})
+    assert "medio" not in StandardDefinition.model_validate({"clase": "modelo", "medio": "coaxial"}).to_yaml()
 
 
 def test_frequencies_of_the_kit():

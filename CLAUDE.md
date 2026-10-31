@@ -24,8 +24,8 @@
 - Kits de calibración (`kits/`):
   - El modelo del kit lista sus patrones (`EquipmentModel.patrones`: `KitStandard` de `kits/model.py`): tipo (abierto, cortocircuito, carga, through o adaptador, el through desconocido), géneros, definición (`clase`: `modelo`, `datos` o `ninguna`) y especificaciones eléctricas (k = 2).
   - Cada unidad da, por id del patrón, su nº de serie, su estado (en uso, dañado o sustituido, con fecha) y su definición o especificaciones propias, p. ej. los datos de su certificado (`Equipment.patrones`: `UnitStandard`).
-  - Modelo de Keysight («Agilent model» de VNA Tools, `kits/agilent.py`): Z0, retardo (ps), pérdidas (GΩ/s), C0–C3 y L0–L3 en las unidades de VNA Tools. Solo coaxial: la guía se guarda y no se calcula. Sin DC.
-  - Especificaciones → una entrada por magnitud, común a todas las frecuencias (`kits/specs.py`). Un `.sdatb` trae su incertidumbre; un `.sNp` recibe la de las especificaciones.
+  - Modelo de Keysight («Agilent model» de VNA Tools, `kits/agilent.py`): Z0, retardo (ps), pérdidas (GΩ/s), C0–C3 y L0–L3 en las unidades de VNA Tools. Solo coaxial: no hay opción de guía de onda (0.12.1; un YAML con `medio: guia` da error). Sin DC.
+  - Especificaciones → una entrada por magnitud, común a todas las frecuencias: correlación total entre frecuencias, que no cambia la u de cada punto pero sí la de lo que combina frecuencias (`kits/specs.py`, `docs/10` §7.2.1). Un `.sdatb` trae su incertidumbre; un `.sNp` recibe la de las especificaciones.
   - Zr y puntos: campos `zr_real_ohm`, `zr_imag_ohm` y `puntos_patrones`. El inicio y el fin son el `rango_frecuencia` del kit; desde DC se empieza un paso por encima.
   - `.ckt` de Keysight (`kits/ckt.py`, formato descifrado por inspección); el del AA180-VNACKN está en `tests/datos/kits/`.
   - Ficheros de datos en `catalogo/patrones/<kit>/` con su SHA-256 (`copy_standard_file`).

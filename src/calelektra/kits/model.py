@@ -3,7 +3,8 @@
 As in METAS VNA Tools (manual §4.6), a standard is defined:
 
 * by the model of Keysight («Agilent model», ``clase: modelo``): an offset line (Z0, delay, loss) ended
-  by the capacitance C0–C3 of an open, the inductance L0–L3 of a short or a load; a through is the line;
+  by the capacitance C0–C3 of an open, the inductance L0–L3 of a short or a load; a through is the line.
+  Only coaxial standards: the laboratory does not calibrate in waveguide;
 * by data (``clase: datos``): its S-parameters in a ``.sdatb`` (with their uncertainty) or a Touchstone
   ``.sNp`` file (values only);
 * or not at all (``clase: ninguna``): the adapters of a kit, unknown throughs of the UOSM.
@@ -122,9 +123,6 @@ class StandardDefinition(BaseModel):
     capacitance: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0], alias="c")  # C0–C3, units C_UNITS
     inductance: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0], alias="l")  # L0–L3, units L_UNITS
     load_impedance: list[float] | None = Field(default=None, alias="impedancia_carga_ohm")  # R, X; by default the offset Z0
-    media: Literal["coaxial", "guia"] = Field(default="coaxial", alias="medio")
-    cutoff_hz: float | None = Field(default=None, alias="frecuencia_corte")
-    height_width_ratio: float = Field(default=0.5, alias="relacion_alto_ancho", gt=0)
     # data: a .sdatb or .sNp file, relative to the YAML that refers to it
     file: str | None = Field(default=None, alias="fichero")
     ports: list[int] = Field(default_factory=list, alias="puertos")  # ports of the file that are used (empty: all)
@@ -138,10 +136,15 @@ class StandardDefinition(BaseModel):
         value = [float(v) for v in value][:4]
         return value + [0.0] * (4 - len(value))
 
-    @field_validator("cutoff_hz", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _cutoff(cls, value: Any) -> float | None:
-        return None if value in (None, "") else _frequency(value)
+    def _coaxial(cls, data: Any) -> Any:
+        """Only coaxial standards: a waveguide one is not accepted (``medio``, before 0.12.1)."""
+        if isinstance(data, dict) and "medio" in data:
+            if data["medio"] not in (None, "coaxial"):
+                raise ValueError("los patrones en guía de onda no se admiten: solo coaxiales")
+            data = {k: v for k, v in data.items() if k not in ("medio", "frecuencia_corte", "relacion_alto_ancho")}
+        return data
 
     @model_validator(mode="after")
     def _check(self) -> StandardDefinition:
@@ -167,17 +170,12 @@ class StandardDefinition(BaseModel):
         data = self.model_dump(
             by_alias=True,
             exclude_none=True,
-            include={"kind", "offset_z0", "offset_delay_ps", "offset_loss", "capacitance", "inductance", "load_impedance", "media", "cutoff_hz", "height_width_ratio"},
+            include={"kind", "offset_z0", "offset_delay_ps", "offset_loss", "capacitance", "inductance", "load_impedance"},
         )
         if not any(self.capacitance):
             data.pop("c")
         if not any(self.inductance):
             data.pop("l")
-        if self.media == "coaxial":
-            for key in ("medio", "frecuencia_corte", "relacion_alto_ancho"):
-                data.pop(key, None)
-        elif self.cutoff_hz is not None:
-            data["frecuencia_corte"] = format_frequency(self.cutoff_hz, decimal=".")
         return data
 
 

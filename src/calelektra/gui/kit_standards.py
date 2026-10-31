@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 from calelektra.catalog.library import Library
 from calelektra.core.connectors import GENDERS
 from calelektra.core.frequency import FrequencyRange
-from calelektra.core.units import UnitError, format_frequency, parse_frequency
+from calelektra.core.units import UnitError, format_frequency
 from calelektra.gui.frequency_input import FrequencyDelegate, install_frequency_completion
 from calelektra.gui.icons import icon
 from calelektra.gui.plots import TRACE_COLORS, ChartTrace, TraceChart
@@ -347,20 +347,6 @@ class DefinitionEditor(QWidget):
         self.load_x.setPlaceholderText("0")
         self.model_form.addRow("Carga: R (Ω)", self.load_r)
         self.model_form.addRow("Carga: X (Ω)", self.load_x)
-        self.media = QComboBox()
-        self.media.addItem("Coaxial", "coaxial")
-        self.media.addItem("Guía de onda", "guia")
-        self.media.currentIndexChanged.connect(self._update_rows)
-        self.cutoff = QLineEdit()
-        self.cutoff.setPlaceholderText("p. ej. 6,557 GHz")
-        install_frequency_completion(self.cutoff)
-        self.ratio = QLineEdit("0.5")
-        self.model_form.addRow("Standard Media", self.media)
-        self.model_form.addRow("Cutoff Frequency", self.cutoff)
-        self.model_form.addRow("Height / Width Ratio", self.ratio)
-        self.waveguide_note = QLabel("El cálculo en guía de onda no está disponible: solo se guardan sus datos.")
-        self.waveguide_note.setStyleSheet("color: #c0392b;")
-        self.model_form.addRow(self.waveguide_note)
         self.stack.addWidget(model_page)
         # data
         data_page = QWidget()
@@ -390,7 +376,7 @@ class DefinitionEditor(QWidget):
         data_form.addRow(self.data_info)
         self.stack.addWidget(data_page)
         self.stack.addWidget(QLabel("Sin definición: un adaptador que hace de through desconocido, o un patrón pendiente de definir."))
-        for edit in [self.z0, self.delay, self.loss, *self.c, *self.l, self.load_r, self.load_x, self.cutoff, self.ratio, self.ports]:
+        for edit in [self.z0, self.delay, self.loss, *self.c, *self.l, self.load_r, self.load_x, self.ports]:
             edit.textEdited.connect(lambda _t: self.changed.emit())
         self._kind_changed()
 
@@ -410,9 +396,6 @@ class DefinitionEditor(QWidget):
             self.model_form.setRowVisible(edit, kind == "cortocircuito")
         for edit in (self.load_r, self.load_x):
             self.model_form.setRowVisible(edit, kind == "carga")
-        guide = self.media.currentData() == "guia"
-        for widget in (self.cutoff, self.ratio, self.waveguide_note):
-            self.model_form.setRowVisible(widget, guide)
         self.changed.emit()
 
     def set_type(self, kind: str) -> None:
@@ -465,9 +448,6 @@ class DefinitionEditor(QWidget):
         r, x = definition.load_impedance or (None, None)
         self.load_r.setText(_text(r))
         self.load_x.setText(_text(x))
-        self.media.setCurrentIndex(max(self.media.findData(definition.media), 0))
-        self.cutoff.setText(format_frequency(definition.cutoff_hz) if definition.cutoff_hz else "")
-        self.ratio.setText(_text(definition.height_width_ratio))
         self.file.setText(definition.file or "")
         self.ports.setText(", ".join(map(str, definition.ports)))
         self.reference.setText(definition.reference or "")
@@ -507,12 +487,6 @@ class DefinitionEditor(QWidget):
         x = _number(self.load_x.text(), "Carga: X", 0.0)
         if r is not None or x:
             load = [r if r is not None else _number(self.z0.text(), "Offset Z0", 50.0), x]
-        cutoff = None
-        if self.cutoff.text().strip():
-            try:
-                cutoff = parse_frequency(self.cutoff.text())
-            except UnitError as exc:
-                raise ValueError(f"«Cutoff Frequency»: {exc}") from exc
         return StandardDefinition(
             kind="modelo",
             offset_z0=_number(self.z0.text(), "Offset Z0", 50.0),
@@ -521,9 +495,6 @@ class DefinitionEditor(QWidget):
             capacitance=[_number(e.text(), f"C{k}", 0.0) for k, e in enumerate(self.c)],
             inductance=[_number(e.text(), f"L{k}", 0.0) for k, e in enumerate(self.l)],
             load_impedance=load,
-            media=self.media.currentData(),
-            cutoff_hz=cutoff,
-            height_width_ratio=_number(self.ratio.text(), "Height / Width Ratio", 0.5),
         )
 
 

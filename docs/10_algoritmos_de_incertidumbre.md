@@ -525,7 +525,7 @@ La reflexión, referida a la impedancia de referencia Zr del kit (50 Ω):
 
   Con retardo 0, S21 = 1 y S11 = 0, sean cuales sean sus pérdidas.
 - **DC:** el modelo no está definido en DC (el término de pérdidas crece como 1/√f), así que las frecuencias son siempre mayores que 0.
-- **Medio:** solo coaxial.
+- **Medio:** solo patrones coaxiales; desde 0.12.1 no hay opción de guía de onda.
 
 ### 7.2 Incertidumbre de las especificaciones eléctricas (k = 2)
 
@@ -542,6 +542,23 @@ La reflexión, referida a la impedancia de referencia Zr del kit (50 Ω):
 | Through | Desviación de módulo y de fase de la transmisión | Como en el abierto, una entrada para cada una, la misma en S21 y S12 (es recíproco) |
 
 **Ficheros por datos:** un `.sdatb` trae su propia incertidumbre y no se le añade la de las especificaciones; un `.sNp`, sí.
+
+#### 7.2.1 Correlación entre frecuencias
+
+Dos valores están correlacionados si dependen de las mismas entradas (§6.1). Cada especificación es **una sola entrada para todas las frecuencias**, así que la desviación que representa está **totalmente correlacionada entre frecuencias**: si el abierto real se desvía +0,6° de su definición a 1 GHz, el modelo supone que se desvía en el mismo sentido en toda la banda, con el tamaño que da la tabla en cada frecuencia (correlación ±1 entre los puntos). Es lo que corresponde a un error de definición del patrón, que es sistemático y varía suavemente con la frecuencia. Lo contrario, una entrada por frecuencia, supondría un patrón cuya desviación cambia al azar de un punto al siguiente.
+
+- **No cambia:** la incertidumbre de cada punto, con k = 2. Es la que muestran la gráfica y la tabla, la que el laboratorio comprobó en VNA Tools y la única que guarda un `.sdatcv`.
+- **Sí cambia:** todo lo que combina varias frecuencias del mismo patrón. Con el abierto macho del AA180-VNACKN (fase 1,5°, k = 2; u = 0,75° en cada punto):
+
+  | Magnitud | Correlación total (CAL-ELEKTRA) | Puntos independientes |
+  |---|---|---|
+  | Diferencia de fase entre 1 GHz y 1,01 GHz | u = 0° (la desviación es la misma en los dos) | u = √2·0,75° = 1,06° |
+  | Retardo de grupo en ese paso, u(Δφ)/(360°·Δf) | 0 ns | 0,29 ns |
+  | Fase media en toda la banda (1800 puntos) | u = 0,75° (no se reduce) | u = 0,75°/√1800 = 0,018° |
+
+- **Dónde importará:** al usar los patrones en una calibración, su incertidumbre pasa a las medidas corregidas. Un retardo de grupo calculado con esas medidas, o una media en banda, dependen de la correlación de los patrones.
+- **Ficheros:** un `.sdatb` guarda la correlación entre frecuencias (y entre ficheros); un `.sdatcv` no. Al leer un `.sdatcv`, cada frecuencia recibe sus propias entradas (§6.3).
+- **Pendiente de confirmar:** que VNA Tools construye igual sus «Electrical Specifications». Se ve en Data Explorer, con su vista «Covariance» en modo «Correlation», todas las frecuencias y un parámetro: en un `.sdatb` de CAL-ELEKTRA la matriz es toda ±1.
 
 **Tabla de un patrón** (`table_rows`), en cada frecuencia y parámetro, con la covarianza C de la parte real y la imaginaria:
 - U(Re) = k·√C₁₁ y U(Im) = k·√C₂₂;
