@@ -104,5 +104,9 @@ def test_transitions_cables_and_kit_of_the_catalogue(library):
     assert mating_issue(vna_port, library.field(cable, "conector_a")) is None
     kit = library.equipment["KIT-N-02"]
     assert library.model_of(kit).designation == "AA180-VNACKN" and library.field(kit, "familia_conector") == "N"
-    assert library.field(kit, "vswr_carga_max") == 1.055 and len(library.field(kit, "componentes")) == 12
+    standards = library.model_of(kit).standards  # from its .ckt (0.12), with the specifications of its datasheet
+    assert len(standards) == 9 and len(library.field(kit, "componentes")) == 4
+    load = next(s for s in standards if s.id == "carga_m")
+    assert load.specifications[0].return_loss_db == -31.45  # VSWR ≤ 1,055
+    assert library.kit_genders(kit) == ["macho", "hembra"]
     assert not library.load_issues

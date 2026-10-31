@@ -22,13 +22,14 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QMessageBox
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QMessageBox, QScrollArea
 
 from calelektra.catalog.library import Library
 from calelektra.gui.app import EXAMPLE_LIBRARY
 from calelektra.gui.certificate_dialog import CertificateDialog
 from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
 from calelektra.gui.equipment_icons import GLYPH_NAMES, paint_icon
+from calelektra.gui.kit_standards import StandardDialog
 from calelektra.gui.main_window import MainWindow
 from calelektra.gui.plots import SParameterDialog
 from calelektra.gui.style import apply_theme
@@ -85,6 +86,40 @@ def icon_sheet(path: Path) -> None:
     painter.end()
     image.save(str(path))
     print("captura", path)
+
+
+def kit_captures(library: Library, window: MainWindow, out: Path) -> None:
+    """The standards of the kit AA180-VNACKN: its model, a standard (chart and table) and the unit."""
+    model_dialog = ModelDialog(library, library.models["aa180_vnackn"], window)
+    model_dialog.resize(1180, 960)
+    model_dialog.show()
+    scroll = model_dialog.findChild(QScrollArea)
+    if scroll is not None:
+        QApplication.processEvents()
+        scroll.ensureWidgetVisible(model_dialog.kit_card, 0, 0)
+        scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
+    grab(model_dialog, out / "38_kit_modelo_patrones.png")
+    editor = model_dialog.kit_editor
+    taken = {s.id for s in editor.items}
+    for name, index, mode, tab in (
+        ("38b_patron_abierto_fase.png", 1, "fase", 0),
+        ("38c_patron_abierto_tabla.png", 1, "fase", 1),
+        ("38d_patron_carga_parte_real.png", 0, "real", 0),
+        ("38e_patron_through.png", 6, "fase", 0),
+    ):
+        dialog = StandardDialog(library, editor.items[index], taken, model_dialog._kit_settings, lambda: "aa180_vnackn", model_dialog._model_folder, window)
+        dialog.preview.mode.setCurrentIndex(dialog.preview.mode.findData(mode))
+        dialog.preview.tabs.setCurrentIndex(tab)
+        dialog.show()
+        grab(dialog, out / name)
+        dialog.close()
+    model_dialog.close()
+    unit_dialog = EquipmentDialog(library, library.equipment["KIT-N-02"], window)
+    unit_dialog.resize(1000, 760)
+    unit_dialog.tabs.setCurrentIndex(unit_dialog.standards_tab_index)
+    unit_dialog.show()
+    grab(unit_dialog, out / "38f_kit_unidad_patrones.png")
+    unit_dialog.close()
 
 
 def main() -> None:
@@ -378,6 +413,7 @@ def main() -> None:
     s_dialog = SParameterDialog(library, library.equipment["CAB-PT-N-01"], window)
     s_dialog.show()
     grab(s_dialog, out / "32_parametros_s.png")
+    kit_captures(library, window, out)
     window.close()
     shutil.rmtree(work.parent, ignore_errors=True)
 

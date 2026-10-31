@@ -23,7 +23,9 @@ from calelektra.catalog.library import Library
 from calelektra.gui import style
 from calelektra.gui.equipment_dialogs import ModelDialog
 from calelektra.gui.icons import icon
+from calelektra.gui.kit_standards import definition_text, specifications_text
 from calelektra.instruments.factory import DRIVERS
+from calelektra.kits import TYPE_NAMES as STANDARD_TYPES
 
 KIND_NAMES = {"instrumento": "Instrumento", "pasivo": "Pasivo", "posicionador": "Posicionador", "recinto": "Recinto"}
 KIND_ICONS = {"instrumento": "vna", "pasivo": "cable", "posicionador": "setups", "recinto": "inicio"}
@@ -238,6 +240,14 @@ class CatalogView(QWidget):
                 for spec in model.s_specifications
             )
             extra += f"<br><b>Especificaciones S (pasa / falla de cada unidad):</b><ul style='margin-top:2px'>{items}</ul>"
+        if model.standards:
+            items = "".join(
+                f"<li>{html.escape(s.label or s.id)} — {html.escape(STANDARD_TYPES[s.type].lower())} {html.escape(s.gender_text)}: "
+                f"{html.escape(definition_text(s.definition))}; especificaciones: {html.escape(specifications_text(s.type, s.specifications))}</li>"
+                for s in model.standards
+            )
+            source = f" (importados de {html.escape(Path(model.kit_file).name)})" if model.kit_file else ""
+            extra += f"<br><b>Patrones del kit{source}:</b><ul style='margin-top:2px'>{items}</ul>"
         if model.specifications:
             extra += "<br><b>Especificaciones (datasheet / incertidumbre):</b> " + "; ".join(html.escape(str(s.get('fichero', s)) if isinstance(s, dict) else str(s)) for s in model.specifications)
         extra_values = {k: v for k, v in model.values.items() if not category or k not in category.fields}

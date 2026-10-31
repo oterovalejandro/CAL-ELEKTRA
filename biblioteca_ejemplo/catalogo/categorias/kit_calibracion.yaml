@@ -6,21 +6,46 @@ rf: true
 requiere_calibracion: true
 puertos: []
 campos:
-  rango_frecuencia: { etiqueta: Rango de frecuencia, tipo: rango_frecuencia, nivel: modelo, obligatorio: true, grupo: RF }
+  rango_frecuencia: { etiqueta: Rango de frecuencia (inicio – fin), tipo: rango_frecuencia, nivel: modelo, obligatorio: true, grupo: RF }
   familia_conector: { etiqueta: Familia de conector, tipo: familia_conector, nivel: modelo, obligatorio: true, grupo: RF }
   generos_disponibles:
     etiqueta: Géneros de los estándares
+    descripcion: Si el modelo define sus patrones, son los géneros con abierto, cortocircuito y carga en uso.
     tipo: multiopcion
     opciones: [macho, hembra]
     nivel: modelo
     por_defecto: [macho, hembra]
     grupo: RF
   metodos: { etiqueta: Métodos admitidos, tipo: multiopcion, opciones: [OSM, TOSM, UOSM, TRL], nivel: modelo, obligatorio: true, grupo: Calibración }
-  componentes: { etiqueta: Componentes, tipo: lista, nivel: modelo, grupo: General }
-  desviacion_fase_abierto_grados: { etiqueta: Desviación de fase del abierto (máx.), tipo: numero, unidad: °, nivel: modelo, grupo: Especificaciones }
-  desviacion_fase_corto_grados: { etiqueta: Desviación de fase del cortocircuito (máx.), tipo: numero, unidad: °, nivel: modelo, grupo: Especificaciones }
-  vswr_carga_max: { etiqueta: VSWR máximo de la carga, tipo: numero, nivel: modelo, grupo: Especificaciones }
-  vswr_adaptadores_max: { etiqueta: VSWR máximo de los adaptadores, tipo: numero, nivel: modelo, grupo: Especificaciones }
+  componentes: { etiqueta: Accesorios, tipo: lista, nivel: modelo, grupo: General, descripcion: "Lo que trae el kit además de sus patrones (llaves, adaptadores de otras familias…)." }
+  zr_real_ohm:
+    etiqueta: Zr, parte real
+    tipo: numero
+    unidad: Ω
+    nivel: modelo
+    por_defecto: 50
+    minimo: 0
+    grupo: Patrones
+    descripcion: Impedancia de referencia de las definiciones de los patrones (Zr Real de VNA Tools).
+  zr_imag_ohm:
+    etiqueta: Zr, parte imaginaria
+    tipo: numero
+    unidad: Ω
+    nivel: modelo
+    por_defecto: 0
+    grupo: Patrones
+    descripcion: Parte imaginaria de la impedancia de referencia (Zr Imag de VNA Tools).
+  puntos_patrones:
+    etiqueta: Puntos de los patrones
+    tipo: entero
+    nivel: modelo
+    por_defecto: 1800
+    minimo: 2
+    maximo: 100001
+    grupo: Patrones
+    descripcion: >-
+      Frecuencias en que se calculan los patrones definidos por su modelo, del inicio al fin del rango del kit
+      (gráfica, tabla y .sdatb). Un rango desde DC empieza un paso por encima: el modelo no está definido en DC.
   nombre_kit_vna:
     etiqueta: Nombre del kit en el VNA
     tipo: texto

@@ -1,4 +1,4 @@
-# Algoritmos y fórmulas del cálculo de incertidumbres — versiones 0.8.4, 0.10 y 0.11
+# Algoritmos y fórmulas del cálculo de incertidumbres — versiones 0.8.4, 0.10, 0.11 y 0.12
 
 Este documento reúne todo lo que CAL-ELEKTRA calcula sobre incertidumbre y cómo lo calcula:
 
@@ -7,7 +7,8 @@ Este documento reúne todo lo que CAL-ELEKTRA calcula sobre incertidumbre y cóm
 - las conversiones a las unidades de las gráficas;
 - la incertidumbre de la impedancia, nueva en 0.8.4;
 - los resultados de un cable por sentido (VSWR, pérdida de inserción y retardo de grupo) y su incertidumbre, nuevos en 0.10;
-- la incertidumbre con dependencias de los ficheros de METAS VNA Tools (`.sdatb`, `.sdatcv`), nueva en 0.11.
+- la incertidumbre con dependencias de los ficheros de METAS VNA Tools (`.sdatb`, `.sdatcv`), nueva en 0.11;
+- los patrones de los kits de calibración: el modelo de Keysight y la incertidumbre de sus especificaciones eléctricas, nuevos en 0.12.
 
 Cada sección indica el código que la implementa y los tests que la comprueban.
 
@@ -19,6 +20,7 @@ Cada sección indica el código que la implementa y los tests que la comprueban.
 | U de \|Z\| y ∠Z | Propagación a partir de la U de S11 | `uncertainty/impedance.py` |
 | U del VSWR, de la pérdida de inserción y del retardo de grupo de un cable (Fwd y Rev) | A partir de la U de S11, S21, S12 y S22 (§5) | `procedures/cable_results.py` |
 | u y covarianzas de los datos de un `.sdatb` o un `.sdatcv` | Propagación lineal del presupuesto de METAS (§6) | `sdata/unclib.py`, `sdata/model.py` |
+| Γ de un patrón de un kit y su u | Modelo de Keysight y especificaciones eléctricas, k = 2 (§7) | `kits/agilent.py`, `kits/specs.py` |
 
 ## 1. Notación
 
@@ -490,7 +492,73 @@ Con esas entradas, J·Jᵀ = Q·Λ·Qᵀ = C_G: la covarianza se reproduce exact
 - **Ida y vuelta por `.sdatcv`:** devuelve la misma covarianza en cada frecuencia (rtol 10⁻⁹).
 - **Adaptador:** su covarianza con la carga, a través de las entradas comunes, no es nula.
 
-## 7. Ficheros del código y tests
+## 7. Patrones de los kits de calibración (nuevo en 0.12)
+
+Ver el uso en [`15_kits_de_calibracion.md`](15_kits_de_calibracion.md). Nada de esta sección cambia la incertidumbre de las medidas, que sigue siendo el algoritmo del laboratorio (§2).
+
+### 7.1 Modelo de Keysight («Agilent model» de VNA Tools)
+
+Nota de aplicación 1287-11 de Keysight. El patrón es una línea offset de impedancia Z0, retardo τ y pérdidas L (Ω/s a 1 GHz) terminada en su carga. A la frecuencia f (ω = 2πf):
+
+```
+αl = L·τ / (2·Z0) · √(f / 1 GHz)                βl = ω·τ + αl
+Zc = Z0 + (1 − j) · L / (2ω) · √(f / 1 GHz)       γl = αl + j·βl
+```
+
+| Terminación | Impedancia |
+|---|---|
+| Abierto | Z = 1/(jωC), con C = C0 + C1·f + C2·f² + C3·f³ |
+| Cortocircuito | Z = jωL, con L = L0 + L1·f + L2·f² + L3·f³ |
+| Carga | Z = la de la carga, por defecto Z0 (terminación adaptada) |
+
+La reflexión, referida a la impedancia de referencia Zr del kit (50 Ω):
+
+```
+Γ1 = (Zc − Zr)/(Zc + Zr)    ΓL = (Z − Zr)/(Z + Zr)    E = e^(−2γl)
+Γ  = [Γ1·(1 − E − Γ1·ΓL) + E·ΓL] / [1 − Γ1·(E·Γ1 + ΓL·(1 − E))]
+```
+
+- **Equivalencia:** es la impedancia de entrada de la línea, Zin = Zc·(Z + Zc·tanh γl)/(Zc + Z·tanh γl), vista desde Zr. Los tests lo comprueban a 10⁻¹².
+- **Through:** la propia línea, recíproca y simétrica:
+  - S11 = S22 = Γ1·(1 − E)/(1 − Γ1²·E);
+  - S21 = S12 = (1 − Γ1²)·e^(−γl)/(1 − Γ1²·E).
+
+  Con retardo 0, S21 = 1 y S11 = 0, sean cuales sean sus pérdidas.
+- **DC:** el modelo no está definido en DC (el término de pérdidas crece como 1/√f), así que las frecuencias son siempre mayores que 0.
+- **Medio:** solo coaxial.
+
+### 7.2 Incertidumbre de las especificaciones eléctricas (k = 2)
+
+**Tabla:** cada fila da los valores especificados desde su frecuencia. Entre filas se interpola linealmente y fuera de la tabla vale la fila más cercana, de modo que U(f) es el valor de la tabla en f.
+
+**Entradas:** cada magnitud es una entrada normal estándar del presupuesto (§6), común a todas las frecuencias: una desviación sistemática del patrón respecto a su definición. Su sensibilidad es U(f)/2 por la derivada correspondiente:
+
+| Patrón | Magnitud | Sensibilidad (∂Γ por unidad) |
+|---|---|---|
+| Abierto, cortocircuito | Desviación de módulo δM (dB) | Γ·ln10/20 |
+| Abierto, cortocircuito | Desviación de fase δφ (°) | j·Γ·π/180 |
+| Carga | Pérdidas de retorno RL (dB) | U = 10^(RL/20) en la parte real y en la imaginaria, dos entradas (−40 dB → 0,01) |
+| Through | Pérdidas de retorno | Como la carga, en S11 y en S22 (cuatro entradas) |
+| Through | Desviación de módulo y de fase de la transmisión | Como en el abierto, una entrada para cada una, la misma en S21 y S12 (es recíproco) |
+
+**Ficheros por datos:** un `.sdatb` trae su propia incertidumbre y no se le añade la de las especificaciones; un `.sNp`, sí.
+
+**Tabla de un patrón** (`table_rows`), en cada frecuencia y parámetro, con la covarianza C de la parte real y la imaginaria:
+- U(Re) = k·√C₁₁ y U(Im) = k·√C₂₂;
+- U(|S|) = k·√(gᵀ·C·g), con g = (Re, Im)/|S|;
+- U(∠S) = k·√(hᵀ·C·h), con h = (−Im, Re)/|S|²;
+- si |S| = 0, U(|S|) = k·√((C₁₁ + C₂₂)/2) y la fase no está definida;
+- los restos de redondeo (< 10⁻¹⁴ de la traza de C) cuentan como 0: una desviación solo de fase no tiene parte radial.
+
+### 7.3 Comprobación
+
+Con el `.ckt` del AA180-VNACKN y las especificaciones de su hoja de datos (fase 1,5°, VSWR 1,055), comparado con los ficheros que el laboratorio comprobó en METAS VNA Tools:
+
+- valores: diferencia máxima 2·10⁻¹⁵;
+- u del abierto y del cortocircuito: diferencia máxima 3·10⁻¹⁷;
+- a 1 GHz, el abierto macho vale 0,99988 ∠ −45,08°, con u = 0,009268 en la parte real y 0,009242 en la imaginaria.
+
+## 8. Ficheros del código y tests
 
 | Fichero | Contenido |
 |---|---|
@@ -504,8 +572,11 @@ Con esas entradas, J·Jᵀ = Q·Λ·Qᵀ = C_G: la covarianza se reproduce exact
 | `core/networks.py` | `group_delay`, `step_delay`, `smoothed` y `transmission_delay` (§5.3) |
 | `sdata/unclib.py` | Números con dependencias, u de las distribuciones, covarianza y `cross_covariance` (§6.1 – 6.2), entradas a partir de una covarianza (§6.3) |
 | `sdata/model.py` | `standard_uncertainty` y `point_covariance` de los parámetros S |
+| `kits/agilent.py` | Modelo de Keysight de los patrones (§7.1) |
+| `kits/specs.py`, `kits/standards.py` | Especificaciones eléctricas → incertidumbre, tabla de un patrón (§7.2) |
 | `tests/test_uncertainty.py` | Motor frente al script del laboratorio; incertidumbre del ensayo de la LISN, con Z |
 | `tests/test_uncertainty_impedance.py` | Fórmulas de §4 frente a Monte Carlo y al muestreo del disco |
 | `tests/test_conditions.py` | Pendiente / completa y recálculo, también de Z |
 | `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido con su U y sus límites frente al certificado del laboratorio |
 | `tests/test_sdata.py` | §6 con los ficheros de VNA Tools del laboratorio y los ejemplos de METAS |
+| `tests/test_kits.py` | §7 con el `.ckt` del AA180-VNACKN, frente a los ficheros comprobados en VNA Tools |

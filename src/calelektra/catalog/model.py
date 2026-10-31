@@ -10,6 +10,10 @@ where the field level allows it, overrides the model.
 The S-parameter specifications of a model (``especificaciones_s``: S2P/S1P
 files and how to compare a measurement with them) give the pass / fail of
 every unit of that model when it is calibrated (``procedures/specs.py``).
+
+A calibration kit model lists its standards (``patrones``: ``kits/model.py``)
+and each unit of the kit gives the serial number, the state and, if its
+certificate characterizes them, the data of its standards.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from typing import Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from calelektra.catalog.fields import FieldSpec, ResolvedField, resolve
+from calelektra.kits.model import KitStandard, UnitStandard
 
 FORMAT_PREFIX = "calelektra/"
 FORMAT_VERSION = "0.3"
@@ -179,6 +184,23 @@ class EquipmentModel(CatalogItem):
     specifications: list[Any] = Field(default_factory=list, alias="especificaciones")  # datasheet / uncertainty files (stored)
     s_specifications: list[SpecFile] = Field(default_factory=list, alias="especificaciones_s")  # pass / fail of each unit
     documents: list[Any] = Field(default_factory=list, alias="documentos")
+    standards: list[KitStandard] = Field(default_factory=list, alias="patrones")  # of a calibration kit
+    kit_file: str | None = Field(default=None, alias="fichero_kit")  # the .ckt its standards were imported from
+
+    @model_validator(mode="after")
+    def _unique_standards(self) -> "EquipmentModel":
+        ids = [standard.id for standard in self.standards]
+        repeated = sorted({i for i in ids if ids.count(i) > 1})
+        if repeated:
+            raise ValueError(f"identificadores de patrón repetidos: {', '.join(repeated)}")
+        return self
+
+    def to_yaml_dict(self) -> dict[str, Any]:
+        data = super().to_yaml_dict()
+        data.pop("patrones", None)
+        if self.standards:
+            data["patrones"] = [standard.to_yaml() for standard in self.standards]
+        return data
 
     @property
     def display_name(self) -> str:
@@ -237,6 +259,15 @@ class Equipment(CatalogItem):
     uncertainty_file: str | None = Field(default=None, alias="incertidumbre")  # uncertainty data file of the unit (VNA)
     location: str | None = Field(default=None, alias="ubicacion")
     notes: str | None = Field(default=None, alias="notas")
+    standards: dict[str, UnitStandard] = Field(default_factory=dict, alias="patrones")  # of a calibration kit, by id
+
+    def to_yaml_dict(self) -> dict[str, Any]:
+        data = super().to_yaml_dict()
+        data.pop("patrones", None)
+        standards = {key: unit.to_yaml() for key, unit in self.standards.items() if not unit.empty}
+        if standards:
+            data["patrones"] = standards
+        return data
 
     @property
     def simulated(self) -> bool:

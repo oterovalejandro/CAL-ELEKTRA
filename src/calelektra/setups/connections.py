@@ -372,7 +372,7 @@ def design_calibration(
     design.kit = kit
     design.kit_family = library.field(kit, "familia_conector")
     design.kit_name = library.field(kit, "nombre_kit_vna")
-    genders = library.field(kit, "generos_disponibles", [])
+    genders = library.kit_genders(kit)  # from its standards (open, short and load usable), or the field
     kit_methods = library.field(kit, "metodos", [])
     for plane in planes:
         connector = plane.connector

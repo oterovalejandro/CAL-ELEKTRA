@@ -8,6 +8,7 @@ Folder layout under the library root::
     catalogo/especificaciones/          specification files of the models: S2P/S1P for pass / fail
                                         (``especificaciones_s``) and datasheet/uncertainty YAML (stored)
     catalogo/datos_s/*.sNp              S-parameter files referenced by equipment
+    catalogo/patrones/<kit>/*           data of the standards of the calibration kits (.sdatb, .sNp)
     catalogo/incertidumbres/*.yaml      uncertainty data files of the VNA units (``incertidumbre`` of the
                                         equipment): datasheet, certificate, trace noise, temperature…
     hardware_setups/plantillas/*.yaml   generic hardware setup templates
@@ -21,6 +22,7 @@ Folder layout under the library root::
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import unicodedata
@@ -34,13 +36,16 @@ from pydantic import BaseModel, ValidationError
 
 from calelektra.catalog.fields import ResolvedField, missing_required, validate_values
 from calelektra.catalog.model import Category, Equipment, EquipmentModel, PortDef, SpecFile, parse_format, resolved_fields
-from calelektra.core.connectors import Connector
+from calelektra.core.connectors import GENDERS, Connector
 from calelektra.core.frequency import FrequencyRange, intersect_all
 from calelektra.core.issues import Issue, Severity
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError
+from calelektra.kits.standards import DEFAULT_POINTS, KitSettings, ResolvedStandard, export_sdatb, resolve_standards, standard_data
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import RECORD_FILE, TestRecord
+from calelektra.sdata.files import load_sparam_data
+from calelektra.sdata.model import SParamData
 from calelektra.setups.model import SETUP_FORMAT_VERSION, ConfiguredSetup, SetupTemplate
 from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
 
@@ -54,6 +59,8 @@ FOLDERS = {
     "procedimiento": Path("procedimientos"),
 }
 S_PARAMETER_FOLDER = Path("catalogo/datos_s")
+STANDARDS_FOLDER = Path("catalogo/patrones")
+OSM_TYPES = frozenset({"abierto", "cortocircuito", "carga"})  # the standards of a gender that a kit needs to calibrate a port
 UNCERTAINTY_FOLDER = Path("catalogo/incertidumbres")
 LIST_FOLDER = Path("hardware_setups/listas")
 TESTS_FOLDER = Path("ensayos")
@@ -113,6 +120,7 @@ class Library:
         self.load_issues: list[Issue] = []
         self._touchstone_cache: dict[Path, tuple[float, Touchstone]] = {}
         self._uncertainty_cache: dict[Path, tuple[float, UncertaintyEngine]] = {}
+        self._standard_cache: dict[Path, tuple[float, SParamData]] = {}
 
     # ── loading ────────────────────────────────────────────────────────────
     @classmethod
@@ -127,6 +135,7 @@ class Library:
         self.load_issues = []
         self._touchstone_cache.clear()
         self._uncertainty_cache.clear()
+        self._standard_cache.clear()
         self.categories = self._load_kind("categoria", Category)
         self.models = self._load_kind("modelo", EquipmentModel)
         self.equipment = self._load_kind("equipo", Equipment)
@@ -201,6 +210,16 @@ class Library:
             )
             resolved = resolved_fields(category, model)
             self.load_issues.extend(missing_required(category.fields, resolved, owner, ("modelo",)))
+            for resolved in self.kit_standards(model):
+                path = resolved.data_path()
+                if resolved.definition.kind == "datos" and (path is None or not path.is_file()):
+                    self._issue(
+                        Severity.WARNING,
+                        "modelo.patron",
+                        f"Modelo «{model.id}»: no se encuentra el fichero de datos del patrón «{resolved.standard.label or resolved.id}» "
+                        f"({resolved.definition.file})",
+                        model.source_path,
+                    )
             for spec in model.s_specifications:
                 if not self.spec_path(model, spec).is_file():
                     self._issue(
@@ -231,6 +250,15 @@ class Library:
                     Severity.ERROR,
                     "equipo.datos_s",
                     f"Equipo «{eq.id}»: no se encuentra el fichero de parámetros S «{eq.s_parameters.file}»",
+                    eq.source_path,
+                    equipment_id=eq.id,
+                )
+            unknown = sorted(set(eq.standards) - {standard.id for standard in model.standards})
+            if unknown:
+                self._issue(
+                    Severity.WARNING,
+                    "equipo.patron",
+                    f"Equipo «{eq.id}»: patrones que no están en el modelo «{model.id}»: {', '.join(unknown)}",
                     eq.source_path,
                     equipment_id=eq.id,
                 )
@@ -486,6 +514,111 @@ class Library:
         if source.resolve() != target.resolve():
             shutil.copy2(source, target)
         return str(Path("..") / "incertidumbres" / source.name)
+
+    # ── standards of the calibration kits ──────────────────────────────────
+    def kit_settings(self, model: EquipmentModel, equipment: Equipment | None = None) -> KitSettings:
+        """Name, reference impedance (Zr), frequency range and points of the standards of a kit."""
+        category = self.categories.get(model.category)
+        fields = resolved_fields(category, model, equipment) if category else {}
+
+        def value(key: str, default: Any) -> Any:
+            item = fields.get(key)
+            return item.value if item is not None and item.value is not None else default
+
+        zr = complex(float(value("zr_real_ohm", 50.0)), float(value("zr_imag_ohm", 0.0)))
+        return KitSettings(model.designation, zr, value("rango_frecuencia", None), int(value("puntos_patrones", DEFAULT_POINTS)))
+
+    def kit_standards(self, model: EquipmentModel, equipment: Equipment | None = None) -> list[ResolvedStandard]:
+        """The standards of a kit model, with what a unit of the kit says of each one."""
+        model_folder = model.source_path.parent if model.source_path else self.root / FOLDERS["modelo"]
+        unit_folder = None
+        if equipment is not None:
+            unit_folder = equipment.source_path.parent if equipment.source_path else self.root / FOLDERS["equipo"]
+        return resolve_standards(model.standards, equipment.standards if equipment else {}, model_folder, unit_folder)
+
+    def _standard_file(self, path: Path) -> SParamData:
+        """S-parameter data of a file of a standard (cached until the file changes)."""
+        mtime = path.stat().st_mtime
+        cached = self._standard_cache.get(path)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        data = load_sparam_data(path)
+        self._standard_cache[path] = (mtime, data)
+        return data
+
+    def standard_data(self, resolved: ResolvedStandard, settings: KitSettings) -> SParamData:
+        """S-parameters of a standard with their uncertainty (``kits/standards.py``)."""
+        return standard_data(resolved, settings, loader=self._standard_file)
+
+    def export_standards(self, standards: list[ResolvedStandard], settings: KitSettings, folder: Path) -> list[Path]:
+        """A ``.sdatb`` per standard with definition, named as VNA Tools names them."""
+        return export_sdatb(standards, settings, folder, loader=self._standard_file)
+
+    def copy_standard_file(self, source: Path, kit_id: str) -> tuple[str, str]:
+        """Copy the data of a standard into ``catalogo/patrones/<kit>/``; its path relative to the models and
+        equipment, and its SHA-256."""
+        folder = re.sub(r"[^A-Za-z0-9_.-]+", "_", kit_id) or "kit"
+        target_dir = self.root / STANDARDS_FOLDER / folder
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / Path(source).name
+        if Path(source).resolve() != target.resolve():
+            shutil.copy2(source, target)
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        return str(Path("..") / "patrones" / folder / Path(source).name), digest
+
+    def kit_genders(self, equipment: Equipment) -> list[str]:
+        """Genders for which the kit has an open, a short and a load usable and defined.
+
+        Without standards in its model, those of the field «Géneros de los estándares»."""
+        model = self.model_of(equipment)
+        if model is None or not model.standards:
+            return list(self.field(equipment, "generos_disponibles", []))
+        kinds: dict[str, set[str]] = {}
+        for resolved in self.kit_standards(model, equipment):
+            if resolved.usable and resolved.definition.kind != "ninguna" and resolved.standard.ports == 1:
+                kinds.setdefault(resolved.standard.genders[0], set()).add(resolved.standard.type)
+        return [gender for gender in GENDERS if OSM_TYPES <= kinds.get(gender, set())]
+
+    def kit_issues(self, equipment: Equipment) -> list[Issue]:
+        """State of the standards of a kit unit: damaged, replaced after the certificate, without
+        definition, without their data file or with data older than the certificate of the kit."""
+        model = self.model_of(equipment)
+        if model is None or not model.standards:
+            return []
+        issues: list[Issue] = []
+        owner = f"Kit «{equipment.id}»"
+        issued = equipment.calibration.issued if equipment.calibration else None
+
+        def add(severity: Severity, code: str, message: str) -> None:
+            issues.append(Issue(severity, code, f"{owner}: {message}", equipment_id=equipment.id))
+
+        for resolved in self.kit_standards(model, equipment):
+            name = resolved.standard.label or resolved.id
+            unit = resolved.unit
+            if resolved.state == "danado":
+                add(Severity.WARNING, "patron.danado", f"el patrón «{name}» está dañado y no se usa")
+            if unit and unit.state == "sustituido" and unit.state_date and issued and unit.state_date > issued:
+                add(
+                    Severity.WARNING,
+                    "patron.sustituido",
+                    f"el patrón «{name}» se sustituyó el {unit.state_date:%d/%m/%Y}, después del certificado del kit "
+                    f"({issued:%d/%m/%Y}): la calibración no lo cubre",
+                )
+            definition = resolved.definition
+            if definition.kind == "ninguna" and resolved.standard.type != "adaptador":
+                add(Severity.WARNING, "patron.sin_definicion", f"el patrón «{name}» no tiene definición")
+            if definition.kind == "datos":
+                path = resolved.data_path()
+                if path is None or not path.is_file():
+                    add(Severity.ERROR, "patron.fichero", f"no se encuentra el fichero de datos del patrón «{name}» ({definition.file})")
+                if resolved.own_definition and definition.data_date and issued and definition.data_date < issued:
+                    add(
+                        Severity.WARNING,
+                        "patron.datos_antiguos",
+                        f"los datos del patrón «{name}» son del {definition.data_date:%d/%m/%Y}, anteriores al último "
+                        f"certificado del kit ({issued:%d/%m/%Y})",
+                    )
+        return issues
 
     def frequency_range_of(self, equipment: Equipment) -> EquipmentRange:
         """Usable range: intersection of the model's range, the unit's own range and its S-parameter data."""

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import html
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -38,11 +39,15 @@ from calelektra.catalog.model import (
 from calelektra.core.touchstone import TouchstoneError, read_touchstone
 from calelektra.gui import style
 from calelektra.gui.field_form import FieldForm
+from calelektra.gui.kit_standards import KitStandardsEditor, UnitStandardsEditor
 from calelektra.gui.template_widgets import SpecEditor
 from calelektra.instruments.factory import DRIVERS
+from calelektra.kits import CktKit, KitSettings
+from calelektra.setups.analysis import CALIBRATION_WARNING_DAYS
 from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
+KIT_CATEGORY = "kit_calibracion"
 
 
 def _parse_date(text: str, label: str) -> date | None:
@@ -153,6 +158,12 @@ class EquipmentDialog(QDialog):
         self.calibration_form = cal_form
         self.tabs.addTab(calibration, "Calibración")
 
+        self.unit_standards = UnitStandardsEditor(library, lambda: self.id_edit.text().strip() or "kit", self._unit_folder)
+        self.unit_standards.changed.connect(self._update_kit_status)
+        self.due.textEdited.connect(lambda _t: self._update_kit_status())
+        self.issued.textEdited.connect(lambda _t: self._update_kit_status())
+        self.standards_tab_index = self.tabs.addTab(self.unit_standards, "Patrones")
+
         s_data = QWidget()
         s_form = QFormLayout(s_data)
         self.s_file = QLineEdit()
@@ -241,6 +252,7 @@ class EquipmentDialog(QDialog):
         is_vna = category_id == "vna"  # the uncertainty engine is for VNA S-parameters
         self.calibration_form.setRowVisible(self.uncertainty_row, is_vna)
         self.calibration_form.setRowVisible(self.uncertainty_info, is_vna)
+        self.tabs.setTabVisible(self.standards_tab_index, category_id == KIT_CATEGORY)
         self._model_changed()
 
     def _model_changed(self) -> None:
@@ -253,6 +265,40 @@ class EquipmentDialog(QDialog):
         self._build_fields(current)
         model = self.library.models.get(self.model.currentData())
         self.driver_label.setText(DRIVERS.get(model.driver, model.driver or "—") if model else "—")
+        self.unit_standards.load(model if model and model.category == KIT_CATEGORY else None, self.unit_standards.units)
+        self._update_kit_status()
+
+    def _unit_folder(self) -> Path:
+        if self.original is not None and self.original.source_path:
+            return self.original.source_path.parent
+        return self.library.root / "catalogo" / "equipos"
+
+    def _update_kit_status(self) -> None:
+        """Validity of the calibration of the kit and the state of its standards (tab «Patrones»)."""
+        model = self.library.models.get(self.model.currentData())
+        if model is None or model.category != KIT_CATEGORY:
+            return
+        try:
+            issued = _parse_date(self.issued.text(), "Fecha de calibración")
+            due = _parse_date(self.due.text(), "Próxima calibración")
+        except FieldError:
+            issued = due = None
+        today = date.today()
+        if due is None:
+            text = "<b>Calibración del kit:</b> sin fecha de próxima calibración (pestaña «Calibración»)"
+        elif due < today:
+            text = f"<b style='color:#c0392b'>Calibración del kit caducada el {due:%d/%m/%Y}</b>: un setup no lo admite"
+        elif due <= today + timedelta(days=CALIBRATION_WARNING_DAYS):
+            text = f"<b style='color:#d98a00'>La calibración del kit caduca el {due:%d/%m/%Y}</b>"
+        else:
+            text = f"<b>Calibración del kit:</b> válida hasta el {due:%d/%m/%Y}"
+        probe = Equipment(id=self.id_edit.text().strip() or "kit", model_id=model.id, calibration=Calibration(issued=issued, due=due),
+                          standards=self.unit_standards.units)
+        probe.set_source_path(self.original.source_path if self.original else None)
+        for issue in self.library.kit_issues(probe):
+            color = "#c0392b" if issue.severity.name == "ERROR" else "#d98a00"
+            text += f"<br><span style='color:{color}'>• {html.escape(issue.message.split(': ', 1)[-1])}</span>"
+        self.unit_standards.set_status(text)
 
     def _build_fields(self, values: dict) -> None:
         if self.form is not None:
@@ -277,6 +323,8 @@ class EquipmentDialog(QDialog):
         self.description.setText(equipment.description or "")
         self.notes.setPlainText(equipment.notes or "")
         self._build_fields(dict(equipment.values))
+        model = self.library.model_of(equipment)
+        self.unit_standards.load(model if model and model.category == KIT_CATEGORY else None, {} if copy else equipment.standards)
         if equipment.calibration and not copy:
             c = equipment.calibration
             self.certificate.setText(c.certificate or "")
@@ -295,6 +343,7 @@ class EquipmentDialog(QDialog):
             self.simulated.setChecked(equipment.connection.simulated)
             self.resource.setText(equipment.connection.resource or "")
             self.timeout.setValue(equipment.connection.timeout_ms or 0)
+        self._update_kit_status()
 
     def _describe_uncertainty(self, equipment: Equipment) -> None:
         try:
@@ -402,6 +451,7 @@ class EquipmentDialog(QDialog):
             uncertainty_file=(self.uncertainty_file.text().strip() or None) if category.id == "vna" else None,
             location=self.location.text().strip() or None,
             notes=self.notes.toPlainText().strip() or None,
+            standards=dict(self.unit_standards.units) if category.id == KIT_CATEGORY else {},
         )
         equipment.set_source_path(self.original.source_path if self.original else None)
         return equipment
@@ -479,6 +529,22 @@ class ModelDialog(QDialog):
         self.specs_card.body.addWidget(specs_note)
         self.specs_card.body.addWidget(self.specs)
         self.fields_layout.addWidget(self.specs_card)
+        self.kit_file: str | None = model.kit_file if model else None
+        self.kit_card = style.Card("Patrones del kit", icon_name="catalogo")
+        kit_note = QLabel(
+            "Cada patrón con su definición: por el modelo de Keysight (línea offset y C0–C3 o L0–L3, el «Agilent model» "
+            "de METAS VNA Tools), por datos (.sdatb con su incertidumbre, o .sNp) o sin definición (los adaptadores del "
+            "through desconocido), y con sus especificaciones eléctricas (k = 2). Se pueden importar de un fichero de kit "
+            "de Keysight (.ckt). Zr, rango y puntos: los campos del grupo «Patrones» y el rango del kit. El nº de serie y "
+            "los datos del certificado de cada patrón van en cada unidad del kit (Inventario)."
+        )
+        kit_note.setObjectName("pageSubtitle")
+        kit_note.setWordWrap(True)
+        self.kit_editor = KitStandardsEditor(library, lambda: self.id_edit.text().strip() or "kit", self._kit_settings, self._model_folder)
+        self.kit_editor.ckt_imported.connect(self._ckt_imported)
+        self.kit_card.body.addWidget(kit_note)
+        self.kit_card.body.addWidget(self.kit_editor)
+        self.fields_layout.addWidget(self.kit_card)
         layout.addWidget(_scrolling(self.fields_holder), 1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -513,6 +579,7 @@ class ModelDialog(QDialog):
                     self.driver.setEditText(model.driver)
             self._build_fields(dict(model.values))
             self.specs.load(model.s_specifications)
+            self.kit_editor.load(model.standards)
 
     def _spec_path(self, reference: str) -> Path:
         path = Path(reference)
@@ -528,7 +595,43 @@ class ModelDialog(QDialog):
         self.driver_row_label.setVisible(visible)
         ports = len(category.ports) if category is not None and isinstance(category.ports, list) else 2
         self.specs.set_traces(("S11", "S21", "S12", "S22") if ports >= 2 else ("S11",))
+        is_kit = bool(category and category.id == KIT_CATEGORY)
+        self.kit_card.setVisible(is_kit)
+        self.specs_card.setVisible(not is_kit)  # a kit is not the EUT of a test
         self._build_fields({})
+
+    def _model_folder(self) -> Path:
+        if self.original is not None and self.original.source_path:
+            return self.original.source_path.parent
+        return self.library.root / "catalogo" / "modelos"
+
+    def _kit_settings(self) -> KitSettings:
+        """Zr, range and points of the kit as they are now in the form."""
+        try:
+            values = self.form.values() if self.form is not None else {}
+        except FieldError:
+            values = {}
+        probe = EquipmentModel(
+            id=self.id_edit.text().strip() or "kit",
+            category=self.category.currentData() or KIT_CATEGORY,
+            manufacturer=self.manufacturer.text().strip() or "—",
+            designation=self.designation.text().strip() or self.id_edit.text().strip() or "kit",
+            values=values,
+        )
+        return self.library.kit_settings(probe)
+
+    def _ckt_imported(self, kit: CktKit, path: Path) -> None:
+        """What the .ckt says of the kit fills the empty fields; the .ckt is kept in the library."""
+        if not self.designation.text().strip():
+            self.designation.setText(kit.label)
+        if not self.description.text().strip() and kit.description:
+            self.description.setText(kit.description)
+        if self.form is not None:
+            for key, value in (("familia_conector", kit.family), ("nombre_kit_vna", kit.label)):
+                editor = self.form.editors.get(key)
+                if editor is not None and value and editor.raw() is None:
+                    editor.set_value(value)
+        self.kit_file, _digest = self.library.copy_standard_file(path, self.id_edit.text().strip() or kit.label)
 
     def _build_fields(self, values: dict) -> None:
         if self.form is not None:
@@ -573,7 +676,10 @@ class ModelDialog(QDialog):
             s_specifications = self.specs.specs()
         except ValueError as exc:
             raise FieldError(f"Especificaciones S: {exc}") from exc
+        standards = self.kit_editor.standards() if category_id == KIT_CATEGORY else (list(self.original.standards) if self.original else [])
         update = dict(
+            standards=standards,
+            kit_file=self.kit_file if category_id == KIT_CATEGORY else None,
             id=model_id,
             category=category_id,
             manufacturer=self.manufacturer.text().strip(),

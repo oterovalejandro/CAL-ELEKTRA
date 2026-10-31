@@ -1,31 +1,180 @@
 # Kit de calibración N 50 Ω AA180-VNACKN, DC – 18 GHz: abierto, cortocircuito y
-# carga macho y hembra, adaptadores N (h) – N (h) y N (m) – N (m) (through
-# desconocido de la UOSM) y adaptadores 7 mm – N.
+# carga macho y hembra, through insertable, adaptadores N (h) – N (h) y N (m) – N (m)
+# (through desconocido de la UOSM) y adaptadores 7 mm – N.
+# Patrones importados del fichero de kit de Keysight AA180-VNACKN1.ckt (comprobado con
+# METAS VNA Tools); especificaciones eléctricas (k = 2) de la hoja de datos: fase del
+# abierto y del cortocircuito ≤ 1,5°, VSWR de la carga ≤ 1,055 (pérdidas de retorno −31,45 dB).
 formato: calelektra/modelo@0.3
 id: aa180_vnackn
 categoria: kit_calibracion
 fabricante: Genérico            # A CONFIRMAR: fabricante del kit
 modelo: AA180-VNACKN
+descripcion: TypeN (50) Calibration Kit
+fichero_kit: ../patrones/aa180_vnackn/AA180-VNACKN1.ckt   # de donde se importaron los patrones
 campos:
   rango_frecuencia: [DC, 18 GHz]
   familia_conector: N
   generos_disponibles: [macho, hembra]
   metodos: [OSM, TOSM, UOSM]
   nombre_kit_vna: AA180-VNACKN        # A CONFIRMAR: nombre con el que se cargue el kit en el VNA
+  zr_real_ohm: 50
+  zr_imag_ohm: 0
+  puntos_patrones: 1800
   componentes:
-    - Abierto N (m)
-    - Abierto N (h)
-    - Cortocircuito N (m)
-    - Cortocircuito N (h)
-    - Carga N (m)
-    - Carga N (h)
-    - Adaptador N (h) – N (h)
-    - Adaptador N (m) – N (m)
     - 2 adaptadores 7 mm – N (m)
     - 2 adaptadores 7 mm – N (h)
     - Llave dinamométrica N
     - Llave de gancho
-  desviacion_fase_abierto_grados: 1.5
-  desviacion_fase_corto_grados: 1.5
-  vswr_carga_max: 1.055
-  vswr_adaptadores_max: 1.083
+patrones:
+- id: carga_m
+  tipo: carga
+  etiqueta: BROADBAND LOAD -M-
+  descripcion: Type N (50) male broadband load
+  generos:
+  - macho
+  definicion:
+    clase: modelo
+    z0_offset_ohm: 50.0
+    retardo_offset_ps: 0.0
+    perdidas_offset_gohm_s: 0.0
+  especificaciones:
+  - frecuencia: 0 Hz
+    perdidas_retorno_db: -31.45
+- id: abierto_m
+  tipo: abierto
+  etiqueta: OPEN -M-
+  descripcion: Type N (50) male open
+  generos:
+  - macho
+  definicion:
+    clase: modelo
+    z0_offset_ohm: 50.0
+    retardo_offset_ps: 57.993
+    perdidas_offset_gohm_s: 0.93
+    c:
+    - 89.939
+    - 2536.7999
+    - -264.9901
+    - 13.4
+  especificaciones:
+  - frecuencia: 0 Hz
+    modulo_db: 0.0
+    fase_grados: 1.5
+- id: cortocircuito_m
+  tipo: cortocircuito
+  etiqueta: SHORT -M-
+  descripcion: Type N (50) male short
+  generos:
+  - macho
+  definicion:
+    clase: modelo
+    z0_offset_ohm: 50.0
+    retardo_offset_ps: 63.078
+    perdidas_offset_gohm_s: 1.1273
+    l:
+    - 0.7563
+    - 459.8799
+    - -52.429
+    - 1.5846
+  especificaciones:
+  - frecuencia: 0 Hz
+    modulo_db: 0.0
+    fase_grados: 1.5
+- id: carga_h
+  tipo: carga
+  etiqueta: BROADBAND LOAD -F-
+  descripcion: Type N (50) female broadband load
+  generos:
+  - hembra
+  rango:
+  - DC
+  - 18.6 GHz
+  definicion:
+    clase: modelo
+    z0_offset_ohm: 50.0
+    retardo_offset_ps: 0.0
+    perdidas_offset_gohm_s: 0.0
+  especificaciones:
+  - frecuencia: 0 Hz
+    perdidas_retorno_db: -31.45
+- id: abierto_h
+  tipo: abierto
+  etiqueta: OPEN -F-
+  descripcion: Type N (50) female open
+  generos:
+  - hembra
+  rango:
+  - DC
+  - 18.6 GHz
+  definicion:
+    clase: modelo
+    z0_offset_ohm: 50.0
+    retardo_offset_ps: 22.905
+    perdidas_offset_gohm_s: 0.93
+    c:
+    - 104.13
+    - -1943.4008
+    - 144.62
+    - 2.2258
+  especificaciones:
+  - frecuencia: 0 Hz
+    modulo_db: 0.0
+    fase_grados: 1.5
+- id: cortocircuito_h
+  tipo: cortocircuito
+  etiqueta: SHORT -F-
+  descripcion: Type N (50) female short
+  generos:
+  - hembra
+  rango:
+  - DC
+  - 18.6 GHz
+  definicion:
+    clase: modelo
+    z0_offset_ohm: 50.0
+    retardo_offset_ps: 27.99
+    perdidas_offset_gohm_s: 1.13651
+    l:
+    - -0.1315
+    - 606.2089
+    - -68.405
+    - 2.0206
+  especificaciones:
+  - frecuencia: 0 Hz
+    modulo_db: 0.0
+    fase_grados: 1.5
+- id: through_hm
+  tipo: through
+  etiqueta: THRU
+  descripcion: Insertable thru standard
+  generos:
+  - hembra
+  - macho
+  rango:
+  - DC
+  - 18.6 GHz
+  definicion:
+    clase: modelo
+    z0_offset_ohm: 50.0
+    retardo_offset_ps: 0.0
+    perdidas_offset_gohm_s: 2.2
+- id: adaptador_hh
+  tipo: adaptador
+  etiqueta: ADAPTER N(f)-N(f)
+  descripcion: 'Adaptador N (h) – N (h): through desconocido de la UOSM'
+  generos:
+  - hembra
+  - hembra
+  definicion:
+    clase: ninguna
+  notas: VSWR ≤ 1,083 (hoja de datos)
+- id: adaptador_mm
+  tipo: adaptador
+  etiqueta: ADAPTER N(m)-N(m)
+  descripcion: 'Adaptador N (m) – N (m): through desconocido de la UOSM'
+  generos:
+  - macho
+  - macho
+  definicion:
+    clase: ninguna
+  notas: VSWR ≤ 1,083 (hoja de datos)

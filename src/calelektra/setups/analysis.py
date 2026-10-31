@@ -404,6 +404,8 @@ class _Analyzer:
             add(Severity.ERROR, "equipo.estado", f"«{equipment_id}» no está en servicio ({equipment.status.replace('_', ' ')})")
         if not role.is_dut:
             self._check_calibration(equipment, category.requires_calibration, add)
+            for issue in self.library.kit_issues(equipment):  # the standards of a calibration kit
+                add(issue.severity, issue.code, issue.message)
         if role.min_ports:
             count = len(self.library.ports_of(equipment))
             if count < role.min_ports:
