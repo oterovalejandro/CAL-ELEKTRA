@@ -1,5 +1,638 @@
-# Kit de calibración N AA180-VNACKN (sin certificado registrado: añada su calibración)
+# Kit de calibración N AA180-VNACKN, calibrado el 01/09/2026 (su certificado no da el nº de serie ni
+# la incertidumbre de los patrones). Valores reales de sus seis patrones (abierto, cortocircuito y
+# carga, macho y hembra; 9 kHz – 18 GHz) en ../patrones/KIT-N-02/. CAL-ELEKTRA calcula sus desviaciones
+# de la definición del modelo (.ckt), si cumplen la especificación del fabricante (el abierto macho
+# no: su fase se desvía hasta −14,1° a 18 GHz) y sus especificaciones propias (k = 2, bandas de 1 GHz),
+# que dan su incertidumbre. Introducido con «Calibración del kit…» (pestaña «Patrones» de la unidad).
 formato: calelektra/equipo@0.3
 id: KIT-N-02
 modelo: aa180_vnackn
 estado: en_servicio
+campos: {}
+calibracion:
+  fecha: '2026-09-01'
+patrones:
+  carga_h:
+    valores_reales:
+      fichero: ../patrones/KIT-N-02/LOADH resultados.s1p
+      sha256: c58c584fce931be6a6ba1f76f38d55450c10ce1c2a8ba1ede6301a106f9cd2be
+      fecha: '2026-09-01'
+      ancho_bandas: 1 GHz
+      resultado: cumple
+      especificaciones:
+      - frecuencia: 9 kHz
+        perdidas_retorno_db: -49.12
+      - frecuencia: 1 GHz
+        perdidas_retorno_db: -49.12
+      - frecuencia: 1.25 GHz
+        perdidas_retorno_db: -46.23
+      - frecuencia: 2 GHz
+        perdidas_retorno_db: -46.23
+      - frecuencia: 2.25 GHz
+        perdidas_retorno_db: -48.5
+      - frecuencia: 3 GHz
+        perdidas_retorno_db: -48.5
+      - frecuencia: 3.25 GHz
+        perdidas_retorno_db: -56.32
+      - frecuencia: 4 GHz
+        perdidas_retorno_db: -56.32
+      - frecuencia: 4.25 GHz
+        perdidas_retorno_db: -46.99
+      - frecuencia: 5 GHz
+        perdidas_retorno_db: -46.99
+      - frecuencia: 5.25 GHz
+        perdidas_retorno_db: -42.55
+      - frecuencia: 6 GHz
+        perdidas_retorno_db: -42.55
+      - frecuencia: 6.25 GHz
+        perdidas_retorno_db: -40.95
+      - frecuencia: 7 GHz
+        perdidas_retorno_db: -40.95
+      - frecuencia: 7.25 GHz
+        perdidas_retorno_db: -40.62
+      - frecuencia: 8 GHz
+        perdidas_retorno_db: -40.62
+      - frecuencia: 8.25 GHz
+        perdidas_retorno_db: -40.43
+      - frecuencia: 9 GHz
+        perdidas_retorno_db: -40.43
+      - frecuencia: 9.25 GHz
+        perdidas_retorno_db: -39.79
+      - frecuencia: 10 GHz
+        perdidas_retorno_db: -39.79
+      - frecuencia: 10.25 GHz
+        perdidas_retorno_db: -40.46
+      - frecuencia: 11 GHz
+        perdidas_retorno_db: -40.46
+      - frecuencia: 11.25 GHz
+        perdidas_retorno_db: -41.05
+      - frecuencia: 12 GHz
+        perdidas_retorno_db: -41.05
+      - frecuencia: 12.25 GHz
+        perdidas_retorno_db: -40.98
+      - frecuencia: 13 GHz
+        perdidas_retorno_db: -40.98
+      - frecuencia: 13.25 GHz
+        perdidas_retorno_db: -39.49
+      - frecuencia: 14 GHz
+        perdidas_retorno_db: -39.49
+      - frecuencia: 14.25 GHz
+        perdidas_retorno_db: -37.27
+      - frecuencia: 15 GHz
+        perdidas_retorno_db: -37.27
+      - frecuencia: 15.25 GHz
+        perdidas_retorno_db: -36.69
+      - frecuencia: 16 GHz
+        perdidas_retorno_db: -36.69
+      - frecuencia: 16.25 GHz
+        perdidas_retorno_db: -35.39
+      - frecuencia: 17 GHz
+        perdidas_retorno_db: -35.39
+      - frecuencia: 17.25 GHz
+        perdidas_retorno_db: -36.42
+      - frecuencia: 18 GHz
+        perdidas_retorno_db: -36.42
+  carga_m:
+    valores_reales:
+      fichero: ../patrones/KIT-N-02/LOADM resultados.s1p
+      sha256: ceee4f387bf37d59187a16f79ca3c1423ff1ba625c628d86cf957977f7cb3b49
+      fecha: '2026-09-01'
+      ancho_bandas: 1 GHz
+      resultado: cumple
+      especificaciones:
+      - frecuencia: 9 kHz
+        perdidas_retorno_db: -51.58
+      - frecuencia: 1 GHz
+        perdidas_retorno_db: -51.58
+      - frecuencia: 1.25 GHz
+        perdidas_retorno_db: -49.23
+      - frecuencia: 2 GHz
+        perdidas_retorno_db: -49.23
+      - frecuencia: 2.25 GHz
+        perdidas_retorno_db: -53.25
+      - frecuencia: 3 GHz
+        perdidas_retorno_db: -53.25
+      - frecuencia: 3.25 GHz
+        perdidas_retorno_db: -43.68
+      - frecuencia: 4 GHz
+        perdidas_retorno_db: -43.68
+      - frecuencia: 4.25 GHz
+        perdidas_retorno_db: -41.62
+      - frecuencia: 5 GHz
+        perdidas_retorno_db: -41.62
+      - frecuencia: 5.25 GHz
+        perdidas_retorno_db: -41.76
+      - frecuencia: 6 GHz
+        perdidas_retorno_db: -41.76
+      - frecuencia: 6.25 GHz
+        perdidas_retorno_db: -43.38
+      - frecuencia: 7 GHz
+        perdidas_retorno_db: -43.38
+      - frecuencia: 7.25 GHz
+        perdidas_retorno_db: -48.92
+      - frecuencia: 8 GHz
+        perdidas_retorno_db: -48.92
+      - frecuencia: 8.25 GHz
+        perdidas_retorno_db: -45.68
+      - frecuencia: 9 GHz
+        perdidas_retorno_db: -45.68
+      - frecuencia: 9.25 GHz
+        perdidas_retorno_db: -42.96
+      - frecuencia: 10 GHz
+        perdidas_retorno_db: -42.96
+      - frecuencia: 10.25 GHz
+        perdidas_retorno_db: -41.91
+      - frecuencia: 11 GHz
+        perdidas_retorno_db: -41.91
+      - frecuencia: 11.25 GHz
+        perdidas_retorno_db: -43.42
+      - frecuencia: 12 GHz
+        perdidas_retorno_db: -43.42
+      - frecuencia: 12.25 GHz
+        perdidas_retorno_db: -45.46
+      - frecuencia: 13 GHz
+        perdidas_retorno_db: -45.46
+      - frecuencia: 13.25 GHz
+        perdidas_retorno_db: -44.9
+      - frecuencia: 14 GHz
+        perdidas_retorno_db: -44.9
+      - frecuencia: 14.25 GHz
+        perdidas_retorno_db: -41.47
+      - frecuencia: 15 GHz
+        perdidas_retorno_db: -41.47
+      - frecuencia: 15.25 GHz
+        perdidas_retorno_db: -42.54
+      - frecuencia: 16 GHz
+        perdidas_retorno_db: -42.54
+      - frecuencia: 16.25 GHz
+        perdidas_retorno_db: -35.88
+      - frecuencia: 17 GHz
+        perdidas_retorno_db: -35.88
+      - frecuencia: 17.25 GHz
+        perdidas_retorno_db: -35.0
+      - frecuencia: 18 GHz
+        perdidas_retorno_db: -35.0
+  abierto_h:
+    valores_reales:
+      fichero: ../patrones/KIT-N-02/OPENH resultados.s1p
+      sha256: dbf8450ab4ff8b8e7318dc5d3c8bcd9cf5d018a5c5241dc9b06b501466436301
+      fecha: '2026-09-01'
+      ancho_bandas: 1 GHz
+      resultado: cumple
+      especificaciones:
+      - frecuencia: 9 kHz
+        modulo_db: 0.01211
+        fase_grados: 1.19
+      - frecuencia: 1 GHz
+        modulo_db: 0.01211
+        fase_grados: 1.19
+      - frecuencia: 1.25 GHz
+        modulo_db: 0.01359
+        fase_grados: 0.07204
+      - frecuencia: 2 GHz
+        modulo_db: 0.01359
+        fase_grados: 0.07204
+      - frecuencia: 2.25 GHz
+        modulo_db: 0.01482
+        fase_grados: 0.1418
+      - frecuencia: 3 GHz
+        modulo_db: 0.01482
+        fase_grados: 0.1418
+      - frecuencia: 3.25 GHz
+        modulo_db: 0.01783
+        fase_grados: 0.1393
+      - frecuencia: 4 GHz
+        modulo_db: 0.01783
+        fase_grados: 0.1393
+      - frecuencia: 4.25 GHz
+        modulo_db: 0.02166
+        fase_grados: 0.1454
+      - frecuencia: 5 GHz
+        modulo_db: 0.02166
+        fase_grados: 0.1454
+      - frecuencia: 5.25 GHz
+        modulo_db: 0.02569
+        fase_grados: 0.2335
+      - frecuencia: 6 GHz
+        modulo_db: 0.02569
+        fase_grados: 0.2335
+      - frecuencia: 6.25 GHz
+        modulo_db: 0.02953
+        fase_grados: 0.1919
+      - frecuencia: 7 GHz
+        modulo_db: 0.02953
+        fase_grados: 0.1919
+      - frecuencia: 7.25 GHz
+        modulo_db: 0.03322
+        fase_grados: 0.2441
+      - frecuencia: 8 GHz
+        modulo_db: 0.03322
+        fase_grados: 0.2441
+      - frecuencia: 8.25 GHz
+        modulo_db: 0.03552
+        fase_grados: 0.2934
+      - frecuencia: 9 GHz
+        modulo_db: 0.03552
+        fase_grados: 0.2934
+      - frecuencia: 9.25 GHz
+        modulo_db: 0.03735
+        fase_grados: 0.4025
+      - frecuencia: 10 GHz
+        modulo_db: 0.03735
+        fase_grados: 0.4025
+      - frecuencia: 10.25 GHz
+        modulo_db: 0.03948
+        fase_grados: 0.5336
+      - frecuencia: 11 GHz
+        modulo_db: 0.03948
+        fase_grados: 0.5336
+      - frecuencia: 11.25 GHz
+        modulo_db: 0.03849
+        fase_grados: 0.5381
+      - frecuencia: 12 GHz
+        modulo_db: 0.03849
+        fase_grados: 0.5381
+      - frecuencia: 12.25 GHz
+        modulo_db: 0.03968
+        fase_grados: 0.6586
+      - frecuencia: 13 GHz
+        modulo_db: 0.03968
+        fase_grados: 0.6586
+      - frecuencia: 13.25 GHz
+        modulo_db: 0.04638
+        fase_grados: 0.6657
+      - frecuencia: 14 GHz
+        modulo_db: 0.04638
+        fase_grados: 0.6657
+      - frecuencia: 14.25 GHz
+        modulo_db: 0.04094
+        fase_grados: 0.6598
+      - frecuencia: 15 GHz
+        modulo_db: 0.04094
+        fase_grados: 0.6598
+      - frecuencia: 15.25 GHz
+        modulo_db: 0.03985
+        fase_grados: 0.6686
+      - frecuencia: 16 GHz
+        modulo_db: 0.03985
+        fase_grados: 0.6686
+      - frecuencia: 16.25 GHz
+        modulo_db: 0.04013
+        fase_grados: 0.7874
+      - frecuencia: 17 GHz
+        modulo_db: 0.04013
+        fase_grados: 0.7874
+      - frecuencia: 17.25 GHz
+        modulo_db: 0.0358
+        fase_grados: 0.8262
+      - frecuencia: 18 GHz
+        modulo_db: 0.0358
+        fase_grados: 0.8262
+  abierto_m:
+    valores_reales:
+      fichero: ../patrones/KIT-N-02/OPENM resultados.s1p
+      sha256: 2e0e15dd0689926c091f4a67d4bfb6b832dbefd770e0c06838f85612a1cd4df0
+      fecha: '2026-09-01'
+      ancho_bandas: 1 GHz
+      resultado: no_cumple
+      especificaciones:
+      - frecuencia: 9 kHz
+        modulo_db: 0.0111
+        fase_grados: 0.6999
+      - frecuencia: 1 GHz
+        modulo_db: 0.0111
+        fase_grados: 0.6999
+      - frecuencia: 1.25 GHz
+        modulo_db: 0.01224
+        fase_grados: 1.013
+      - frecuencia: 2 GHz
+        modulo_db: 0.01224
+        fase_grados: 1.013
+      - frecuencia: 2.25 GHz
+        modulo_db: 0.01598
+        fase_grados: 1.674
+      - frecuencia: 3 GHz
+        modulo_db: 0.01598
+        fase_grados: 1.674
+      - frecuencia: 3.25 GHz
+        modulo_db: 0.01871
+        fase_grados: 2.779
+      - frecuencia: 4 GHz
+        modulo_db: 0.01871
+        fase_grados: 2.779
+      - frecuencia: 4.25 GHz
+        modulo_db: 0.02132
+        fase_grados: 4.029
+      - frecuencia: 5 GHz
+        modulo_db: 0.02132
+        fase_grados: 4.029
+      - frecuencia: 5.25 GHz
+        modulo_db: 0.02806
+        fase_grados: 4.92
+      - frecuencia: 6 GHz
+        modulo_db: 0.02806
+        fase_grados: 4.92
+      - frecuencia: 6.25 GHz
+        modulo_db: 0.02919
+        fase_grados: 5.292
+      - frecuencia: 7 GHz
+        modulo_db: 0.02919
+        fase_grados: 5.292
+      - frecuencia: 7.25 GHz
+        modulo_db: 0.02635
+        fase_grados: 5.363
+      - frecuencia: 8 GHz
+        modulo_db: 0.02635
+        fase_grados: 5.363
+      - frecuencia: 8.25 GHz
+        modulo_db: 0.02622
+        fase_grados: 5.051
+      - frecuencia: 9 GHz
+        modulo_db: 0.02622
+        fase_grados: 5.051
+      - frecuencia: 9.25 GHz
+        modulo_db: 0.01468
+        fase_grados: 4.885
+      - frecuencia: 10 GHz
+        modulo_db: 0.01468
+        fase_grados: 4.885
+      - frecuencia: 10.25 GHz
+        modulo_db: 0.01228
+        fase_grados: 4.896
+      - frecuencia: 11 GHz
+        modulo_db: 0.01228
+        fase_grados: 4.896
+      - frecuencia: 11.25 GHz
+        modulo_db: 0.02069
+        fase_grados: 5.632
+      - frecuencia: 12 GHz
+        modulo_db: 0.02069
+        fase_grados: 5.632
+      - frecuencia: 12.25 GHz
+        modulo_db: 0.02482
+        fase_grados: 7.378
+      - frecuencia: 13 GHz
+        modulo_db: 0.02482
+        fase_grados: 7.378
+      - frecuencia: 13.25 GHz
+        modulo_db: 0.01795
+        fase_grados: 9.258
+      - frecuencia: 14 GHz
+        modulo_db: 0.01795
+        fase_grados: 9.258
+      - frecuencia: 14.25 GHz
+        modulo_db: 0.02958
+        fase_grados: 11.66
+      - frecuencia: 15 GHz
+        modulo_db: 0.02958
+        fase_grados: 11.66
+      - frecuencia: 15.25 GHz
+        modulo_db: 0.02368
+        fase_grados: 12.63
+      - frecuencia: 16 GHz
+        modulo_db: 0.02368
+        fase_grados: 12.63
+      - frecuencia: 16.25 GHz
+        modulo_db: 0.03223
+        fase_grados: 12.57
+      - frecuencia: 17 GHz
+        modulo_db: 0.03223
+        fase_grados: 12.57
+      - frecuencia: 17.25 GHz
+        modulo_db: 0.03316
+        fase_grados: 14.12
+      - frecuencia: 18 GHz
+        modulo_db: 0.03316
+        fase_grados: 14.12
+  cortocircuito_h:
+    valores_reales:
+      fichero: ../patrones/KIT-N-02/SHORTH resultados.s1p
+      sha256: 431c92d2b4c0a3d7d53387b88270944a5a0a740325eb5484498cf1cf934491a8
+      fecha: '2026-09-01'
+      ancho_bandas: 1 GHz
+      resultado: cumple
+      especificaciones:
+      - frecuencia: 9 kHz
+        modulo_db: 0.04701
+        fase_grados: 1.321
+      - frecuencia: 1 GHz
+        modulo_db: 0.04701
+        fase_grados: 1.321
+      - frecuencia: 1.25 GHz
+        modulo_db: 0.05845
+        fase_grados: 0.377
+      - frecuencia: 2 GHz
+        modulo_db: 0.05845
+        fase_grados: 0.377
+      - frecuencia: 2.25 GHz
+        modulo_db: 0.06384
+        fase_grados: 0.4284
+      - frecuencia: 3 GHz
+        modulo_db: 0.06384
+        fase_grados: 0.4284
+      - frecuencia: 3.25 GHz
+        modulo_db: 0.06727
+        fase_grados: 0.458
+      - frecuencia: 4 GHz
+        modulo_db: 0.06727
+        fase_grados: 0.458
+      - frecuencia: 4.25 GHz
+        modulo_db: 0.0683
+        fase_grados: 0.4949
+      - frecuencia: 5 GHz
+        modulo_db: 0.0683
+        fase_grados: 0.4949
+      - frecuencia: 5.25 GHz
+        modulo_db: 0.06798
+        fase_grados: 0.4865
+      - frecuencia: 6 GHz
+        modulo_db: 0.06798
+        fase_grados: 0.4865
+      - frecuencia: 6.25 GHz
+        modulo_db: 0.06299
+        fase_grados: 0.4961
+      - frecuencia: 7 GHz
+        modulo_db: 0.06299
+        fase_grados: 0.4961
+      - frecuencia: 7.25 GHz
+        modulo_db: 0.05993
+        fase_grados: 0.4427
+      - frecuencia: 8 GHz
+        modulo_db: 0.05993
+        fase_grados: 0.4427
+      - frecuencia: 8.25 GHz
+        modulo_db: 0.05628
+        fase_grados: 0.4815
+      - frecuencia: 9 GHz
+        modulo_db: 0.05628
+        fase_grados: 0.4815
+      - frecuencia: 9.25 GHz
+        modulo_db: 0.05187
+        fase_grados: 0.487
+      - frecuencia: 10 GHz
+        modulo_db: 0.05187
+        fase_grados: 0.487
+      - frecuencia: 10.25 GHz
+        modulo_db: 0.04956
+        fase_grados: 0.5203
+      - frecuencia: 11 GHz
+        modulo_db: 0.04956
+        fase_grados: 0.5203
+      - frecuencia: 11.25 GHz
+        modulo_db: 0.04991
+        fase_grados: 0.5168
+      - frecuencia: 12 GHz
+        modulo_db: 0.04991
+        fase_grados: 0.5168
+      - frecuencia: 12.25 GHz
+        modulo_db: 0.04575
+        fase_grados: 0.5655
+      - frecuencia: 13 GHz
+        modulo_db: 0.04575
+        fase_grados: 0.5655
+      - frecuencia: 13.25 GHz
+        modulo_db: 0.04307
+        fase_grados: 0.5546
+      - frecuencia: 14 GHz
+        modulo_db: 0.04307
+        fase_grados: 0.5546
+      - frecuencia: 14.25 GHz
+        modulo_db: 0.047
+        fase_grados: 0.5764
+      - frecuencia: 15 GHz
+        modulo_db: 0.047
+        fase_grados: 0.5764
+      - frecuencia: 15.25 GHz
+        modulo_db: 0.0439
+        fase_grados: 0.6444
+      - frecuencia: 16 GHz
+        modulo_db: 0.0439
+        fase_grados: 0.6444
+      - frecuencia: 16.25 GHz
+        modulo_db: 0.04697
+        fase_grados: 0.6428
+      - frecuencia: 17 GHz
+        modulo_db: 0.04697
+        fase_grados: 0.6428
+      - frecuencia: 17.25 GHz
+        modulo_db: 0.04352
+        fase_grados: 0.7678
+      - frecuencia: 18 GHz
+        modulo_db: 0.04352
+        fase_grados: 0.7678
+  cortocircuito_m:
+    valores_reales:
+      fichero: ../patrones/KIT-N-02/SHORTM resultados.s1p
+      sha256: 8f82f26aefc7652d6766b3da630e2497b50c21da51e0e635bf4692b6c144e772
+      fecha: '2026-09-01'
+      ancho_bandas: 1 GHz
+      resultado: cumple
+      especificaciones:
+      - frecuencia: 9 kHz
+        modulo_db: 0.01149
+        fase_grados: 0.8197
+      - frecuencia: 1 GHz
+        modulo_db: 0.01149
+        fase_grados: 0.8197
+      - frecuencia: 1.25 GHz
+        modulo_db: 0.01031
+        fase_grados: 0.114
+      - frecuencia: 2 GHz
+        modulo_db: 0.01031
+        fase_grados: 0.114
+      - frecuencia: 2.25 GHz
+        modulo_db: 0.009059
+        fase_grados: 0.06629
+      - frecuencia: 3 GHz
+        modulo_db: 0.009059
+        fase_grados: 0.06629
+      - frecuencia: 3.25 GHz
+        modulo_db: 0.02049
+        fase_grados: 0.1104
+      - frecuencia: 4 GHz
+        modulo_db: 0.02049
+        fase_grados: 0.1104
+      - frecuencia: 4.25 GHz
+        modulo_db: 0.01924
+        fase_grados: 0.1392
+      - frecuencia: 5 GHz
+        modulo_db: 0.01924
+        fase_grados: 0.1392
+      - frecuencia: 5.25 GHz
+        modulo_db: 0.007377
+        fase_grados: 0.1275
+      - frecuencia: 6 GHz
+        modulo_db: 0.007377
+        fase_grados: 0.1275
+      - frecuencia: 6.25 GHz
+        modulo_db: 0.02627
+        fase_grados: 0.3002
+      - frecuencia: 7 GHz
+        modulo_db: 0.02627
+        fase_grados: 0.3002
+      - frecuencia: 7.25 GHz
+        modulo_db: 0.03239
+        fase_grados: 0.3072
+      - frecuencia: 8 GHz
+        modulo_db: 0.03239
+        fase_grados: 0.3072
+      - frecuencia: 8.25 GHz
+        modulo_db: 0.03085
+        fase_grados: 0.3118
+      - frecuencia: 9 GHz
+        modulo_db: 0.03085
+        fase_grados: 0.3118
+      - frecuencia: 9.25 GHz
+        modulo_db: 0.02882
+        fase_grados: 0.4419
+      - frecuencia: 10 GHz
+        modulo_db: 0.02882
+        fase_grados: 0.4419
+      - frecuencia: 10.25 GHz
+        modulo_db: 0.02381
+        fase_grados: 0.4612
+      - frecuencia: 11 GHz
+        modulo_db: 0.02381
+        fase_grados: 0.4612
+      - frecuencia: 11.25 GHz
+        modulo_db: 0.005578
+        fase_grados: 0.3316
+      - frecuencia: 12 GHz
+        modulo_db: 0.005578
+        fase_grados: 0.3316
+      - frecuencia: 12.25 GHz
+        modulo_db: 0.02214
+        fase_grados: 0.4124
+      - frecuencia: 13 GHz
+        modulo_db: 0.02214
+        fase_grados: 0.4124
+      - frecuencia: 13.25 GHz
+        modulo_db: 0.01956
+        fase_grados: 0.287
+      - frecuencia: 14 GHz
+        modulo_db: 0.01956
+        fase_grados: 0.287
+      - frecuencia: 14.25 GHz
+        modulo_db: 0.01241
+        fase_grados: 0.1817
+      - frecuencia: 15 GHz
+        modulo_db: 0.01241
+        fase_grados: 0.1817
+      - frecuencia: 15.25 GHz
+        modulo_db: 0.03032
+        fase_grados: 0.4572
+      - frecuencia: 16 GHz
+        modulo_db: 0.03032
+        fase_grados: 0.4572
+      - frecuencia: 16.25 GHz
+        modulo_db: 0.02438
+        fase_grados: 0.5362
+      - frecuencia: 17 GHz
+        modulo_db: 0.02438
+        fase_grados: 0.5362
+      - frecuencia: 17.25 GHz
+        modulo_db: 0.01702
+        fase_grados: 0.5152
+      - frecuencia: 18 GHz
+        modulo_db: 0.01702
+        fase_grados: 0.5152

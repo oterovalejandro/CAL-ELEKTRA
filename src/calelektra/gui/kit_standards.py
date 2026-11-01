@@ -3,7 +3,8 @@
 * ``KitStandardsEditor``: the standards of a kit model (in its dialog): import of a ``.ckt``, new,
   edit, duplicate, delete and export as ``.sdatb``.
 * ``UnitStandardsEditor``: what a unit of the kit says of each standard (in the dialog of the
-  equipment): serial number, state and its own data or specifications.
+  equipment): serial number, state, its own data or specifications and its real values, entered with
+  «Calibración del kit…» (``gui/kit_calibration.py``).
 * ``StandardDialog`` / ``UnitStandardDialog``: a standard, defined by the model of Keysight (Agilent
   model: offset line, C0–C3, L0–L3) or by data (``.sdatb`` or ``.sNp``), with its electrical
   specifications (k = 2), and the view of its S-parameters with their uncertainty.
@@ -47,6 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from calelektra.catalog.library import Library
+from calelektra.catalog.model import Calibration
 from calelektra.core.connectors import GENDERS
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import UnitError, format_frequency
@@ -60,6 +62,7 @@ from calelektra.kits import (
     SPEC_NAMES,
     STATE_NAMES,
     TYPE_NAMES,
+    VERDICT_NAMES,
     CktKit,
     KitError,
     KitSettings,
@@ -830,6 +833,7 @@ class UnitStandardDialog(QDialog, _PreviewHolder):
         self.library, self.standard, self.settings = library, standard, settings
         self.model_folder, self.unit_folder = model_folder, unit_folder
         self.result_unit: UnitStandard | None = None
+        self.real_values = unit.real_values if unit is not None else None  # entered with «Calibración del kit…»
         self.setWindowTitle(f"Patrón «{standard.label or standard.id}» de la unidad")
         self.resize(1160, 720)
         layout = QVBoxLayout(self)
@@ -857,6 +861,9 @@ class UnitStandardDialog(QDialog, _PreviewHolder):
         form.addRow("Estado", self.state)
         form.addRow("Fecha del estado", self.state_date)
         form.addRow("Notas", self.notes)
+        self.real_info = QLabel(self._real_values_text())
+        self.real_info.setWordWrap(True)
+        form.addRow("Valores reales", self.real_info)
         left_layout.addWidget(identity)
         definition_box = QGroupBox("Definición propia (p. ej. los datos de su certificado)")
         definition_layout = QVBoxLayout(definition_box)
@@ -866,7 +873,8 @@ class UnitStandardDialog(QDialog, _PreviewHolder):
         left_layout.addWidget(definition_box)
         specs_box = QGroupBox("Especificaciones eléctricas (k = 2)")
         specs_layout = QVBoxLayout(specs_box)
-        self.own_specs = QCheckBox("Especificaciones propias (si no, las del modelo)")
+        inherited = "las de sus valores reales" if self.real_values and self.real_values.specifications else "las del modelo"
+        self.own_specs = QCheckBox(f"Especificaciones propias (si no, {inherited})")
         specs_layout.addWidget(self.own_specs)
         self.specs = SpecsEditor()
         self.specs.set_type(standard.type)
@@ -902,7 +910,7 @@ class UnitStandardDialog(QDialog, _PreviewHolder):
                 self.own_specs.setChecked(True)
                 self.specs.load(unit.specifications)
         if not self.own_specs.isChecked():
-            self.specs.load(standard.specifications)
+            self.specs.load(self.real_values.specifications if self.real_values and self.real_values.specifications else standard.specifications)
         self.specs.setEnabled(self.own_specs.isChecked() and standard.type != "adaptador")
         self.own_specs.toggled.connect(lambda on: (self.specs.setEnabled(on and standard.type != "adaptador"), self.schedule()))
         self.definition.changed.connect(self.schedule)
@@ -916,8 +924,24 @@ class UnitStandardDialog(QDialog, _PreviewHolder):
             fecha_estado=_date(self.state_date.text(), "Fecha del estado"),
             definicion=self.definition.definition(),
             especificaciones=self.specs.rows() if self.own_specs.isChecked() else None,
+            valores_reales=self.real_values,
             notas=self.notes.text().strip() or None,
         )
+
+    def _real_values_text(self) -> str:
+        real = self.real_values
+        if real is None:
+            return "— (se introducen con «Calibración del kit…», en la pestaña «Patrones» de la unidad)"
+        parts = [Path(real.file).name]
+        if real.calibration_date:
+            parts.append(f"{real.calibration_date:%d/%m/%Y}")
+        if real.verdict:
+            color = "#c0392b" if real.verdict == "no_cumple" else "#2e8b57" if real.verdict == "cumple" else "#d98a00"
+            parts.append(f"<b style='color:{color}'>{VERDICT_NAMES[real.verdict]}</b> la especificación del fabricante")
+        if real.specifications:
+            band = f"bandas de {format_frequency(real.band_width)}" if real.band_width else "una sola banda"
+            parts.append(f"especificación propia: {specifications_text(self.standard.type, real.specifications)}, {band}")
+        return " · ".join(parts)
 
     def refresh(self) -> None:
         try:
@@ -935,6 +959,10 @@ class UnitStandardDialog(QDialog, _PreviewHolder):
             self.preview.show_message(f"✖ {exc}")
             return
         origin = "datos propios" if resolved.own_definition else "definición del modelo"
+        if not (resolved.definition.kind == "datos" and not resolved.definition.is_touchstone):  # a .sdatb brings its uncertainty
+            origin += {"propias": ", especificaciones propias", "valores_reales": ", especificaciones de sus valores reales"}.get(
+                resolved.specification_origin, ", especificaciones del modelo"
+            )
         self.preview.show_data(data, f"{resolved.name(self.settings.name)} ({origin})")
 
     def _accept(self) -> None:
@@ -1136,24 +1164,33 @@ class UnitStandardsEditor(QWidget):
     """The standards of a unit of the kit: serial number, state and own data of each standard of its model."""
 
     changed = Signal()
+    calibration_entered = Signal(object)  # Calibration: date, certificate and laboratory of the calibration of the kit
 
-    HEADERS = ["Patrón", "Tipo", "Género", "Nº de serie", "Estado", "Definición", "Nombre (VNA Tools)"]
+    HEADERS = ["Patrón", "Tipo", "Género", "Nº de serie", "Estado", "Definición", "Valores reales", "Nombre (VNA Tools)"]
 
     def __init__(self, library: Library, kit_id: Callable[[], str], unit_folder: Callable[[], Path], parent: QWidget | None = None):
         super().__init__(parent)
         self.library, self.kit_id, self.unit_folder = library, kit_id, unit_folder
         self.model = None
         self.units: dict[str, UnitStandard] = {}
+        self.calibration_source: Callable[[], Calibration | None] = lambda: None  # the calibration of the unit, as edited
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         buttons = QHBoxLayout()
+        calibrate = _button(
+            "Calibración del kit…",
+            "certificado",
+            "Los valores reales de los patrones (su certificado): sus desviaciones, si cumplen su especificación y su incertidumbre",
+        )
+        calibrate.clicked.connect(self.enter_calibration)
         edit = _button("Editar…", "editar", "Nº de serie, estado y datos propios del patrón, con su vista (también con doble clic)")
         edit.clicked.connect(self.edit_standard)
         export = _button("Exportar .sdatb…", "exportar", "Un .sdatb por patrón de esta unidad, con su nº de serie en el nombre")
         export.clicked.connect(self.export)
+        buttons.addWidget(calibrate)
         buttons.addWidget(edit)
         buttons.addStretch(1)
         buttons.addWidget(export)
@@ -1188,17 +1225,47 @@ class UnitStandardsEditor(QWidget):
             self.table.insertRow(row)
             standard = resolved.standard
             definition = definition_text(resolved.definition) + (" (propia)" if resolved.own_definition else "")
+            real = resolved.real_values
+            real_text = "—"
+            if real is not None:
+                real_text = (f"{real.calibration_date:%d/%m/%Y}" if real.calibration_date else Path(real.file).name) + (
+                    f" · {VERDICT_NAMES[real.verdict]}" if real.verdict else ""
+                )
             values = [standard.label or standard.id, TYPE_NAMES[standard.type], standard.gender_text, resolved.serial_number or "—",
-                      STATE_NAMES[resolved.state], definition, resolved.name(name)]
+                      STATE_NAMES[resolved.state], definition, real_text, resolved.name(name)]
             for column, text in enumerate(values):
                 item = QTableWidgetItem(text)
-                if resolved.state == "danado":
+                if resolved.state == "danado" or (column == 6 and real is not None and real.verdict == "no_cumple"):
                     item.setForeground(Qt.GlobalColor.red)
                 self.table.setItem(row, column, item)
         if self.model is None or not self.model.standards:
             self.note.setText("El modelo de este kit no define sus patrones: defínalos en su modelo (Catálogo → Editar modelo → Patrones del kit).")
         if select is not None:
             self.table.selectRow(select)
+
+    def calibration_dialog(self):
+        """The dialog to enter the calibration of the kit (``gui/kit_calibration.py``)."""
+        # imported here: that module uses this one
+        from calelektra.gui.kit_calibration import KitCalibrationDialog
+
+        return KitCalibrationDialog(self.library, self.model, self.kit_id() or "kit", self.unit_folder(), self.units, self.calibration_source(), self)
+
+    def apply_calibration(self, dialog) -> None:
+        """The real values of the standards and the calibration that the dialog gives."""
+        if dialog.result_units is None:
+            return
+        self.units = dialog.result_units
+        self._fill()
+        self.changed.emit()
+        self.calibration_entered.emit(dialog.result_calibration)
+
+    def enter_calibration(self) -> None:
+        if self.model is None or not self.model.standards:
+            QMessageBox.information(self, "Calibración del kit", "El modelo de este kit no define sus patrones: defínalos en su modelo (Catálogo).")
+            return
+        dialog = self.calibration_dialog()
+        if dialog.exec():
+            self.apply_calibration(dialog)
 
     def edit_standard(self) -> None:
         rows = {index.row() for index in self.table.selectedIndexes()}

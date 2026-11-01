@@ -90,8 +90,9 @@ def icon_sheet(path: Path) -> None:
 
 
 def kit_captures(library: Library, window: MainWindow, out: Path) -> None:
-    """The standards of the kit AA180-VNACKN: its model, a standard (chart, table and correlation) and the
-    unit; and the correlation of the adapter of VNA Tools of the tests."""
+    """The standards of the kit AA180-VNACKN: its model, a standard (chart, table and correlation), the unit
+    and the calibration of the unit (deviations of its standards); and the correlation of the adapter of VNA
+    Tools of the tests."""
     model_dialog = ModelDialog(library, library.models["aa180_vnackn"], window)
     model_dialog.resize(1180, 960)
     model_dialog.show()
@@ -132,10 +133,17 @@ def kit_captures(library: Library, window: MainWindow, out: Path) -> None:
     grab(viewer, out / "38h_adaptador_vna_tools_correlacion.png")
     viewer.close()
     unit_dialog = EquipmentDialog(library, library.equipment["KIT-N-02"], window)
-    unit_dialog.resize(1000, 760)
+    unit_dialog.resize(1320, 760)
     unit_dialog.tabs.setCurrentIndex(unit_dialog.standards_tab_index)
     unit_dialog.show()
     grab(unit_dialog, out / "38f_kit_unidad_patrones.png")
+    calibration = unit_dialog.unit_standards.calibration_dialog()  # the calibration of 01/09/2026 of the example
+    calibration.show()
+    for name, standard_id, quantity in (("38i_kit_calibracion_abierto.png", "abierto_m", 1), ("38j_kit_calibracion_carga.png", "carga_m", 0)):
+        calibration.table.selectRow(next(i for i, e in enumerate(calibration.entries) if e.resolved.id == standard_id))
+        calibration.detail.quantity.setCurrentIndex(quantity)
+        grab(calibration, out / name)
+    calibration.close()
     unit_dialog.close()
 
 

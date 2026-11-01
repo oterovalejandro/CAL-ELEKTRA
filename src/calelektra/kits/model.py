@@ -14,7 +14,9 @@ a model or of a Touchstone file (``kits/specs.py``).
 
 The kit model lists its standards with their nominal definition (``EquipmentModel.patrones``); each unit
 of the kit gives the serial number and the state of its standards and, if its certificate characterizes
-them, its own data or specifications (``Equipment.patrones``, ``UnitStandard``).
+them, its own data or specifications (``Equipment.patrones``, ``UnitStandard``). The real values of a
+standard from the calibration of the kit (``valores_reales``, ``RealValues``) give its deviations from its
+definition, whether it meets its specification and its own specifications (``kits/calibration.py``).
 """
 
 from __future__ import annotations
@@ -40,6 +42,8 @@ VNA_TOOLS_TYPES = {"abierto": "Open", "cortocircuito": "Short", "carga": "Load",
 TWO_PORT_TYPES = frozenset({"through", "adaptador"})
 DEFINITION_NAMES = {"modelo": "Modelo (Agilent)", "datos": "Datos", "ninguna": "Sin definición"}
 STATE_NAMES = {"en_uso": "En uso", "danado": "Dañado", "sustituido": "Sustituido"}
+Verdict = Literal["cumple", "no_cumple", "indeterminado", "sin_especificacion"]
+VERDICT_NAMES = {"cumple": "Cumple", "no_cumple": "No cumple", "indeterminado": "Indeterminado", "sin_especificacion": "Sin especificación"}
 GENDER_LETTERS = {"macho": "m", "hembra": "f", "sin_genero": "x"}
 # columns of the electrical specifications of each type (VNA Tools §4.6.1), k = 2
 SPEC_COLUMNS = {
@@ -260,6 +264,51 @@ class KitStandard(BaseModel):
         return data
 
 
+class RealValues(BaseModel):
+    """The real values of a standard of a unit, from the calibration of the kit, and what follows from them
+    (``kits/calibration.py``): whether they meet the specification of the manufacturer and the own
+    specifications of the standard (k = 2) that cover its deviations from its definition, by bands."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    file: str = Field(alias="fichero")  # .sdatb or Touchstone, relative to the YAML of the unit
+    sha256: str | None = None
+    ports: list[int] = Field(default_factory=list, alias="puertos")  # ports of the file that are used (empty: all)
+    calibration_date: date | None = Field(default=None, alias="fecha")
+    reference: str | None = Field(default=None, alias="referencia")  # certificate
+    band_width: float | None = Field(default=None, alias="ancho_bandas")  # Hz; None: one band for all the frequencies
+    verdict: Verdict | None = Field(default=None, alias="resultado")  # against the specification of the manufacturer
+    specifications: list[SpecRow] = Field(default_factory=list, alias="especificaciones")  # from the deviations, k = 2
+
+    @field_validator("band_width", mode="before")
+    @classmethod
+    def _band_width(cls, value: Any) -> float | None:
+        if value in (None, "", 0, "0"):
+            return None
+        width = _frequency(value)
+        if width <= 0:
+            raise ValueError("el ancho de las bandas debe ser mayor que 0 Hz")
+        return width
+
+    def to_yaml(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"fichero": self.file}
+        if self.sha256:
+            data["sha256"] = self.sha256
+        if self.ports:
+            data["puertos"] = list(self.ports)
+        if self.calibration_date:
+            data["fecha"] = self.calibration_date.isoformat()
+        if self.reference:
+            data["referencia"] = self.reference
+        if self.band_width:
+            data["ancho_bandas"] = format_frequency(self.band_width, decimal=".")
+        if self.verdict:
+            data["resultado"] = self.verdict
+        if self.specifications:
+            data["especificaciones"] = [row.to_yaml() for row in self.specifications]
+        return data
+
+
 class UnitStandard(BaseModel):
     """What a unit of the kit says of one of its standards: serial number, state and its own data."""
 
@@ -270,11 +319,14 @@ class UnitStandard(BaseModel):
     state_date: date | None = Field(default=None, alias="fecha_estado")
     definition: StandardDefinition | None = Field(default=None, alias="definicion")  # e.g. data of its certificate
     specifications: list[SpecRow] | None = Field(default=None, alias="especificaciones")
+    real_values: RealValues | None = Field(default=None, alias="valores_reales")  # from the calibration of the kit
     notes: str | None = Field(default=None, alias="notas")
 
     @property
     def empty(self) -> bool:
-        return not (self.serial_number or self.state != "en_uso" or self.definition or self.specifications is not None or self.notes)
+        return not (
+            self.serial_number or self.state != "en_uso" or self.definition or self.specifications is not None or self.real_values or self.notes
+        )
 
     def to_yaml(self) -> dict[str, Any]:
         data: dict[str, Any] = {}
@@ -288,6 +340,8 @@ class UnitStandard(BaseModel):
             data["definicion"] = self.definition.to_yaml()
         if self.specifications is not None:
             data["especificaciones"] = [row.to_yaml() for row in self.specifications]
+        if self.real_values is not None:
+            data["valores_reales"] = self.real_values.to_yaml()
         if self.notes:
             data["notas"] = self.notes
         return data

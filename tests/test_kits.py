@@ -256,6 +256,7 @@ def test_export_as_vna_tools(tmp_path):
 
 def test_the_kit_in_the_library(library):
     kit = library.equipment["KIT-N-02"]
+    kit.standards, kit.calibration = {}, None  # without its calibration of 01/09/2026 (test_kit_calibration.py)
     model = library.model_of(kit)
     settings = library.kit_settings(model, kit)
     assert (settings.name, settings.zr, settings.points, settings.frequency_range.stop) == ("AA180-VNACKN", 50, 1800, 18e9)

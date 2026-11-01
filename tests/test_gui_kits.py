@@ -7,6 +7,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from datetime import date
 from pathlib import Path
 
 import pyqtgraph as pg
@@ -119,27 +120,86 @@ def test_the_standards_of_a_unit_of_the_kit(qapp, library: Library):
     assert dialog.tabs.isTabVisible(dialog.standards_tab_index)
     editor = dialog.unit_standards
     assert editor.table.rowCount() == 9 and "sin fecha de próxima calibración" in editor.status.text()
+    assert "Valores reales del 01/09/2026:</b> 6 patrones; 5 cumplen" in editor.status.text()
+    assert editor.table.item(1, 6).text() == "01/09/2026 · No cumple" and editor.table.item(6, 6).text() == "—"
     model = library.models["aa180_vnackn"]
-    unit = UnitStandardDialog(library, model.standards[1], None, library.kit_settings(model), "KIT-N-02",
+    unit = UnitStandardDialog(library, model.standards[1], editor.units["abierto_m"], library.kit_settings(model), "KIT-N-02",
                               model.source_path.parent, library.root / "catalogo" / "equipos")
+    assert "OPENM resultados.s1p · 01/09/2026" in unit.real_info.text() and "No cumple" in unit.real_info.text()
+    assert unit.own_specs.text() == "Especificaciones propias (si no, las de sus valores reales)" and unit.specs.table.rowCount() == 36
+    assert "(definición del modelo, especificaciones de sus valores reales)" in unit.preview.info.text()
     unit.serial.setText("975")
     unit.state.setCurrentIndex(unit.state.findData("danado"))
     editor.units["abierto_m"] = unit.build()
+    assert editor.units["abierto_m"].real_values.verdict == "no_cumple"  # the dialog keeps them
     editor._fill()
     dialog.issued.setText("2026-04-01")
     dialog.due.setText("2027-04-01")
     dialog._update_kit_status()
     assert "válida hasta el 01/04/2027" in editor.status.text() and "dañado" in editor.status.text()
-    assert editor.table.item(1, 3).text() == "975" and editor.table.item(1, 6).text() == "Open(m) 975"
+    assert editor.table.item(1, 3).text() == "975" and editor.table.item(1, 7).text() == "Open(m) 975"
     dialog._save()
     library.reload()
     kit = library.equipment["KIT-N-02"]
     assert kit.standards["abierto_m"].serial_number == "975" and library.kit_genders(kit) == ["hembra"]
     saved = yaml.safe_load(kit.source_path.read_text(encoding="utf-8"))
-    assert saved["patrones"] == {"abierto_m": {"numero_serie": "975", "estado": "danado"}}
+    assert {k: v for k, v in saved["patrones"]["abierto_m"].items() if k != "valores_reales"} == {"numero_serie": "975", "estado": "danado"}
+    assert saved["patrones"]["abierto_m"]["valores_reales"]["resultado"] == "no_cumple" and len(saved["patrones"]) == 6
     # a copy of the unit does not take its serial numbers
     copy = EquipmentDialog(library, copy_of=kit)
     assert copy.unit_standards.units == {}
+
+
+def test_the_calibration_of_the_kit(qapp, library: Library, tmp_path):
+    """«Calibración del kit…»: the real values of the standards, their deviations and what is saved."""
+    dialog = EquipmentDialog(library, library.equipment["KIT-N-02"])
+    editor = dialog.unit_standards
+    calibration = editor.calibration_dialog()
+    assert calibration.date_edit.text() == "2026-09-01" and calibration.band.text() == "1 GHz"
+    rows = {entry.resolved.id: calibration.row_texts(entry) for entry in calibration.entries}
+    assert rows["abierto_m"][1:4] == ["OPENM resultados.s1p", "No cumple", "S11 mód. −0,033 dB (17,5 GHz) · S11 fase −14,114° (18 GHz)"]
+    assert rows["carga_m"][2] == "Cumple" and rows["through_hm"][1:3] == ["—", ""]
+    assert rows["adaptador_hh"][2] == "Sin definición por el modelo: no se compara"
+    # the chart of the chosen standard: its deviation, ±1,5° of the manufacturer and its own specification
+    calibration.table.selectRow(next(i for i, e in enumerate(calibration.entries) if e.resolved.id == "abierto_m"))
+    calibration.detail.quantity.setCurrentIndex(1)
+    assert calibration.detail.chart.labels() == ["Desviación"] and "No cumple" in calibration.detail.summary.text()
+    assert calibration.detail.current().column == "fase_grados"
+    # new files, assigned by their name; the others keep theirs
+    source = library.root / "catalogo" / "patrones" / "KIT-N-02"
+    for name, target in (("OPENM resultados.s1p", "Open(m) 2027.s1p"), ("LOADH resultados.s1p", "medida 3.s1p")):
+        (tmp_path / target).write_bytes((source / name).read_bytes())
+    unassigned = calibration.assign_files([tmp_path / "Open(m) 2027.s1p", tmp_path / "medida 3.s1p"])
+    assert unassigned == [tmp_path / "medida 3.s1p"]
+    assert calibration.row_texts(calibration.entry("abierto_m"))[1] == "Open(m) 2027.s1p (nuevo)"
+    calibration.set_file("carga_h", tmp_path / "medida 3.s1p")
+    calibration.set_file("cortocircuito_h", None)  # «Quitar»
+    calibration.date_edit.setText("2027-09-01")
+    calibration.certificate.setText("CC-2027-001")
+    calibration.band.setText("2 GHz")
+    units, entered = calibration.build()
+    assert (entered.issued, entered.certificate) == (date(2027, 9, 1), "CC-2027-001")
+    assert units["abierto_m"].real_values.file == "../patrones/KIT-N-02/Open(m) 2027.s1p" and len(units["abierto_m"].real_values.specifications) == 18
+    assert units["carga_h"].real_values.reference == "CC-2027-001" and "cortocircuito_h" not in units
+    calibration.result_units, calibration.result_calibration = units, entered
+    editor.apply_calibration(calibration)
+    assert (dialog.issued.text(), dialog.certificate.text()) == ("2027-09-01", "CC-2027-001")
+    assert "Valores reales del 01/09/2027:</b> 5 patrones; 4 cumplen" in editor.status.text()
+    dialog._save()
+    library.reload()
+    kit = library.equipment["KIT-N-02"]
+    assert kit.calibration.issued == date(2027, 9, 1) and kit.standards["abierto_m"].real_values.band_width == 2e9
+    assert (library.root / "catalogo" / "patrones" / "KIT-N-02" / "Open(m) 2027.s1p").is_file()
+    # a date is required, and a file that is not of the standard is not accepted
+    again = EquipmentDialog(library, kit).unit_standards.calibration_dialog()
+    again.date_edit.setText("")
+    with pytest.raises(ValueError, match="fecha de calibración"):
+        again.build()
+    again.date_edit.setText("2027-09-01")
+    again.set_file("abierto_m", LOAD_SDATB.parent.parent / "kits" / "AA180-VNACKN1.ckt")
+    assert again.entry("abierto_m").error and again.row_texts(again.entry("abierto_m"))[2].startswith("✖")
+    with pytest.raises(ValueError, match="no se pueden usar"):
+        again.build()
 
 
 def test_the_kit_in_the_catalogue(qapp, library: Library):

@@ -8,7 +8,7 @@ Este documento reúne todo lo que CAL-ELEKTRA calcula sobre incertidumbre y cóm
 - la incertidumbre de la impedancia, nueva en 0.8.4;
 - los resultados de un cable por sentido (VSWR, pérdida de inserción y retardo de grupo) y su incertidumbre, nuevos en 0.10;
 - la incertidumbre con dependencias de los ficheros de METAS VNA Tools (`.sdatb`, `.sdatcv`), nueva en 0.11;
-- los patrones de los kits de calibración: el modelo de Keysight y la incertidumbre de sus especificaciones eléctricas, nuevos en 0.12.
+- los patrones de los kits de calibración: el modelo de Keysight y la incertidumbre de sus especificaciones eléctricas, nuevos en 0.12, y las desviaciones de sus valores reales en la calibración del kit, nuevas en 0.12.3.
 
 Cada sección indica el código que la implementa y los tests que la comprueban.
 
@@ -22,6 +22,7 @@ Cada sección indica el código que la implementa y los tests que la comprueban.
 | u y covarianzas de los datos de un `.sdatb` o un `.sdatcv` | Propagación lineal del presupuesto de METAS (§6) | `sdata/unclib.py`, `sdata/model.py` |
 | Covarianza y correlación entre frecuencias o en una frecuencia | Propagación lineal; ρ = V_ab/(u_a·u_b) (§6.5) | `sdata/correlation.py` |
 | Γ de un patrón de un kit y su u | Modelo de Keysight y especificaciones eléctricas, k = 2 (§7) | `kits/agilent.py`, `kits/specs.py` |
+| Desviaciones de los valores reales de un patrón y su especificación propia | Frente a su definición, por bandas (§7.4) | `kits/calibration.py` |
 
 ## 1. Notación
 
@@ -617,6 +618,37 @@ Con el `.ckt` del AA180-VNACKN y las especificaciones de su hoja de datos (fase 
 - u del abierto y del cortocircuito: diferencia máxima 3·10⁻¹⁷;
 - a 1 GHz, el abierto macho vale 0,99988 ∠ −45,08°, con u = 0,009268 en la parte real y 0,009242 en la imaginaria.
 
+### 7.4 Calibración del kit: desviaciones de los valores reales (nuevo en 0.12.3)
+
+Los valores reales de un patrón (S, de su certificado) se comparan con su definición por el modelo de Keysight (S₀, §7.1), en las frecuencias del fichero (f > 0) y en las magnitudes de sus especificaciones:
+
+| Magnitud | Desviación | U (k = 2) de la desviación |
+|---|---|---|
+| Módulo (abierto, cortocircuito; S21 y S12 del through) | δM = 20·log10(\|S\|/\|S₀\|) dB | 20/ln10 · U(\|S\|)/\|S\| |
+| Fase (ídem) | δφ = ∠(S/S₀), en grados (−180° … 180°) | U(∠S) |
+| Carga; S11 y S22 del through | r = \|S − S₀\|, mostrada como 20·log10 r dB | k·√(gᵀ·C·g), con g = (S − S₀)/\|S − S₀\| |
+
+- C es la covarianza de la parte real e imaginaria de S (§6.1); U(\|S\|) y U(∠S) son las de la tabla de un patrón (§7.2). S₀ no tiene incertidumbre: es la definición. Un Touchstone no trae incertidumbre: U = 0.
+- **Resultado** frente a la especificación L del fabricante (la del modelo del kit, k = 2; para la carga, L = 10^(RL/20)):
+
+  | Condición | Resultado |
+  |---|---|
+  | \|δ\| + U ≤ L | Cumple |
+  | \|δ\| − U > L | No cumple |
+  | En otro caso | Indeterminado |
+
+  Una especificación nula (0) o ausente no da resultado. El de la magnitud es el peor de sus frecuencias, y el del patrón, el peor de sus magnitudes.
+- **Especificación propia** (k = 2), en cada banda (k·w, (k+1)·w] de ancho w:
+  - el valor es max(\|δ\| + U) en la banda, redondeado hacia arriba a 4 cifras significativas; la carga, en dB, a 0,01 dB hacia 0;
+  - se escribe en dos filas, en la primera y la última frecuencia del fichero en la banda. Entre bandas se interpola linealmente, como en cualquier especificación (§7.2), y fuera de la tabla vale la fila más cercana;
+  - sin ancho, una sola banda;
+  - entra en el presupuesto como las del fabricante: una entrada por magnitud, común a todas las frecuencias (§7.2.1), con u = valor/2. Así, la incertidumbre del patrón cubre su desviación de la definición.
+- **Comprobación** con el AA180-VNACKN del laboratorio (KIT-N-02, 01/09/2026; `tests/test_kit_calibration.py`):
+  - abierto macho a 1 GHz: δφ = −0,3824° (mide −45,463°, el modelo da −45,081°); a 18 GHz, −14,1145°; no cumple desde 3 GHz;
+  - carga macho: r = 0,017768 (−35,007 dB) a 17,75 GHz, frente a −31,45 dB: cumple;
+  - especificación propia del abierto macho en (17, 18] GHz: 14,12° y 0,03316 dB; con ella, U(∠S) = 14,12° en la tabla del patrón a 17,5 GHz;
+  - con incertidumbre (la carga de VNA Tools como valores reales de la carga hembra): U(r) a 10 GHz igual a 2·√(gᵀ·C·g); 506 frecuencias cumplen, 2 indeterminadas y 25 no cumplen.
+
 ## 8. Ficheros del código y tests
 
 | Fichero | Contenido |
@@ -635,9 +667,11 @@ Con el `.ckt` del AA180-VNACKN y las especificaciones de su hoja de datos (fase 
 | `gui/correlation_view.py` | Pestaña «Correlación»: mapa de color, valor bajo el puntero, copia de la matriz |
 | `kits/agilent.py` | Modelo de Keysight de los patrones (§7.1) |
 | `kits/specs.py`, `kits/standards.py` | Especificaciones eléctricas → incertidumbre, tabla de un patrón (§7.2) |
+| `kits/calibration.py` | Desviaciones de los valores reales, resultado y especificación propia (§7.4) |
 | `tests/test_uncertainty.py` | Motor frente al script del laboratorio; incertidumbre del ensayo de la LISN, con Z |
 | `tests/test_uncertainty_impedance.py` | Fórmulas de §4 frente a Monte Carlo y al muestreo del disco |
 | `tests/test_conditions.py` | Pendiente / completa y recálculo, también de Z |
 | `tests/test_cable_certificate.py` | Retardo de grupo, resultados por sentido con su U y sus límites frente al certificado del laboratorio |
 | `tests/test_sdata.py` | §6 con los ficheros de VNA Tools del laboratorio y los ejemplos de METAS |
 | `tests/test_kits.py` | §7 con el `.ckt` del AA180-VNACKN, frente a los ficheros comprobados en VNA Tools |
+| `tests/test_kit_calibration.py` | §7.4 con los valores reales del AA180-VNACKN del laboratorio y la carga de VNA Tools |

@@ -160,6 +160,8 @@ class EquipmentDialog(QDialog):
 
         self.unit_standards = UnitStandardsEditor(library, lambda: self.id_edit.text().strip() or "kit", self._unit_folder)
         self.unit_standards.changed.connect(self._update_kit_status)
+        self.unit_standards.calibration_source = self._calibration_fields
+        self.unit_standards.calibration_entered.connect(self._calibration_entered)
         self.due.textEdited.connect(lambda _t: self._update_kit_status())
         self.issued.textEdited.connect(lambda _t: self._update_kit_status())
         self.standards_tab_index = self.tabs.addTab(self.unit_standards, "Patrones")
@@ -273,6 +275,34 @@ class EquipmentDialog(QDialog):
             return self.original.source_path.parent
         return self.library.root / "catalogo" / "equipos"
 
+    def _calibration_fields(self) -> Calibration:
+        """The calibration of the unit as it is in the tab «Calibración» (dates that are not valid: none)."""
+
+        def parsed(edit: QLineEdit, label: str) -> date | None:
+            try:
+                return _parse_date(edit.text(), label)
+            except FieldError:
+                return None
+
+        return Calibration(
+            certificate=self.certificate.text().strip() or None,
+            laboratory=self.laboratory.text().strip() or None,
+            issued=parsed(self.issued, "Fecha de calibración"),
+            due=parsed(self.due, "Próxima calibración"),
+        )
+
+    def _calibration_entered(self, calibration: Calibration | None) -> None:
+        """«Calibración del kit…»: its date, certificate and laboratory go to the tab «Calibración»."""
+        if calibration is None:
+            return
+        if calibration.issued:
+            self.issued.setText(calibration.issued.isoformat())
+        if calibration.certificate:
+            self.certificate.setText(calibration.certificate)
+        if calibration.laboratory:
+            self.laboratory.setText(calibration.laboratory)
+        self._update_kit_status()
+
     def _update_kit_status(self) -> None:
         """Validity of the calibration of the kit and the state of its standards (tab «Patrones»)."""
         model = self.library.models.get(self.model.currentData())
@@ -292,6 +322,12 @@ class EquipmentDialog(QDialog):
             text = f"<b style='color:#d98a00'>La calibración del kit caduca el {due:%d/%m/%Y}</b>"
         else:
             text = f"<b>Calibración del kit:</b> válida hasta el {due:%d/%m/%Y}"
+        real = [unit.real_values for unit in self.unit_standards.units.values() if unit.real_values is not None]
+        if real:
+            dates = sorted({r.calibration_date for r in real if r.calibration_date})
+            meet = sum(1 for r in real if r.verdict == "cumple")
+            when = " del " + ", ".join(f"{d:%d/%m/%Y}" for d in dates) if dates else ""
+            text += f"<br><b>Valores reales{when}:</b> {len(real)} patrones; {meet} cumplen la especificación del fabricante"
         probe = Equipment(id=self.id_edit.text().strip() or "kit", model_id=model.id, calibration=Calibration(issued=issued, due=due),
                           standards=self.unit_standards.units)
         probe.set_source_path(self.original.source_path if self.original else None)

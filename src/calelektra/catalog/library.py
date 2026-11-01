@@ -27,7 +27,7 @@ import re
 import shutil
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -41,11 +41,22 @@ from calelektra.core.frequency import FrequencyRange, intersect_all
 from calelektra.core.issues import Issue, Severity
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError
-from calelektra.kits.standards import DEFAULT_POINTS, KitSettings, ResolvedStandard, export_sdatb, resolve_standards, standard_data
+from calelektra.kits.calibration import StandardDeviations, standard_deviations
+from calelektra.kits.model import KitError, RealValues
+from calelektra.kits.standards import (
+    DEFAULT_POINTS,
+    KitSettings,
+    ResolvedStandard,
+    export_sdatb,
+    resolve_standards,
+    select_ports,
+    standard_data,
+)
 from calelektra.procedures.model import ProcedureTemplate
 from calelektra.procedures.record import RECORD_FILE, TestRecord
 from calelektra.sdata.files import load_sparam_data
 from calelektra.sdata.model import SParamData
+from calelektra.sdata.unclib import SDataError
 from calelektra.setups.model import SETUP_FORMAT_VERSION, ConfiguredSetup, SetupTemplate
 from calelektra.uncertainty.engine import UncertaintyCalculationError, UncertaintyEngine
 
@@ -550,6 +561,52 @@ class Library:
         """S-parameters of a standard with their uncertainty (``kits/standards.py``)."""
         return standard_data(resolved, settings, loader=self._standard_file)
 
+    def real_values_data(self, resolved: ResolvedStandard, path: Path | None = None) -> SParamData:
+        """The real values of a standard: the file of the unit, or ``path`` (e.g. before entering it)."""
+        label = resolved.standard.label or resolved.id
+        target = Path(path) if path is not None else resolved.real_values_path()
+        if target is None or not target.is_file():
+            raise KitError(f"no se encuentra el fichero de valores reales de «{label}»" + (f" ({target.name})" if target else ""))
+        try:
+            data = self._standard_file(target)
+        except SDataError as exc:
+            raise KitError(f"«{label}»: {exc}") from exc
+        ports = resolved.real_values.ports if path is None and resolved.real_values else []
+        return select_ports(data, ports)
+
+    def standard_deviations(self, resolved: ResolvedStandard, settings: KitSettings, path: Path | None = None) -> StandardDeviations:
+        """The deviations of the real values of a standard from its definition by the model, with the specifications
+        of the manufacturer as limits (``kits/calibration.py``)."""
+        definition = resolved.definition if resolved.definition.kind == "modelo" else resolved.standard.definition
+        data = self.real_values_data(resolved, path)
+        return standard_deviations(resolved.standard, data, settings.zr, definition, resolved.standard.specifications)
+
+    def kit_real_values(
+        self,
+        resolved: ResolvedStandard,
+        settings: KitSettings,
+        source: Path,
+        kit_id: str,
+        calibration_date: date | None,
+        band_width: float | None,
+        reference: str | None = None,
+        deviations: StandardDeviations | None = None,
+    ) -> RealValues:
+        """The real values of a standard from a file of the calibration of the kit: the file copied into
+        ``catalogo/patrones/<unit>/``, whether they meet the specification of the manufacturer and its own
+        specifications by bands of ``band_width`` (``kits/calibration.py``)."""
+        deviations = deviations or self.standard_deviations(resolved, settings, source)
+        relative, digest = self.copy_standard_file(source, kit_id)
+        return RealValues(
+            fichero=relative,
+            sha256=digest,
+            fecha=calibration_date,
+            referencia=reference or None,
+            ancho_bandas=band_width,
+            resultado=deviations.verdict,
+            especificaciones=deviations.specifications(band_width),
+        )
+
     def export_standards(self, standards: list[ResolvedStandard], settings: KitSettings, folder: Path) -> list[Path]:
         """A ``.sdatb`` per standard with definition, named as VNA Tools names them."""
         return export_sdatb(standards, settings, folder, loader=self._standard_file)
@@ -581,7 +638,9 @@ class Library:
 
     def kit_issues(self, equipment: Equipment) -> list[Issue]:
         """State of the standards of a kit unit: damaged, replaced after the certificate, without
-        definition, without their data file or with data older than the certificate of the kit."""
+        definition, without their data file or with data older than the certificate of the kit; with real
+        values (the calibration of the kit) that do not meet the specification of the manufacturer, that are
+        older than the certificate or without their file."""
         model = self.model_of(equipment)
         if model is None or not model.standards:
             return []
@@ -617,6 +676,25 @@ class Library:
                         "patron.datos_antiguos",
                         f"los datos del patrón «{name}» son del {definition.data_date:%d/%m/%Y}, anteriores al último "
                         f"certificado del kit ({issued:%d/%m/%Y})",
+                    )
+            real = resolved.real_values
+            if real is not None:
+                path = resolved.real_values_path()
+                if path is None or not path.is_file():
+                    add(Severity.ERROR, "patron.valores_reales", f"no se encuentra el fichero de valores reales del patrón «{name}» ({real.file})")
+                when = f" del {real.calibration_date:%d/%m/%Y}" if real.calibration_date else ""
+                if real.verdict == "no_cumple":
+                    add(
+                        Severity.WARNING,
+                        "patron.fuera_de_especificacion",
+                        f"con sus valores reales{when}, el patrón «{name}» no cumple la especificación del fabricante: "
+                        "su incertidumbre sale de sus desviaciones",
+                    )
+                if real.calibration_date and issued and real.calibration_date < issued:
+                    add(
+                        Severity.WARNING,
+                        "patron.valores_antiguos",
+                        f"los valores reales del patrón «{name}» son{when}, anteriores al último certificado del kit ({issued:%d/%m/%Y})",
                     )
         return issues
 

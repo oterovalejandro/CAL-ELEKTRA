@@ -1,7 +1,9 @@
 """The S-parameters of the standards of a kit, with their uncertainty, and their files.
 
 ``ResolvedStandard`` joins what the kit model says of a standard (``KitStandard``) and what a unit of the
-kit says of it (``UnitStandard``: serial number, state, its own data or specifications).
+kit says of it (``UnitStandard``: serial number, state, its own data or specifications, its real values).
+Its specifications are, in this order, the own ones of the unit, those that follow from its real values
+(the calibration of the kit, ``kits/calibration.py``) or those of the model.
 ``standard_data`` gives its S-parameters with their uncertainty:
 
 * model: computed on the frequencies of the kit (``kit_frequencies``) with the reference impedance of
@@ -23,7 +25,7 @@ import numpy as np
 
 from calelektra.core.frequency import FrequencyRange
 from calelektra.kits.agilent import model_s
-from calelektra.kits.model import KitError, KitStandard, SpecRow, StandardDefinition, UnitStandard, standard_name
+from calelektra.kits.model import KitError, KitStandard, RealValues, SpecRow, StandardDefinition, UnitStandard, standard_name
 from calelektra.kits.specs import with_specifications
 from calelektra.sdata.files import load_sparam_data
 from calelektra.sdata.model import SParamData
@@ -76,9 +78,25 @@ class ResolvedStandard:
         return self.unit.definition if self.own_definition else self.standard.definition  # type: ignore[union-attr]
 
     @property
-    def specifications(self) -> list[SpecRow]:
+    def real_values(self) -> RealValues | None:
+        return self.unit.real_values if self.unit else None
+
+    @property
+    def specification_origin(self) -> str:
+        """Where its specifications come from: ``propias`` (of the unit), ``valores_reales`` or ``modelo``."""
         if self.unit and self.unit.specifications is not None:
-            return self.unit.specifications
+            return "propias"
+        if self.real_values is not None and self.real_values.specifications:
+            return "valores_reales"
+        return "modelo"
+
+    @property
+    def specifications(self) -> list[SpecRow]:
+        origin = self.specification_origin
+        if origin == "propias":
+            return self.unit.specifications  # type: ignore[union-attr, return-value]
+        if origin == "valores_reales":
+            return self.real_values.specifications  # type: ignore[union-attr]
         return self.standard.specifications
 
     @property
@@ -95,6 +113,16 @@ class ResolvedStandard:
             return None
         path = Path(definition.file)
         return path if path.is_absolute() else (self.folder / path).resolve()
+
+    def real_values_path(self) -> Path | None:
+        """The file of its real values (relative to the YAML of the unit)."""
+        real = self.real_values
+        if real is None:
+            return None
+        path = Path(real.file)
+        if path.is_absolute():
+            return path
+        return (self.unit_folder / path).resolve() if self.unit_folder else None
 
 
 def resolve_standards(standards: list[KitStandard], units: dict[str, UnitStandard], model_folder: Path, unit_folder: Path | None) -> list[ResolvedStandard]:
