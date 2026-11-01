@@ -8,7 +8,7 @@ Este documento reúne todo lo que CAL-ELEKTRA calcula sobre incertidumbre y cóm
 - la incertidumbre de la impedancia, nueva en 0.8.4;
 - los resultados de un cable por sentido (VSWR, pérdida de inserción y retardo de grupo) y su incertidumbre, nuevos en 0.10;
 - la incertidumbre con dependencias de los ficheros de METAS VNA Tools (`.sdatb`, `.sdatcv`), nueva en 0.11;
-- los patrones de los kits de calibración: el modelo de Keysight y la incertidumbre de sus especificaciones eléctricas, nuevos en 0.12, y las desviaciones de sus valores reales en la calibración del kit, nuevas en 0.12.3.
+- los patrones de los kits de calibración: el modelo de Keysight y la incertidumbre de sus especificaciones eléctricas, nuevos en 0.12, las desviaciones de sus valores reales en la calibración del kit, nuevas en 0.12.3, y la contribución del kit a una medida calibrada, nueva en 0.12.4.
 
 Cada sección indica el código que la implementa y los tests que la comprueban.
 
@@ -23,6 +23,7 @@ Cada sección indica el código que la implementa y los tests que la comprueban.
 | Covarianza y correlación entre frecuencias o en una frecuencia | Propagación lineal; ρ = V_ab/(u_a·u_b) (§6.5) | `sdata/correlation.py` |
 | Γ de un patrón de un kit y su u | Modelo de Keysight y especificaciones eléctricas, k = 2 (§7) | `kits/agilent.py`, `kits/specs.py` |
 | Desviaciones de los valores reales de un patrón y su especificación propia | Frente a su definición, por bandas (§7.4) | `kits/calibration.py` |
+| Contribución del kit a una medida calibrada (OSM, TOSM, UOSM, normalización) | Propagación lineal por la calibración, como VNA Tools (§7.5) | `kits/contribution.py` |
 
 ## 1. Notación
 
@@ -649,6 +650,18 @@ Los valores reales de un patrón (S, de su certificado) se comparan con su defin
   - especificación propia del abierto macho en (17, 18] GHz: 14,12° y 0,03316 dB; con ella, U(∠S) = 14,12° en la tabla del patrón a 17,5 GHz;
   - con incertidumbre (la carga de VNA Tools como valores reales de la carga hembra): U(r) a 10 GHz igual a 2·√(gᵀ·C·g); 506 frecuencias cumplen, 2 indeterminadas y 25 no cumplen.
 
+### 7.5 Contribución del kit a una medida calibrada (nuevo en 0.12.4)
+
+Como METAS VNA Tools: las definiciones de los patrones, con sus dependencias de las entradas del kit (§7.2, §7.4), se propagan linealmente por la calibración hasta la medida corregida. El detalle, los resultados y la comparación con el fichero de incertidumbres del ZNB43 están en [`16_contribucion_del_kit_a_la_incertidumbre.md`](16_contribucion_del_kit_a_la_incertidumbre.md).
+
+- **VNA perfecto:** el error de las definiciones no depende de los errores propios del VNA (la medida corregida es la transformación que lleva los patrones reales a sus definiciones, aplicada al DUT). Se calcula con lecturas = valores reales, en los valores nominales y en primer orden.
+- **Sensibilidades:** derivadas complejas (la calibración es holomorfa en las definiciones), por diferencias centrales con h = 10⁻⁶; por debajo de 10⁻⁸ cuentan como 0. La medida corregida depende de cada entrada x del kit con ∂S/∂x = Σᵥ (∂S/∂Dᵥ)·(∂Dᵥ/∂x), con Dᵥ cada definición compleja (abierto, corto y carga de cada puerto; S11, S21, S12 y S22 de un through definido).
+- **OSM, fórmula cerrada:** δΓ = Σᵢ δDᵢ · Πⱼ≠ᵢ (Γ − Aⱼ)/(Aᵢ − Aⱼ) (base de Lagrange de los tres patrones); con patrones ideales, δΓ = δD_carga·(1 − Γ²) + δD_abierto·Γ(1 + Γ)/2 + δD_corto·Γ(Γ − 1)/2.
+- **TOSM con through definido:** de la reflexión corregida en el puerto 1, Γ₁' = T11 + T21·T12·e22f/(1 − T22·e22f), sale e22f = x/(T21·T12 + T22·x) con x = Γ₁' − T11, y el seguimiento de transmisión e10e32 = S21m·[(1 − e11·T11)(1 − e22f·T22) − e11·e22f·T21·T12]/T21; el sentido inverso igual.
+- **Términos efectivos:** los términos de error resueltos con el VNA perfecto (nominales 0 o 1). Directividad y adaptaciones: −20·log10(k·√λmax) de la covarianza de su parte real e imaginaria; seguimientos: U del módulo, (20/ln10)·k·u(Re), y de la fase, k·u(Im) en grados.
+- **Peor fase de una reflexión:** el máximo de U sobre 24 fases del DUT, en cada frecuencia.
+- **Interpolación:** los patrones se llevan a las frecuencias de la evaluación por interpolación lineal de sus valores y de sus dependencias (cada punto, suma ponderada de sus dos vecinos: conserva sus entradas).
+
 ## 8. Ficheros del código y tests
 
 | Fichero | Contenido |
@@ -668,6 +681,7 @@ Los valores reales de un patrón (S, de su certificado) se comparan con su defin
 | `kits/agilent.py` | Modelo de Keysight de los patrones (§7.1) |
 | `kits/specs.py`, `kits/standards.py` | Especificaciones eléctricas → incertidumbre, tabla de un patrón (§7.2) |
 | `kits/calibration.py` | Desviaciones de los valores reales, resultado y especificación propia (§7.4) |
+| `kits/contribution.py` | Contribución del kit a una medida calibrada (§7.5) |
 | `tests/test_uncertainty.py` | Motor frente al script del laboratorio; incertidumbre del ensayo de la LISN, con Z |
 | `tests/test_uncertainty_impedance.py` | Fórmulas de §4 frente a Monte Carlo y al muestreo del disco |
 | `tests/test_conditions.py` | Pendiente / completa y recálculo, también de Z |
@@ -675,3 +689,4 @@ Los valores reales de un patrón (S, de su certificado) se comparan con su defin
 | `tests/test_sdata.py` | §6 con los ficheros de VNA Tools del laboratorio y los ejemplos de METAS |
 | `tests/test_kits.py` | §7 con el `.ckt` del AA180-VNACKN, frente a los ficheros comprobados en VNA Tools |
 | `tests/test_kit_calibration.py` | §7.4 con los valores reales del AA180-VNACKN del laboratorio y la carga de VNA Tools |
+| `tests/test_kit_contribution.py` | §7.5: fórmula de Lagrange, TOSM, UOSM, normalización, interpolación |

@@ -12,8 +12,11 @@ VNA uses this module so that the calibration flow (standards acquired in the
 right order, applied, then used to correct measurements) behaves like the
 real instrument and can be tested.
 
-Ideal standards are used: open Γ = +1, short Γ = −1, match Γ = 0, flush
-through S21 = S12 = 1, S11 = S22 = 0.
+By default the standards are ideal: open Γ = +1, short Γ = −1, match Γ = 0,
+flush through S21 = S12 = 1, S11 = S22 = 0. ``solve_one_port`` and
+``solve_tosm`` also take the definitions of the standards (per frequency), as a
+calibration with a kit does; ``kits/contribution.py`` uses them to propagate the
+uncertainty of those definitions.
 """
 
 from __future__ import annotations
@@ -71,10 +74,11 @@ class TwoPortTerms:
         return corrected
 
 
-def solve_one_port(measured: dict[str, np.ndarray]) -> OnePortTerms:
+def solve_one_port(measured: dict[str, np.ndarray], definitions: dict[str, np.ndarray] | None = None) -> OnePortTerms:
     """OSM: error terms of one port from the raw reflections of open, short and match.
 
-    Linear form per frequency: Γm = e00 + Γ·Γm·e11 − Γ·Δe, with Δe = e00·e11 − e10e01.
+    Linear form per frequency: Γm = e00 + Γ·Γm·e11 − Γ·Δe, with Δe = e00·e11 − e10e01, where Γ is the
+    definition of each standard (``definitions``, per frequency; by default the ideal ones).
     """
     missing = [name for name in STANDARD_GAMMA if name not in measured]
     if missing:
@@ -82,8 +86,9 @@ def solve_one_port(measured: dict[str, np.ndarray]) -> OnePortTerms:
     points = len(measured["OPEN"])
     a = np.zeros((points, 3, 3), dtype=complex)
     b = np.zeros((points, 3), dtype=complex)
-    for row, (name, gamma) in enumerate(STANDARD_GAMMA.items()):
+    for row, (name, ideal) in enumerate(STANDARD_GAMMA.items()):
         gm = measured[name]
+        gamma = definitions[name] if definitions is not None else ideal
         a[:, row, 0] = 1
         a[:, row, 1] = gamma * gm
         a[:, row, 2] = -gamma
@@ -92,8 +97,23 @@ def solve_one_port(measured: dict[str, np.ndarray]) -> OnePortTerms:
     return OnePortTerms(directivity=e00, source_match=e11, tracking=e00 * e11 - delta)
 
 
-def solve_tosm(port1: OnePortTerms, port2: OnePortTerms, through: np.ndarray) -> TwoPortTerms:
-    """TOSM with a known flush through (planes connected directly)."""
+def solve_tosm(port1: OnePortTerms, port2: OnePortTerms, through: np.ndarray, definition: np.ndarray | None = None) -> TwoPortTerms:
+    """TOSM with a known through: flush (planes connected directly) or with its ``definition`` (S-matrices).
+
+    With a defined through T, the corrected reflection at port 1 is T11 + T21·T12·e22f/(1 − T22·e22f), which
+    gives the load match e22f, and S21m = e10e32·T21 / [(1 − e11·T11)(1 − e22f·T22) − e11·e22f·T21·T12]; the
+    reverse direction likewise."""
+    if definition is not None:
+        t = definition
+        product = t[:, 1, 0] * t[:, 0, 1]
+        x = port1.correct(through[:, 0, 0]) - t[:, 0, 0]
+        y = port2.correct(through[:, 1, 1]) - t[:, 1, 1]
+        e22f = x / (product + t[:, 1, 1] * x)
+        e11r = y / (product + t[:, 0, 0] * y)
+        e11, e22 = port1.source_match, port2.source_match
+        forward = through[:, 1, 0] * ((1 - e11 * t[:, 0, 0]) * (1 - e22f * t[:, 1, 1]) - e11 * e22f * product) / t[:, 1, 0]
+        reverse = through[:, 0, 1] * ((1 - e22 * t[:, 1, 1]) * (1 - e11r * t[:, 0, 0]) - e22 * e11r * product) / t[:, 0, 1]
+        return TwoPortTerms(port1, port2, forward, reverse, e22f, e11r)
     e22f = port1.correct(through[:, 0, 0])  # load match seen from port 1
     e11r = port2.correct(through[:, 1, 1])  # load match seen from port 2
     return TwoPortTerms(

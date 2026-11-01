@@ -31,6 +31,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
+import numpy as np
 import yaml
 from pydantic import BaseModel, ValidationError
 
@@ -42,12 +43,14 @@ from calelektra.core.issues import Issue, Severity
 from calelektra.core.touchstone import Touchstone, TouchstoneError, read_touchstone
 from calelektra.core.units import UnitError
 from calelektra.kits.calibration import StandardDeviations, standard_deviations
+from calelektra.kits.contribution import FLAT, CalibrationStandards, calibration_standards
 from calelektra.kits.model import KitError, RealValues
 from calelektra.kits.standards import (
     DEFAULT_POINTS,
     KitSettings,
     ResolvedStandard,
     export_sdatb,
+    kit_frequencies,
     resolve_standards,
     select_ports,
     standard_data,
@@ -606,6 +609,21 @@ class Library:
             resultado=deviations.verdict,
             especificaciones=deviations.specifications(band_width),
         )
+
+    def calibration_standards(
+        self,
+        model: EquipmentModel,
+        equipment: Equipment | None,
+        method: str,
+        genders: tuple[str, ...],
+        through: str = FLAT,
+        frequencies: np.ndarray | None = None,
+    ) -> CalibrationStandards:
+        """The definitions of a calibration (OSM, TOSM, UOSM or normalization) with the standards of a kit, with their
+        uncertainty, on ``frequencies`` (by default those of the kit): ``kits/contribution.py``."""
+        settings = self.kit_settings(model, equipment)
+        f = kit_frequencies(settings) if frequencies is None else np.asarray(frequencies, float)
+        return calibration_standards(self.kit_standards(model, equipment), method, genders, f, lambda r: self.standard_data(r, settings), through)
 
     def export_standards(self, standards: list[ResolvedStandard], settings: KitSettings, folder: Path) -> list[Path]:
         """A ``.sdatb`` per standard with definition, named as VNA Tools names them."""

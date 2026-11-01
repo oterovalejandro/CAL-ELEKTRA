@@ -1,4 +1,4 @@
-# Kits de calibración: alta y definición de sus patrones — versiones 0.12 a 0.12.3
+# Kits de calibración: alta y definición de sus patrones — versiones 0.12 a 0.12.4
 
 ## 1. Qué cambia
 
@@ -137,6 +137,8 @@ Botón **«Calibración del kit…»** de la pestaña «Patrones» de la unidad.
 5. **Aceptar:** los ficheros se copian en `catalogo/patrones/<unidad>/`, con su SHA-256. Cada patrón de la unidad guarda sus `valores_reales`: fichero, fecha, certificado, ancho de las bandas, resultado y especificaciones propias. Desde entonces, su gráfica, su tabla, su correlación y su `.sdatb` exportado llevan esa incertidumbre. Las especificaciones propias que se escriban a mano en el patrón siguen mandando.
 
 Prioridad de las especificaciones de un patrón: **propias** de la unidad (a mano) → **de sus valores reales** → **del modelo**.
+
+Lo que aporta el kit a la incertidumbre de una medida calibrada con OSM, TOSM, UOSM o normalización se evalúa con **«Contribución a la incertidumbre…»**, en la misma pestaña: ver [`16_contribucion_del_kit_a_la_incertidumbre.md`](16_contribucion_del_kit_a_la_incertidumbre.md) (0.12.4).
 
 ### 6.1 El AA180-VNACKN del laboratorio (KIT-N-02, calibrado el 01/09/2026)
 

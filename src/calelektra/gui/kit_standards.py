@@ -1186,11 +1186,18 @@ class UnitStandardsEditor(QWidget):
             "Los valores reales de los patrones (su certificado): sus desviaciones, si cumplen su especificación y su incertidumbre",
         )
         calibrate.clicked.connect(self.enter_calibration)
+        contribution = _button(
+            "Contribución a la incertidumbre…",
+            "grafica",
+            "Lo que aporta el kit a la incertidumbre de una medida calibrada con OSM, TOSM, UOSM o normalización (como METAS VNA Tools)",
+        )
+        contribution.clicked.connect(lambda: self.contribution_dialog().show())
         edit = _button("Editar…", "editar", "Nº de serie, estado y datos propios del patrón, con su vista (también con doble clic)")
         edit.clicked.connect(self.edit_standard)
         export = _button("Exportar .sdatb…", "exportar", "Un .sdatb por patrón de esta unidad, con su nº de serie en el nombre")
         export.clicked.connect(self.export)
         buttons.addWidget(calibrate)
+        buttons.addWidget(contribution)
         buttons.addWidget(edit)
         buttons.addStretch(1)
         buttons.addWidget(export)
@@ -1249,6 +1256,19 @@ class UnitStandardsEditor(QWidget):
         from calelektra.gui.kit_calibration import KitCalibrationDialog
 
         return KitCalibrationDialog(self.library, self.model, self.kit_id() or "kit", self.unit_folder(), self.units, self.calibration_source(), self)
+
+    def contribution_dialog(self):
+        """The contribution of the kit to the uncertainty (``gui/kit_contribution.py``), with the standards as edited."""
+        from calelektra.gui.kit_contribution import KitContributionDialog
+        from calelektra.catalog.model import Equipment
+
+        unit = None
+        if self.model is not None:
+            unit = Equipment(id=self.kit_id() or "kit", model_id=self.model.id, standards=self.units)
+            unit.set_source_path(self.unit_folder() / f"{unit.id}.yaml")
+        dialog = KitContributionDialog(self.library, self.model, unit, self)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        return dialog
 
     def apply_calibration(self, dialog) -> None:
         """The real values of the standards and the calibration that the dialog gives."""

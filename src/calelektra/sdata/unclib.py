@@ -463,6 +463,30 @@ class UncVector:
         scaled = sensitivities * self.input_uncertainties[used]
         return scaled @ scaled.T
 
+    def combination(self, elements, weights) -> UncVector:
+        """A vector of linear combinations of elements (row r: Σₜ weights[r, t] · element elements[r, t]),
+        with the same inputs: e.g. a linear interpolation between frequencies."""
+        elements = np.asarray(elements, np.int64)
+        weights = np.broadcast_to(np.asarray(weights, float), elements.shape)
+        size = len(elements)
+        values = (self.values[elements] * weights).sum(axis=1)
+        flat = elements.ravel()
+        starts = self.offsets[flat]
+        counts = self.offsets[flat + 1] - starts
+        total = int(counts.sum())
+        if not total:
+            return UncVector(values, list(self.inputs), np.zeros(size + 1, np.int64), np.zeros(0, np.int64), np.zeros(0))
+        positions = np.repeat(starts - (np.cumsum(counts) - counts), counts) + np.arange(total)
+        rows = np.repeat(np.repeat(np.arange(size), elements.shape[1]), counts)
+        sensitivities = self.jacobians[positions] * np.repeat(weights.ravel(), counts)
+        keys, inverse = np.unique(rows * len(self.inputs) + self.indices[positions], return_inverse=True)
+        merged = np.bincount(inverse.ravel(), weights=sensitivities, minlength=len(keys))
+        rows, inputs = np.divmod(keys, len(self.inputs))
+        keep = merged != 0
+        rows, inputs, merged = rows[keep], inputs[keep], merged[keep]
+        offsets = np.concatenate([[0], np.cumsum(np.bincount(rows, minlength=size))])
+        return UncVector(values, list(self.inputs), offsets, inputs, merged)
+
     def combination_covariance(self, elements, weights=None) -> np.ndarray:
         """Covariance of linear combinations of elements: row r is Σₜ weights[r, t] · element elements[r, t].
 

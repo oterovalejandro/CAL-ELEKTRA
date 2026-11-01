@@ -149,6 +149,32 @@ class SParamData:
         """Covariance of the S-parameters of a frequency, in the order of ``point_elements``."""
         return self.vector.covariance(self.point_elements(point))
 
+    def interpolated(self, frequencies) -> SParamData:
+        """The data at other frequencies, linearly interpolated with their uncertainty (each point is a weighted sum
+        of its two neighbours, so it keeps their inputs: LinProp); outside the data, the nearest point."""
+        target = np.asarray(frequencies, float)
+        f = self.frequencies
+        if len(target) == len(f) and np.array_equal(target, f):
+            return self
+        if self.conversions is not None:
+            raise SDataError("No se interpolan datos con conversión de frecuencia")
+        low = np.clip(np.searchsorted(f, target, side="right") - 1, 0, len(f) - 1)
+        high = np.minimum(low + 1, len(f) - 1)
+        span = f[high] - f[low]
+        weight = np.clip(np.where(span > 0, (target - f[low]) / np.where(span > 0, span, 1.0), 0.0), 0.0, 1.0)
+        n = self.n_ports
+        rows, weights = [], []
+        for port in range(2 * n):  # the reference impedances
+            rows.append([port, port])
+            weights.append([1.0, 0.0])
+        for k in range(len(target)):
+            for r in range(n):
+                for c in range(n):
+                    for part in (0, 1):
+                        rows.append([self.element(low[k], r, c, part), self.element(high[k], r, c, part)])
+                        weights.append([1.0 - weight[k], weight[k]])
+        return SParamData(target, self.ports, self.vector.combination(np.array(rows), np.array(weights)))
+
     @property
     def required_version(self) -> int:
         """The first ``.sdatb`` version that keeps these data: 2, 3 (port modes), 4 or 5 (frequency conversion)."""

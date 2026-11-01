@@ -144,6 +144,19 @@ def kit_captures(library: Library, window: MainWindow, out: Path) -> None:
         calibration.detail.quantity.setCurrentIndex(quantity)
         grab(calibration, out / name)
     calibration.close()
+    contribution = unit_dialog.unit_standards.contribution_dialog()  # the contribution of the kit to the uncertainty
+    contribution.show()
+    contribution.definitions.setCurrentIndex(contribution.definitions.findData("modelo"))
+    contribution.compute()
+    grab(contribution, out / "38k_contribucion_kit_osm.png")
+    contribution.definitions.setCurrentIndex(contribution.definitions.findData("unidad"))
+    contribution.method.setCurrentIndex(contribution.method.findData("UOSM"))
+    contribution.dut.setCurrentIndex(contribution.dut.findData("atenuador"))
+    contribution.compute()
+    contribution.parameter.setCurrentText("S21")
+    contribution.quantity.setCurrentIndex(contribution.quantity.findData("db"))
+    grab(contribution, out / "38l_contribucion_kit_uosm.png")
+    contribution.close()
     unit_dialog.close()
 
 

@@ -269,3 +269,50 @@ def test_a_file_of_vna_tools_in_the_viewer(qapp, tmp_path):
     assert view.plot.getAxis("bottom")._tickLevels  # frequencies on the axes
     assert not viewer.open_file(tmp_path / "no_existe.sdatb") and viewer.preview.info.text().startswith("✖")
     assert view.matrix is None and viewer.path == LOAD_SDATB
+
+
+def test_the_contribution_of_the_kit_to_the_uncertainty(qapp, library: Library, tmp_path, monkeypatch):
+    """«Contribución a la incertidumbre…»: OSM, UOSM and normalization, against the uncertainty file of the ZNB43."""
+    dialog = EquipmentDialog(library, library.equipment["KIT-N-02"])
+    contribution = dialog.unit_standards.contribution_dialog()
+    assert contribution.definitions.currentData() == "unidad" and contribution.vna.currentData() == "VNA-01"
+    # OSM with the specifications of the manufacturer: a reflection of 0,1 at its worst phase
+    contribution.definitions.setCurrentIndex(contribution.definitions.findData("modelo"))
+    assert [contribution.dut.itemData(i) for i in range(contribution.dut.count())] == ["reflexion", "fichero"]
+    assert not contribution.gender2.isVisibleTo(contribution)
+    assert contribution.compute()
+    total = contribution.contribution("S11", "modulo")["total"]
+    assert 0.0268 < total.min() < total.max() < 0.0275
+    assert "su fichero de incertidumbres da 0,006 a 0,009" in contribution.summary.text()
+    rows = [[contribution.terms.item(r, c).text() for c in range(contribution.terms.columnCount())] for r in range(contribution.terms.rowCount())]
+    assert rows[0][:3] == ["Directividad (puerto 1)", "kit 31,4 dB · VNA 45 dB", "kit 31,4 dB · VNA 42 dB"]
+    assert contribution.preview.data is not None and contribution.preview.data.n_ports == 1
+    header = contribution.table_text().splitlines()[0].split("\t")
+    assert header[0] == "f (Hz)" and header[-1] == "total" and "Puerto 1: OPEN -M-" in header
+    # UOSM with the real values of the unit: an attenuator of 20 dB, its transmission in dB
+    contribution.definitions.setCurrentIndex(contribution.definitions.findData("unidad"))
+    contribution.method.setCurrentIndex(contribution.method.findData("UOSM"))
+    assert contribution.gender2.isVisibleTo(contribution) and not contribution.through.isVisibleTo(contribution)
+    contribution.dut.setCurrentIndex(contribution.dut.findData("atenuador"))
+    assert contribution.compute() and contribution.parameter.count() == 4
+    contribution.parameter.setCurrentText("S21")
+    contribution.quantity.setCurrentIndex(contribution.quantity.findData("db"))
+    assert contribution.chart.labels()[0] == "Total del kit" and len(contribution.chart.labels()) == 7
+    assert "S21: U |S| (dB) del kit" in contribution.summary.text()
+    # saved as .sdatb, with the inputs of the kit
+    target = tmp_path / "atenuador.sdatb"
+    monkeypatch.setattr("calelektra.gui.kit_contribution.QFileDialog.getSaveFileName", lambda *a, **k: (str(target), ""))
+    contribution.save()
+    from calelektra.sdata import read_sdatb
+
+    saved = read_sdatb(target)
+    assert saved.n_ports == 2 and len(saved.vector.inputs) == len(contribution.result.data.vector.inputs) > 0
+    # normalization with a flush through: the kit does not take part
+    contribution.method.setCurrentIndex(contribution.method.findData("normalizacion"))
+    assert contribution.compute() and not contribution.contribution("S21", "db")["total"].any()
+    # a kit without the standards of a gender
+    library.equipment["KIT-N-02"].standards["abierto_h"].state = "danado"
+    dialog.unit_standards.units["abierto_h"].state = "danado"
+    broken = dialog.unit_standards.contribution_dialog()
+    broken.gender1.setCurrentIndex(broken.gender1.findData("hembra"))
+    assert not broken.compute() and "abierto hembra" in broken.summary.text()
