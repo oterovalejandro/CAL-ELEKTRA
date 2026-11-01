@@ -37,6 +37,7 @@ from calelektra.kits import (
 )
 from calelektra.kits.agilent import model_s, reflection
 from calelektra.sdata import read_sdatb
+from calelektra.sdata.correlation import MAX_POINTS, frequency_matrix, point_matrix
 from calelektra.sdata.unclib import cross_covariance
 from calelektra.setups.analysis import analyze_setup
 
@@ -151,6 +152,62 @@ def test_uncertainty_of_the_electrical_specifications():
     assert covariance[0, 1] == pytest.approx(covariance[0, 0]) and covariance[2, 3] == 0
     row = next(r for r in table_rows(data) if r.parameter == "S21" and r.frequency == data.frequencies[k])
     assert row.u_magnitude == pytest.approx(math.log(10) / 20 * 0.05) and row.u_phase_deg == pytest.approx(0.5)
+
+
+def test_correlation_of_the_electrical_specifications():
+    """One input per specified quantity: the same deviation at all the frequencies (docs/10 §7.2.1)."""
+    standards = by_id(kit_standards(read_ckt(CKT)))
+    open_m = standards["abierto_m"]
+    open_m.specifications = [SpecRow(frecuencia=0, fase_grados=1.5)]
+    data = standard_data(ResolvedStandard(open_m, None, Path(".")), SETTINGS)
+    # the phase: +1 between all the frequencies, u = 1,5°/2 at each one
+    phase = frequency_matrix(data, "S11", "fase")
+    assert (phase.size, phase.total) == (MAX_POINTS, 1800) and (phase.points[0], phase.points[-1]) == (0, 1799)
+    assert np.allclose(phase.correlation, 1.0) and np.allclose(phase.standard_uncertainties, 0.75) and phase.units[0] == "°"
+    # the real part: ±1, with the sign of its sensitivity to the phase, −Im Γ
+    real = frequency_matrix(data, "S11", "re")
+    assert np.allclose(np.abs(real.correlation), 1.0)
+    sign = np.sign(-data.s[real.points, 0, 0].imag)
+    assert np.array_equal(np.sign(real.correlation[0]), sign * sign[0]) and {-1.0, 1.0} <= set(sign)
+    band = frequency_matrix(data, "S11", "re", start=1e9, stop=2e9)  # a range: its frequencies, all of them
+    assert band.size == band.total == 101 and (band.frequencies[0], band.frequencies[-1]) == (1e9, 2e9)
+    # a difference of phases has no uncertainty: the deviation is the same at both frequencies
+    pair = frequency_matrix(data, "S11", "fase", start=1e9, stop=1.01e9)
+    v = pair.covariance
+    assert pair.size == 2 and v[0, 0] + v[1, 1] - 2 * v[0, 1] == pytest.approx(0, abs=1e-9)
+    # the magnitude only has rounding: no uncertainty, no correlation
+    magnitude = frequency_matrix(data, "S11", "modulo")
+    assert magnitude.defined.all() and not magnitude.valid.any() and np.isnan(magnitude.correlation).all()
+    assert magnitude.off_diagonal().size == 0 and not magnitude.covariance.any()
+    # at a frequency: the real and imaginary parts share the input
+    point = point_matrix(data, at(data, 1))
+    assert point.labels == ["S11 re", "S11 im"] and np.allclose(point.correlation, 1.0)
+    assert np.allclose(point.covariance, data.point_covariance(at(data, 1)), rtol=1e-12, atol=0)
+    polar = point_matrix(data, at(data, 1), "polar")
+    assert polar.labels == ["S11 |S|", "S11 ∠"] and polar.units == ["", "°"] and polar.valid.tolist() == [False, True]
+    assert polar.standard_uncertainties[1] == pytest.approx(0.75)
+    # an ideal load: Γ = 0, the magnitude and the phase are not defined; its real and imaginary parts, +1
+    load = standards["carga_m"]
+    load.specifications = [SpecRow(frecuencia=0, perdidas_retorno_db=-40)]
+    data = standard_data(ResolvedStandard(load, None, Path(".")), SETTINGS)
+    assert not frequency_matrix(data, "S11", "fase").defined.any()
+    assert np.allclose(frequency_matrix(data, "S11", "im", start=1e9, stop=3e9).correlation, 1.0)
+    assert point_matrix(data, 0).correlation[0, 1] == 0  # an input for each part
+    # a through: S21 and S12 with the same inputs, S11 and S22 with their own
+    thru = standards["through_hm"]
+    thru.specifications = [SpecRow(frecuencia=0, perdidas_retorno_db=-30, transmision_modulo_db=0.05, transmision_fase_grados=0.5)]
+    data = standard_data(ResolvedStandard(thru, None, Path(".")), SETTINGS)
+    point = point_matrix(data, at(data, 6))
+    assert point.labels == ["S11 re", "S11 im", "S21 re", "S21 im", "S12 re", "S12 im", "S22 re", "S22 im"]
+    rho = point.correlation
+    assert rho[2, 4] == pytest.approx(1.0) and rho[3, 5] == pytest.approx(1.0) and rho[0, 6] == 0 and rho[0, 2] == 0
+    polar = point_matrix(data, at(data, 6), "polar")
+    assert polar.standard_uncertainties[2] == pytest.approx(abs(data.s[at(data, 6), 1, 0]) * math.log(10) / 20 * 0.05 / 2)
+    assert polar.standard_uncertainties[3] == pytest.approx(0.25) and polar.correlation[2, 3] == pytest.approx(0, abs=1e-9)
+    # copied for a spreadsheet: the frequencies in Hz, a point as decimal separator
+    lines = frequency_matrix(data, "S21", "fase", start=1e9, stop=1.02e9).text().splitlines()
+    assert lines[0].split("\t") == ["f (Hz)", "1000000000", "1010000000", "1020000000"] and lines[1].split("\t")[1:] == ["1.0"] * 3
+    assert point.text().splitlines()[0].split("\t")[:3] == ["6 GHz", "S11 re", "S11 im"]
 
 
 def test_standards_defined_by_data(tmp_path):

@@ -257,6 +257,21 @@ def _table(p: QPainter, c: QColor) -> None:
     _poly(p, (9.5, 9), (9.5, 19.5))
 
 
+@_register("correlacion")
+def _correlation(p: QPainter, c: QColor) -> None:
+    """A matrix of 3 × 3 with its diagonal filled."""
+    _pen(p, c, 1.6)
+    p.drawRoundedRect(QRectF(3.5, 3.5, 17, 17), 2, 2)
+    side = 17 / 3
+    for k in (1, 2):
+        _poly(p, (3.5, 3.5 + k * side), (20.5, 3.5 + k * side))
+        _poly(p, (3.5 + k * side, 3.5), (3.5 + k * side, 20.5))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(c)
+    for k in range(3):
+        p.drawRect(QRectF(3.5 + k * side + 1.2, 3.5 + k * side + 1.2, side - 2.4, side - 2.4))
+
+
 @_register("buscar")
 def _search(p: QPainter, c: QColor) -> None:
     _pen(p, c, 2)

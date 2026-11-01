@@ -7,7 +7,8 @@
 * ``StandardDialog`` / ``UnitStandardDialog``: a standard, defined by the model of Keysight (Agilent
   model: offset line, C0–C3, L0–L3) or by data (``.sdatb`` or ``.sNp``), with its electrical
   specifications (k = 2), and the view of its S-parameters with their uncertainty.
-* ``StandardPreview``: that view, a chart and a table (U with k = 2).
+* ``StandardPreview``: that view, a chart, a table (U with k = 2) and the correlation of the uncertainties
+  (between frequencies or at one frequency, ``gui/correlation_view.py``).
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ from calelektra.catalog.library import Library
 from calelektra.core.connectors import GENDERS
 from calelektra.core.frequency import FrequencyRange
 from calelektra.core.units import UnitError, format_frequency
+from calelektra.gui.correlation_view import CorrelationView
 from calelektra.gui.frequency_input import FrequencyDelegate, install_frequency_completion
 from calelektra.gui.icons import icon
 from calelektra.gui.plots import TRACE_COLORS, ChartTrace, TraceChart
@@ -181,7 +183,7 @@ class _TableModel(QAbstractTableModel):
 
 
 class StandardPreview(QWidget):
-    """S-parameters of a standard with their uncertainty: a chart and a table (U with k = 2)."""
+    """S-parameters with their uncertainty: a chart, a table (U with k = 2) and their correlation."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -234,6 +236,8 @@ class StandardPreview(QWidget):
         row.addWidget(copy)
         table_layout.addLayout(row)
         self.tabs.addTab(table_page, icon("tabla"), "Tabla")
+        self.correlation = CorrelationView()
+        self.tabs.addTab(self.correlation, icon("correlacion"), "Correlación")
         layout.addWidget(self.tabs, 1)
         self.show_message("Sin datos")
 
@@ -242,11 +246,13 @@ class StandardPreview(QWidget):
         self.info.setText(text)
         self.table_model.set_rows([])
         self.chart.draw("", "", [], [], False)
+        self.correlation.set_data(None)
 
     def show_data(self, data: SParamData, title: str = "") -> None:
         self.data = data
         self.rows = table_rows(data, COVERAGE)
         self.table_model.set_rows(self.rows)
+        self.correlation.set_data(data)
         f = data.frequencies
         zr = ", ".join(f"{z.real:g}" + (f"{z.imag:+g}j" if z.imag else "") + " Ω" for z in data.zr)
         inputs = len(data.vector.inputs)

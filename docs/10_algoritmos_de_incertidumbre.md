@@ -20,6 +20,7 @@ Cada sección indica el código que la implementa y los tests que la comprueban.
 | U de \|Z\| y ∠Z | Propagación a partir de la U de S11 | `uncertainty/impedance.py` |
 | U del VSWR, de la pérdida de inserción y del retardo de grupo de un cable (Fwd y Rev) | A partir de la U de S11, S21, S12 y S22 (§5) | `procedures/cable_results.py` |
 | u y covarianzas de los datos de un `.sdatb` o un `.sdatcv` | Propagación lineal del presupuesto de METAS (§6) | `sdata/unclib.py`, `sdata/model.py` |
+| Covarianza y correlación entre frecuencias o en una frecuencia | Propagación lineal; ρ = V_ab/(u_a·u_b) (§6.5) | `sdata/correlation.py` |
 | Γ de un patrón de un kit y su u | Modelo de Keysight y especificaciones eléctricas, k = 2 (§7) | `kits/agilent.py`, `kits/specs.py` |
 
 ## 1. Notación
@@ -492,6 +493,43 @@ Con esas entradas, J·Jᵀ = Q·Λ·Qᵀ = C_G: la covarianza se reproduce exact
 - **Ida y vuelta por `.sdatcv`:** devuelve la misma covarianza en cada frecuencia (rtol 10⁻⁹).
 - **Adaptador:** su covarianza con la carga, a través de las entradas comunes, no es nula.
 
+### 6.5 Matrices de covarianza y de correlación (nuevo en 0.12.2)
+
+Es lo que muestra la pestaña **«Correlación»** de la vista de un patrón y de **Archivo → Ver parámetros S con incertidumbre…**, como la vista «Covariance» del Data Explorer de VNA Tools. Hay dos matrices:
+
+- **entre frecuencias:** una magnitud de un parámetro (parte real o imaginaria, módulo o fase) en las frecuencias de un rango;
+- **en una frecuencia:** las partes real e imaginaria (o módulo y fase) de todos los parámetros, en el orden de un `.sdatcv` (por puerto fuente: S11, S21, S12, S22).
+
+**Magnitudes.** Cada fila es una combinación lineal de valores del vector, q_a = Σₜ w_at·x_t. El módulo y la fase salen, en primer orden como en UncLib, de la parte real y la imaginaria de S:
+
+```
+d|S| = (Re·dRe + Im·dIm)/|S|          w = (Re, Im)/|S|
+d∠S  = (Re·dIm − Im·dRe)/|S|²         w = (−Im, Re)/|S|² · 180/π     (grados)
+```
+
+No están definidos donde S = 0 (una carga ideal): esas filas no tienen correlación.
+
+**Covarianza y correlación.**
+
+```
+V_ab = Σ_i (Σₜ w_at·J_t i)·(Σₜ w_bt·J_t i)·u_i²          ρ_ab = V_ab / (u_a·u_b),  u_a = √V_aa
+```
+
+- ρ no está definida para una magnitud sin incertidumbre; la vista la deja en gris.
+- Los restos de redondeo cuentan como cero: una varianza por debajo de 10⁻¹⁴·Σₜ (w_at·u(x_t))² es nula. Es el caso del módulo de un patrón que solo se desvía en fase.
+- **Cálculo:** una entrada de la que solo depende una fila suma solo en la diagonal (el ruido de cada frecuencia); las que comparten varias filas forman la parte densa, V = Σ_propias + S·Sᵀ. Así se calculan matrices de cientos de frecuencias con cientos de miles de entradas. El resultado es exacto: los tests lo comparan con W·V·Wᵀ.
+- **Frecuencias:** se usan como mucho 1200, equiespaciadas en el rango, con la primera y la última.
+
+**Lo que muestran los ficheros:**
+
+| Datos | Correlación entre frecuencias |
+|---|---|
+| Patrón con especificaciones eléctricas (§7.2.1) | ±1: en la fase, +1; en la parte real e imaginaria, el signo de su sensibilidad (−Im Γ y Re Γ) |
+| Carga de VNA Tools (conjunto de datos con la covarianza de cada frecuencia) | 0: cada frecuencia depende de sus 24 entradas |
+| Adaptador de VNA Tools (medido con una calibración que usó esos datos) | Débil: en la parte real de S21, entre −0,13 y 0,23; a 20 GHz, S21 y S12 tienen ρ = 0,98 (adaptador recíproco) |
+
+Pruebas: `tests/test_sdata.py` (ficheros de VNA Tools y combinaciones lineales) y `tests/test_kits.py` (especificaciones).
+
 ## 7. Patrones de los kits de calibración (nuevo en 0.12)
 
 Ver el uso en [`15_kits_de_calibracion.md`](15_kits_de_calibracion.md). Nada de esta sección cambia la incertidumbre de las medidas, que sigue siendo el algoritmo del laboratorio (§2).
@@ -558,7 +596,11 @@ Dos valores están correlacionados si dependen de las mismas entradas (§6.1). C
 
 - **Dónde importará:** al usar los patrones en una calibración, su incertidumbre pasa a las medidas corregidas. Un retardo de grupo calculado con esas medidas, o una media en banda, dependen de la correlación de los patrones.
 - **Ficheros:** un `.sdatb` guarda la correlación entre frecuencias (y entre ficheros); un `.sdatcv` no. Al leer un `.sdatcv`, cada frecuencia recibe sus propias entradas (§6.3).
-- **Pendiente de confirmar:** que VNA Tools construye igual sus «Electrical Specifications». Se ve en Data Explorer, con su vista «Covariance» en modo «Correlation», todas las frecuencias y un parámetro: en un `.sdatb` de CAL-ELEKTRA la matriz es toda ±1.
+- **Dónde se ve:** en la pestaña «Correlación» del patrón (§6.5): entre frecuencias, la fase del abierto da +1 en toda la matriz y su parte real ±1, con el signo de −Im Γ.
+- **Pendiente de confirmar:** que VNA Tools construye igual sus «Electrical Specifications». Se comprueba con un `.sdatb` de un patrón definido en VNA Tools con las mismas especificaciones, abierto en **Archivo → Ver parámetros S con incertidumbre…** o en el Data Explorer de VNA Tools (vista «Covariance», modo «Correlation», todas las frecuencias y un parámetro):
+  - toda ±1: una entrada por magnitud, como CAL-ELEKTRA;
+  - diagonal: una entrada por frecuencia;
+  - por bloques: una entrada por banda o fila de la tabla.
 
 **Tabla de un patrón** (`table_rows`), en cada frecuencia y parámetro, con la covarianza C de la parte real y la imaginaria:
 - U(Re) = k·√C₁₁ y U(Im) = k·√C₂₂;
@@ -589,6 +631,8 @@ Con el `.ckt` del AA180-VNACKN y las especificaciones de su hoja de datos (fase 
 | `core/networks.py` | `group_delay`, `step_delay`, `smoothed` y `transmission_delay` (§5.3) |
 | `sdata/unclib.py` | Números con dependencias, u de las distribuciones, covarianza y `cross_covariance` (§6.1 – 6.2), entradas a partir de una covarianza (§6.3) |
 | `sdata/model.py` | `standard_uncertainty` y `point_covariance` de los parámetros S |
+| `sdata/correlation.py` | Matrices de covarianza y de correlación entre frecuencias y en una frecuencia (§6.5); `UncVector.combination_covariance` de `sdata/unclib.py` |
+| `gui/correlation_view.py` | Pestaña «Correlación»: mapa de color, valor bajo el puntero, copia de la matriz |
 | `kits/agilent.py` | Modelo de Keysight de los patrones (§7.1) |
 | `kits/specs.py`, `kits/standards.py` | Especificaciones eléctricas → incertidumbre, tabla de un patrón (§7.2) |
 | `tests/test_uncertainty.py` | Motor frente al script del laboratorio; incertidumbre del ensayo de la LISN, con Z |

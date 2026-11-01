@@ -463,6 +463,43 @@ class UncVector:
         scaled = sensitivities * self.input_uncertainties[used]
         return scaled @ scaled.T
 
+    def combination_covariance(self, elements, weights=None) -> np.ndarray:
+        """Covariance of linear combinations of elements: row r is Σₜ weights[r, t] · element elements[r, t].
+
+        For large matrices (e.g. a quantity at all the frequencies): an input that only one row depends on
+        adds to the diagonal only (the noise of each frequency), and only the inputs shared by several rows
+        make the dense part, V = Σ_private + S·Sᵀ."""
+        elements = np.asarray(elements, np.int64)
+        if elements.ndim == 1:
+            elements = elements[:, None]
+        weights = np.broadcast_to(np.ones(1) if weights is None else np.asarray(weights, float), elements.shape)
+        size = len(elements)
+        result = np.zeros((size, size))
+        flat = elements.ravel()
+        starts = self.offsets[flat]
+        counts = self.offsets[flat + 1] - starts
+        total = int(counts.sum())
+        if not total:
+            return result
+        # every dependency of every term: its position in indices/jacobians and the row it belongs to
+        positions = np.repeat(starts - (np.cumsum(counts) - counts), counts) + np.arange(total)
+        rows = np.repeat(np.repeat(np.arange(size), elements.shape[1]), counts)
+        sensitivities = self.jacobians[positions] * np.repeat(weights.ravel(), counts)
+        keys, inverse = np.unique(rows * len(self.inputs) + self.indices[positions], return_inverse=True)
+        merged = np.bincount(inverse.ravel(), weights=sensitivities, minlength=len(keys))  # by row and input
+        rows, inputs = np.divmod(keys, len(self.inputs))
+        scaled = merged * self.input_uncertainties[inputs]
+        keep = scaled != 0
+        rows, inputs, scaled = rows[keep], inputs[keep], scaled[keep]
+        private = (np.bincount(inputs, minlength=len(self.inputs)) == 1)[inputs]
+        result[np.diag_indices(size)] = np.bincount(rows[private], weights=scaled[private] ** 2, minlength=size)
+        if not private.all():
+            used, column = np.unique(inputs[~private], return_inverse=True)
+            dense = np.zeros((size, len(used)))
+            dense[rows[~private], column.ravel()] = scaled[~private]
+            result += dense @ dense.T
+        return result
+
 
 def cross_covariance(a: UncVector, elements_a, b: UncVector, elements_b) -> np.ndarray:
     """Covariance between elements of two vectors, through the inputs they share (same identifier).

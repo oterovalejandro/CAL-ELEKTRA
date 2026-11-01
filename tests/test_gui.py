@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -12,7 +13,7 @@ import pytest
 import yaml
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QLineEdit, QMessageBox, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QLineEdit, QMenu, QMessageBox, QVBoxLayout
 
 from calelektra.catalog.fields import FieldSpec
 from calelektra.catalog.library import Library
@@ -79,6 +80,17 @@ def test_sections_and_ribbon(window, qapp):
     assert "Guardar" in [a.text() for a in window.ribbon.actions()]
     assert window.rail_buttons["setups"].isChecked()
     assert "VNA-01" in window.status_instruments.text()
+
+
+def test_a_file_of_s_parameters_from_the_menu(window, qapp):
+    """Archivo → Ver parámetros S con incertidumbre…: a .sdatb in its chart, table and correlation."""
+    menu = next(menu for menu in window.findChildren(QMenu) if menu.title() == "&Archivo")
+    assert "Ver parámetros S con incertidumbre…" in [action.text() for action in menu.actions()]
+    path = Path(__file__).resolve().parent / "datos" / "metas" / "Example_Loadf_18831_20150824.sdatb"
+    viewer = window.view_sparameters(path)
+    process(qapp)
+    assert viewer.isVisible() and viewer.parent() is window and "533 puntos" in viewer.preview.info.text()
+    viewer.close()
 
 
 def test_open_every_setup(window, qapp):

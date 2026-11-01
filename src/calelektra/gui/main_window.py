@@ -35,6 +35,8 @@ from calelektra.gui.inventory_view import InventoryView
 from calelektra.gui.procedures_view import ProceduresView
 from calelektra.gui.setup_editor import SetupEditor
 from calelektra.gui.setups_view import SetupsView
+from calelektra.gui.sparam_viewer import FILE_FILTER as SPARAM_FILTER
+from calelektra.gui.sparam_viewer import SParamViewer
 from calelektra.gui.test_window import LaunchTestDialog, TestWindow
 from calelektra.gui.tests_view import TestsView
 from calelektra.instruments.factory import is_simulated
@@ -176,6 +178,8 @@ class MainWindow(QMainWindow):
             ("Abrir biblioteca…", QKeySequence.StandardKey.Open, self.choose_library),
             ("Importar YAML…", None, self.import_yaml),
             ("Recargar biblioteca", QKeySequence.StandardKey.Refresh, self.reload_library),
+            (None, None, None),
+            ("Ver parámetros S con incertidumbre…", None, lambda: self.view_sparameters()),
             (None, None, None),
             ("Salir", QKeySequence.StandardKey.Quit, self.close),
         ):
@@ -494,6 +498,18 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Biblioteca", str(exc))
             return
         self._library_changed()
+
+    def view_sparameters(self, path: Path | None = None) -> SParamViewer | None:
+        """A .sdatb, .sdatcv or Touchstone file in its chart, table and correlation (not modal)."""
+        if path is None:
+            filename, _ = QFileDialog.getOpenFileName(self, "Parámetros S con incertidumbre", str(self.library.root), SPARAM_FILTER)
+            if not filename:
+                return None
+            path = Path(filename)
+        viewer = SParamViewer(path, self.library.root, self)
+        viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        viewer.show()
+        return viewer
 
     def import_yaml(self) -> None:
         filenames, _ = QFileDialog.getOpenFileNames(self, "Importar YAML", str(Path.home()), "YAML (*.yaml *.yml)")

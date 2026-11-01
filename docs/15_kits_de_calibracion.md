@@ -1,4 +1,4 @@
-# Kits de calibración: alta y definición de sus patrones — versiones 0.12 y 0.12.1
+# Kits de calibración: alta y definición de sus patrones — versiones 0.12, 0.12.1 y 0.12.2
 
 ## 1. Qué cambia
 
@@ -9,7 +9,7 @@
   - importarlo de un fichero de kit de Keysight (`.ckt`);
   - escribirlo a mano con el modelo de Keysight («Agilent model»);
   - darlo por datos: un `.sdatb`, con su incertidumbre, o un Touchstone `.sNp`.
-- **Vista:** cada patrón se ve en una **gráfica** y una **tabla** con su incertidumbre (k = 2).
+- **Vista:** cada patrón se ve en una **gráfica** y una **tabla** con su incertidumbre (k = 2), y en la **correlación** de esa incertidumbre, entre frecuencias o en una frecuencia (0.12.2).
 - **Setups:** el análisis usa los patrones del kit (qué géneros tienen abierto, cortocircuito y carga en uso) y avisa de su estado (P9).
 
 ## 2. Modelo y unidad
@@ -124,6 +124,16 @@ El diálogo del patrón (doble clic en su fila) tiene, a la derecha, su vista ca
 - **Tabla:**
   - columnas: frecuencia, parámetro, Re, Im, |S| y ∠S, y la incertidumbre expandida de cada uno;
   - «Copiar tabla» la copia separada por tabuladores, con punto decimal.
+- **Correlación** (0.12.2), como la vista «Covariance» del Data Explorer de VNA Tools:
+  - **entre frecuencias:** un parámetro y una magnitud (parte real, parte imaginaria, módulo o fase) en las frecuencias de un rango («Desde», «hasta»; como mucho 1200, equiespaciadas);
+  - **en una frecuencia:** las partes real e imaginaria (o módulo y fase) de todos los parámetros, en el orden de un `.sdatcv`, con su valor en cada casilla;
+  - **correlación** (de −1, azul, a +1, rojo) o **covarianza**; en gris, las magnitudes sin incertidumbre o no definidas (el módulo y la fase donde S = 0);
+  - bajo el puntero, las dos magnitudes, su ρ (o su covarianza) y sus incertidumbres típicas;
+  - debajo, el resumen: el intervalo de ρ entre frecuencias distintas y si la correlación es total (±1) o nula;
+  - «Copiar matriz» la copia separada por tabuladores, con punto decimal y, entre frecuencias, con las frecuencias en Hz;
+  - se calcula al abrir la pestaña.
+
+  Con las especificaciones eléctricas, la matriz entre frecuencias es ±1: en la fase del abierto macho, +1; en su parte real, ±1 con el signo de −Im Γ. Para comparar con un fichero de VNA Tools sin darlo de alta en un kit: **Archivo → Ver parámetros S con incertidumbre…** Fórmulas en §6.5 y §7.2.1 de [`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md).
 
 ## 7. Caducidad y comprobaciones (P9)
 
@@ -210,7 +220,9 @@ patrones:
 | `catalog/model.py` | `EquipmentModel.patrones`, `fichero_kit`; `Equipment.patrones` |
 | `catalog/library.py` | `kit_settings`, `kit_standards`, `standard_data`, `copy_standard_file`, `export_standards`, `kit_genders` y `kit_issues` |
 | `setups/connections.py`, `setups/analysis.py` | Géneros a partir de los patrones; avisos de los patrones del kit |
-| `gui/kit_standards.py` | Tablas del modelo y de la unidad, diálogos del patrón, vista (gráfica y tabla) |
+| `gui/kit_standards.py` | Tablas del modelo y de la unidad, diálogos del patrón, vista (gráfica, tabla y correlación) |
+| `gui/correlation_view.py`, `sdata/correlation.py` | Pestaña «Correlación» y sus matrices |
+| `gui/sparam_viewer.py` | Archivo → Ver parámetros S con incertidumbre… |
 | `tests/test_kits.py`, `tests/test_gui_kits.py` | Con el `.ckt` del AA180-VNACKN (`tests/datos/kits/`) y la carga de VNA Tools |
 
 ![El modelo del kit con sus patrones](capturas/v12/38_kit_modelo_patrones.png)
@@ -219,3 +231,4 @@ patrones:
 |---|---|
 | ![Abierto macho: fase con su incertidumbre](capturas/v12/38b_patron_abierto_fase.png) | ![Abierto macho: la tabla](capturas/v12/38c_patron_abierto_tabla.png) |
 | ![Carga: parte real, ± 0,0268](capturas/v12/38d_patron_carga_parte_real.png) | ![La unidad del kit: sus patrones](capturas/v12/38f_kit_unidad_patrones.png) |
+| ![Abierto macho: correlación entre frecuencias de la parte real, ±1](capturas/v12/38g_patron_abierto_correlacion.png) | ![Adaptador de VNA Tools a 20 GHz: correlación entre sus parámetros](capturas/v12/38h_adaptador_vna_tools_correlacion.png) |

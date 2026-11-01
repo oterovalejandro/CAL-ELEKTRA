@@ -32,6 +32,7 @@ from calelektra.gui.equipment_icons import GLYPH_NAMES, paint_icon
 from calelektra.gui.kit_standards import StandardDialog
 from calelektra.gui.main_window import MainWindow
 from calelektra.gui.plots import SParameterDialog
+from calelektra.gui.sparam_viewer import SParamViewer
 from calelektra.gui.style import apply_theme
 from calelektra.gui.test_window import LaunchTestDialog, PromptDialog, TestWindow
 from calelektra.procedures.ambient import AmbientReading, write_tph_workbook
@@ -89,7 +90,8 @@ def icon_sheet(path: Path) -> None:
 
 
 def kit_captures(library: Library, window: MainWindow, out: Path) -> None:
-    """The standards of the kit AA180-VNACKN: its model, a standard (chart and table) and the unit."""
+    """The standards of the kit AA180-VNACKN: its model, a standard (chart, table and correlation) and the
+    unit; and the correlation of the adapter of VNA Tools of the tests."""
     model_dialog = ModelDialog(library, library.models["aa180_vnackn"], window)
     model_dialog.resize(1180, 960)
     model_dialog.show()
@@ -113,7 +115,22 @@ def kit_captures(library: Library, window: MainWindow, out: Path) -> None:
         dialog.show()
         grab(dialog, out / name)
         dialog.close()
+    dialog = StandardDialog(library, editor.items[1], taken, model_dialog._kit_settings, lambda: "aa180_vnackn", model_dialog._model_folder, window)
+    dialog.preview.tabs.setCurrentIndex(2)
+    dialog.show()
+    grab(dialog, out / "38g_patron_abierto_correlacion.png")
+    dialog.close()
     model_dialog.close()
+    adapter = Path(__file__).resolve().parents[1] / "tests" / "datos" / "metas" / "Example_Ada_ABf-f_101388_20211217.sdatb"
+    viewer = SParamViewer(adapter, library.root, window)
+    view = viewer.preview.correlation
+    viewer.preview.tabs.setCurrentIndex(2)
+    view.scope.setCurrentIndex(view.scope.findData("punto"))
+    view.at.setText("20 GHz")
+    viewer.show()
+    view.redraw()
+    grab(viewer, out / "38h_adaptador_vna_tools_correlacion.png")
+    viewer.close()
     unit_dialog = EquipmentDialog(library, library.equipment["KIT-N-02"], window)
     unit_dialog.resize(1000, 760)
     unit_dialog.tabs.setCurrentIndex(unit_dialog.standards_tab_index)

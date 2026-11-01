@@ -1,4 +1,4 @@
-# Parámetros S con incertidumbre: los ficheros de METAS VNA Tools — versión 0.11
+# Parámetros S con incertidumbre: los ficheros de METAS VNA Tools — versiones 0.11 y 0.12.2
 
 ## 1. Para qué
 
@@ -37,11 +37,12 @@ La incertidumbre típica y las covarianzas salen del presupuesto: u² = Σ (J·u
 
 | Fichero | Contenido |
 |---|---|
-| `sdata/unclib.py` | Números de METAS UncLib con propagación lineal: `Distribution`, `Input`, `UncNumber`, `UncVector` (vector plano). También sus formatos binarios, la covarianza y `cross_covariance` entre dos ficheros |
+| `sdata/unclib.py` | Números de METAS UncLib con propagación lineal: `Distribution`, `Input`, `UncNumber`, `UncVector` (vector plano). También sus formatos binarios, la covarianza (`covariance`, y `combination_covariance` de combinaciones lineales) y `cross_covariance` entre dos ficheros |
 | `sdata/model.py` | `SParamData`: frecuencias, `PortDescription`, Zr, `s[:, receptor, fuente]` y `FrequencyConversion`. Calcula la incertidumbre típica (`standard_uncertainty`) y la covarianza de una frecuencia (`point_covariance`, en el orden del `.sdatcv`), y convierte a Touchstone |
 | `sdata/sdatb.py` | `read_sdatb`, `write_sdatb`, `sdatb_version` |
 | `sdata/sdatcv.py` | `read_sdatcv`, `write_sdatcv` |
 | `sdata/files.py` | `load_sparam_data` y `save_sparam_data`, según la extensión |
+| `sdata/correlation.py` | Matrices de covarianza y de correlación (0.12.2): `frequency_matrix` (una magnitud de un parámetro entre frecuencias) y `point_matrix` (todos los parámetros de una frecuencia) |
 | `sdata/__main__.py` | Resumen de un fichero y conversión a otro formato |
 
 ```python
@@ -52,7 +53,19 @@ data.frequencies, data.ports, data.zr, data.s   # data.s[:, 1, 0] es S21
 u_re, u_im = data.standard_uncertainty()        # típicas de la parte real y de la imaginaria
 data.point_covariance(k)                        # matriz de covarianza de la frecuencia k
 save_sparam_data("carga.sdatcv", data)          # o .sdatb, .s1p
+
+from calelektra.sdata.correlation import frequency_matrix, point_matrix
+
+m = frequency_matrix(data, "S11", "fase", start=1e9, stop=2e9)   # "re", "im", "modulo" o "fase"
+m.correlation, m.covariance, m.standard_uncertainties              # ρ (NaN sin incertidumbre), V y u (k = 1)
+point_matrix(data, k, "polar").correlation                         # o "re_im", en el orden del .sdatcv
 ```
+
+**En la interfaz:** **Archivo → Ver parámetros S con incertidumbre…** abre un `.sdatb`, un `.sdatcv` o un Touchstone con la vista de los patrones de los kits:
+
+- **Gráfica** con la incertidumbre (k = 2);
+- **Tabla**;
+- **Correlación:** el mapa de color de la correlación o la covarianza, entre frecuencias o en una frecuencia, con el valor bajo el puntero. Fórmulas en §6.5 de [`10_algoritmos_de_incertidumbre.md`](10_algoritmos_de_incertidumbre.md).
 
 Desde la consola:
 
@@ -85,6 +98,10 @@ Los dos ficheros son de VNA Tools y están en `tests/datos/metas/`:
 - **Punteros relativos bien interpretados:** cada una de las 25 584 dependencias de la carga apunta a una entrada de su misma frecuencia. Lo dice su descripción: `Frequency Index: k`.
 - **Correlación entre ficheros:** el adaptador comparte 9 598 entradas con la carga. Son las del conjunto de datos de la carga, que se usó en la calibración con la que se midió el adaptador. `cross_covariance` da su covarianza, que no es nula.
 - **Tiempos:** el adaptador se lee en unos 2,4 s y se escribe en 0,9 s; la carga, en menos de 0,1 s.
+- **Correlación entre frecuencias** (0.12.2):
+  - la carga no tiene: cada frecuencia depende solo de sus 24 entradas;
+  - el adaptador, débil: en la parte real de S21, entre −0,13 y 0,23;
+  - a 20 GHz, S21 y S12 del adaptador tienen ρ = 0,98.
 - **`.sdatcv`:**
   - la carga se escribe y se vuelve a leer con los mismos valores y la misma covarianza en cada frecuencia;
   - los ejemplos de la especificación (1 puerto y 2 puertos con matriz reducida) se leen como dice el documento.

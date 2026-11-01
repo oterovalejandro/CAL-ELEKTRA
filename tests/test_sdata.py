@@ -34,6 +34,12 @@ from calelektra.sdata import (
     write_sdatb,
 )
 from calelektra.sdata.__main__ import main
+from calelektra.sdata.correlation import (
+    frequency_matrix,
+    nearest_point,
+    point_matrix,
+    select_points,
+)
 from calelektra.sdata.sdatb import sdatb_content
 from calelektra.sdata.sdatcv import sdatcv_text
 from calelektra.sdata.unclib import (
@@ -104,6 +110,60 @@ def test_the_adapter_and_its_correlation_with_the_load(load, adapter):
     assert np.abs(covariance).min() > 1e-10
     same = cross_covariance(load.vector, elements_load, load.vector, elements_load)
     assert same == pytest.approx(load.vector.covariance(elements_load), rel=1e-12)
+
+
+def test_correlation_of_the_files_of_vna_tools(load, adapter):
+    """The «Covariance» view of the Data Explorer: between frequencies and at one frequency."""
+    # the load: a data set of covariances per frequency: each frequency with its own inputs
+    real = frequency_matrix(load, "S11", "re")
+    assert real.size == real.total == 533 and real.valid.all() and not np.any(real.off_diagonal())
+    elements = load.element(np.arange(load.n_points), 0, 0, 0)
+    assert np.allclose(real.covariance, load.vector.covariance(elements), rtol=1e-12, atol=0)
+    # the adapter, measured with a calibration that used those data: weak correlations between frequencies
+    s21 = frequency_matrix(adapter, "S21", "re")
+    off = s21.off_diagonal()
+    assert off.size == 400 * 399 // 2 and 0.2 < off.max() < 0.25 and -0.15 < off.min() < -0.1
+    # at 20 GHz, in the order of a .sdatcv: S21 and S12 almost the same (a reciprocal adapter)
+    k = nearest_point(adapter.frequencies, 20e9)
+    point = point_matrix(adapter, k)
+    assert point.labels == ["S11 re", "S11 im", "S21 re", "S21 im", "S12 re", "S12 im", "S22 re", "S22 im"]
+    assert np.allclose(point.covariance, adapter.point_covariance(k), rtol=1e-10, atol=1e-22)
+    assert point.correlation[2, 4] == pytest.approx(0.98, abs=0.01) and np.allclose(np.diag(point.correlation), 1.0)
+    # magnitude and phase: first order from the real and imaginary parts
+    polar = point_matrix(adapter, k, "polar")
+    s = adapter.s[k, 1, 0]
+    g = np.array([s.real, s.imag]) / abs(s)
+    h = np.array([-s.imag, s.real]) / abs(s) ** 2 * 180 / math.pi
+    cov = adapter.point_covariance(k)[2:4, 2:4]
+    assert polar.labels[2:4] == ["S21 |S|", "S21 ∠"] and polar.units[2:4] == ["", "°"]
+    assert (polar.covariance[2, 2], polar.covariance[3, 3], polar.covariance[2, 3]) == (
+        pytest.approx(g @ cov @ g, rel=1e-10), pytest.approx(h @ cov @ h, rel=1e-10), pytest.approx(g @ cov @ h, rel=1e-8))
+    # a range and the thinning of the frequencies
+    band = frequency_matrix(adapter, "S11", "fase", start=10e9, stop=12e9)
+    assert band.size == 21 and band.labels[0] == "10 GHz"
+    thin = frequency_matrix(adapter, "S11", "re", max_points=100)
+    assert (thin.size, thin.total, thin.points[0], thin.points[-1]) == (100, 400, 0, 399)
+    assert select_points(np.arange(10.0), 2, 5) == (pytest.approx([2, 3, 4, 5]), 4)
+    with pytest.raises(SDataError, match="No hay frecuencias"):
+        frequency_matrix(adapter, "S11", "re", start=50e9)
+    with pytest.raises(SDataError, match="S33"):
+        frequency_matrix(adapter, "S33", "re")
+
+
+def test_covariance_of_linear_combinations(adapter):
+    """Σ wₜ·eₜ per row: the same as W·V·Wᵀ with the covariance of all the elements (private and shared inputs)."""
+    k = nearest_point(adapter.frequencies, 30e9)
+    rng = np.random.default_rng(7)
+    elements = np.array([adapter.point_elements(k)[rng.permutation(8)[:3]] for _ in range(6)] + [adapter.point_elements(k + 1)[:3]])
+    weights = rng.normal(size=elements.shape)
+    all_elements = np.unique(elements)
+    full = adapter.vector.covariance(all_elements)
+    w = np.zeros((len(elements), len(all_elements)))
+    for row, (es, ws) in enumerate(zip(elements, weights)):
+        np.add.at(w[row], np.searchsorted(all_elements, es), ws)
+    assert np.allclose(adapter.vector.combination_covariance(elements, weights), w @ full @ w.T, rtol=1e-10, atol=1e-24)
+    assert np.allclose(adapter.vector.combination_covariance(all_elements), full, rtol=1e-12, atol=0)
+    assert not UncVector.exact([1.0, 2.0]).combination_covariance([0, 1]).any()
 
 
 def test_sdatcv_keeps_the_values_and_the_covariance_of_each_frequency(load, tmp_path):

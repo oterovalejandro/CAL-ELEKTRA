@@ -31,13 +31,14 @@
   - Ficheros de datos en `catalogo/patrones/<kit>/` con su SHA-256 (`copy_standard_file`).
   - Biblioteca: `kit_settings`, `kit_standards`, `standard_data`, `export_standards`.
   - Setups: `kit_genders` (géneros con abierto, cortocircuito y carga en uso; sin patrones, el campo `generos_disponibles`) y `kit_issues` (dañado, sustituido después del certificado, sin definición, sin fichero, datos anteriores al certificado).
-  - GUI (`gui/kit_standards.py`): tarjeta «Patrones del kit» del modelo (importar `.ckt`, nuevo, editar, exportar `.sdatb`), pestaña «Patrones» de la unidad, diálogo del patrón con su vista, gráfica y tabla con U (k = 2).
+  - GUI (`gui/kit_standards.py`): tarjeta «Patrones del kit» del modelo (importar `.ckt`, nuevo, editar, exportar `.sdatb`), pestaña «Patrones» de la unidad, diálogo del patrón con su vista: gráfica y tabla con U (k = 2) y «Correlación» (`gui/correlation_view.py`, calculada al abrir la pestaña).
   - Ver `docs/15_kits_de_calibracion.md` y `docs/10` §7.
 - Parámetros S con incertidumbre de METAS VNA Tools (`sdata/`):
   - Motor propio, sin software de METAS (la licencia de UncLib no permite distribuirla), escrito a partir de «METAS VNA Tools – Data Formats V3.0.2» y «METAS UncLib – Data Formats V3.0.2».
   - Lee y escribe `.sdatb` (versiones 1 a 5), `.sdatcv` y Touchstone: `load_sparam_data` y `save_sparam_data`. Los `.sdatb` de VNA Tools se reescriben idénticos byte a byte.
   - `SParamData` tiene frecuencias, puertos, Zr y `s[:, receptor, fuente]`, sobre un `UncVector` (`sdata/unclib.py`, «vector plano» LinProp): entradas con identificador, descripción y distribución, y dependencias con su sensibilidad.
   - Da la incertidumbre típica, la covarianza de cada frecuencia (`point_covariance`, en el orden del `.sdatcv`: por puerto fuente) y la covarianza entre ficheros (`cross_covariance`, por las entradas comunes).
+  - Matrices de covarianza y correlación (`sdata/correlation.py`): `frequency_matrix` (una magnitud —re, im, módulo o fase— de un parámetro entre frecuencias, ≤ 1200) y `point_matrix` (los parámetros de una frecuencia); `UncVector.combination_covariance` lleva a la diagonal las entradas de una sola fila. Se ven en la pestaña «Correlación» y en Archivo → Ver parámetros S con incertidumbre… (`gui/sparam_viewer.py`, cualquier `.sdatb`, `.sdatcv` o `.sNp`).
   - Los ficheros de VNA Tools del laboratorio (una carga y un adaptador) están en `tests/datos/metas/`, fuera de la biblioteca de ejemplo, que los tests copian.
   - Es la base de los patrones con datos de los kits. Ver `docs/14_parametros_s_con_incertidumbre_metas.md` y `docs/10` §6.
 - Depuración del ZNx sin GUI (`instruments/znx_debug/`): tabla de parámetros con su comando SCPI (`settings.py`), `ZnxDebugger` (cada `set_…` escribe, relee y vacía `SYST:ERR?`), comprobación completa (`checks.py`), consola (`console.py`) y un ZNB simulado a nivel SCPI (`simulator.py`) que también sirve de transporte para `RsZnxVna` en los tests. Es la única pieza que habla SCPI fuera del adaptador.

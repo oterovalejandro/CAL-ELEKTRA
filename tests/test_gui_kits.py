@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from pathlib import Path
 
+import pyqtgraph as pg
 import pytest
 import yaml
 from PySide6.QtCore import QEvent
@@ -18,6 +19,7 @@ from calelektra.catalog.library import Library
 from calelektra.gui.catalog_view import CatalogView
 from calelektra.gui.equipment_dialogs import EquipmentDialog, ModelDialog
 from calelektra.gui.kit_standards import StandardDialog, UnitStandardDialog
+from calelektra.gui.sparam_viewer import SParamViewer
 from calelektra.kits import SpecRow
 
 DATA = Path(__file__).resolve().parent / "datos"
@@ -145,3 +147,65 @@ def test_the_kit_in_the_catalogue(qapp, library: Library):
     view._show_model("aa180_vnackn")
     text = view.extra_text.text()
     assert "Patrones del kit" in text and "OPEN -M-" in text and "57,993 ps" in text and "fase 1,5°" in text
+
+
+def test_the_correlation_of_a_standard(qapp, library: Library):
+    model = library.models["aa180_vnackn"]
+    dialog = ModelDialog(library, model)
+    editor = dialog.kit_editor
+    window = StandardDialog(library, editor.items[1], {s.id for s in editor.items}, dialog._kit_settings, lambda: model.id, dialog._model_folder)
+    preview, view = window.preview, window.preview.correlation
+    assert preview.tabs.tabText(2) == "Correlación"
+    assert view.matrix is None and "al abrir esta pestaña" in view.summary.text()  # computed when it is shown
+    preview.tabs.setCurrentIndex(2)
+    window.show()
+    QApplication.processEvents()
+    assert view.matrix is not None and view.matrix.size == 1200
+    assert "S11, parte real: 1200 de las 1800 frecuencias del rango" in view.summary.text() and "total (±1)" in view.summary.text()
+    # the phase of the open: the same deviation at all the frequencies
+    view.component.setCurrentIndex(view.component.findData("fase"))
+    assert view.cell_text(0, 1199) == "10 MHz × 18 GHz: ρ = 1,0000 · u = 0,75° y 0,75° (k = 1)"
+    assert view.cell_text(-1, 0) == " " and view.cell_text(0, 1200) == " "
+    view.start.setText("1 GHz")
+    view.stop.setText("2 GHz")
+    view.redraw()
+    assert view.matrix.size == 101 and "101 frecuencias, 1 GHz – 2 GHz" in view.summary.text()
+    assert [label for _position, label in view.plot.getAxis("bottom")._tickLevels[0]][:2] == ["1 GHz", "1,2 GHz"]
+    view.kind.setCurrentIndex(view.kind.findData("covarianza"))
+    assert view.cell_text(0, 1).startswith("1 GHz × 1,01 GHz: covarianza = 0,56")
+    header, first = view.matrix_text().splitlines()[:2]
+    assert header.split("\t")[:2] == ["f (Hz)", "1000000000"] and float(first.split("\t")[1]) == pytest.approx(0.5625)
+    view.component.setCurrentIndex(view.component.findData("modulo"))
+    assert "sin incertidumbre" in view.summary.text()
+    # at one frequency: its parameters, with their values in the cells
+    view.kind.setCurrentIndex(view.kind.findData("correlacion"))
+    view.scope.setCurrentIndex(view.scope.findData("punto"))
+    assert not view.parameter.isVisibleTo(view) and view.at.isVisibleTo(view) and not view.start.isVisibleTo(view)
+    view.at.setText("1 GHz")
+    view.redraw()
+    assert view.matrix.labels == ["S11 re", "S11 im"] and view.cell_text(0, 1).startswith("S11 re × S11 im: ρ = 1,0000")
+    assert len([item for item in view._cells if isinstance(item, pg.TextItem)]) == 4
+    view.at.setText("mucho")
+    view.redraw()
+    assert view.summary.text().startswith("✖ «Frecuencia»") and view.matrix is None and not view.copy_button.isEnabled()
+    # a through: at 6 GHz, S21 and S12 share the inputs of the specifications of the transmission
+    thru = StandardDialog(library, editor.items[6], {s.id for s in editor.items}, dialog._kit_settings, lambda: model.id, dialog._model_folder)
+    thru.specs.load([SpecRow(frecuencia=0, perdidas_retorno_db=-30, transmision_modulo_db=0.05, transmision_fase_grados=0.5)])
+    thru.refresh()
+    view = thru.preview.correlation
+    view.scope.setCurrentIndex(view.scope.findData("punto"))
+    view.at.setText("6 GHz")
+    view.redraw()
+    assert view.matrix.size == 8 and view.cell_text(2, 4).startswith("S21 re × S12 re: ρ = 1,0000")
+    assert view.cell_text(0, 6).startswith("S11 re × S22 re: ρ = 0,0000")
+
+
+def test_a_file_of_vna_tools_in_the_viewer(qapp, tmp_path):
+    viewer = SParamViewer(LOAD_SDATB)
+    assert viewer.windowTitle().endswith(LOAD_SDATB.name) and "533 puntos" in viewer.preview.info.text()
+    view = viewer.preview.correlation
+    view.redraw()
+    assert "nula: cada frecuencia depende de sus propias entradas" in view.summary.text()
+    assert view.plot.getAxis("bottom")._tickLevels  # frequencies on the axes
+    assert not viewer.open_file(tmp_path / "no_existe.sdatb") and viewer.preview.info.text().startswith("✖")
+    assert view.matrix is None and viewer.path == LOAD_SDATB
